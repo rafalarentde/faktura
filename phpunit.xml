@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <phpunit bootstrap="tests/bootstrap.php" colors="true" cacheDirectory=".phpunit.cache"
          failOnWarning="true" failOnRisky="true">
+    <php>
+        <!-- App logs 500s via error_log(); keep test output clean. -->
+        <ini name="error_log" value="/dev/null"/>
+    </php>
     <testsuites>
         <testsuite name="all">
             <directory>tests</directory>

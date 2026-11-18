@@ -1,0 +1,10 @@
+{% extends '_auth_base.twig' %}
+{% block title %}Faktura{% endblock %}
+{% block content %}
+    <h1>Faktura</h1>
+    <p>{{ t('home.signed_in_as', {email: user.email}) }}</p>
+    <form method="post" action="/logout">
+        {{ csrf_field() }}
+        <button type="submit">{{ t('login.logout') }}</button>
+    </form>
+{% endblock %}
