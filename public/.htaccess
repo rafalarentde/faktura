@@ -1,0 +1,8 @@
+RewriteEngine On
+
+# Never serve dotfiles (.env, .git, .htpasswd, ...)
+RewriteRule (^|/)\. - [F,L]
+
+# Everything that is not an existing file goes to the front controller
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteRule ^ index.php [L]
