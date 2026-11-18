@@ -11,7 +11,8 @@ namespace App\Core;
  * failure leaves nothing behind. MySQL DDL cannot be rolled back, so there run() holds
  * a GET_LOCK against concurrent runs, and migrations must be small and re-runnable:
  * use CREATE TABLE IF NOT EXISTS; CREATE [UNIQUE] INDEX is skipped on MySQL when the
- * index already exists.
+ * index already exists; ALTER TABLE t ADD COLUMN c (one column per statement) is skipped
+ * on both drivers when the column already exists.
  */
 final class Migrator
 {
@@ -86,7 +87,30 @@ final class Migrator
         ) {
             return;
         }
+        if (preg_match('/^ALTER\s+TABLE\s+`?(\w+)`?\s+ADD\s+COLUMN\s+`?(\w+)`?\s/i', $stmt, $m)
+            && $this->columnExists($m[1], $m[2])
+        ) {
+            return;
+        }
         $this->db->exec($stmt);
+    }
+
+    private function columnExists(string $table, string $column): bool
+    {
+        if ($this->db->driver() === 'mysql') {
+            return $this->db->one(
+                'SELECT 1 AS x FROM information_schema.columns
+                 WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ? LIMIT 1',
+                [$table, $column]
+            ) !== null;
+        }
+        // $table is \w+ only (regex above), so interpolation is safe.
+        foreach ($this->db->all("PRAGMA table_info(\"$table\")") as $col) {
+            if (strcasecmp((string) $col['name'], $column) === 0) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

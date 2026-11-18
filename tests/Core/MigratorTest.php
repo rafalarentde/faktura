@@ -129,4 +129,23 @@ final class MigratorTest extends TestCase
         $this->assertTrue($this->tableExists($db, 'a'));
         $this->assertTrue($this->tableExists($db, 'b'));
     }
+
+    public function test_users_have_totp_last_step_column(): void
+    {
+        $db = \TestDb::fresh();
+        $db->exec("INSERT INTO users (email, password_hash) VALUES ('a@b.pl', 'x')");
+        $this->assertArrayHasKey('totp_last_step', $db->one('SELECT * FROM users'));
+        $this->assertNull($db->one('SELECT totp_last_step FROM users')['totp_last_step']);
+    }
+
+    public function test_add_column_is_skipped_when_column_exists(): void
+    {
+        $d = $this->tmpDir();
+        file_put_contents($d . '/001_a.sql', "CREATE TABLE t (id INTEGER, extra INTEGER NULL);\n");
+        file_put_contents($d . '/002_b.sql', "ALTER TABLE t ADD COLUMN extra INTEGER NULL;\nALTER TABLE t ADD COLUMN other INTEGER NULL;\n");
+        $db = $this->rawDb();
+        $this->assertSame(2, (new Migrator($db, $d))->run());
+        $db->exec('INSERT INTO t (id, extra, other) VALUES (1, 2, 3)');
+        $this->assertSame(3, (int) $db->one('SELECT other FROM t')['other']);
+    }
 }

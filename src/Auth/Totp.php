@@ -40,18 +40,30 @@ final class Totp
     /** Accepts the current 30 s step and its direct neighbours. */
     public function verify(string $secret, string $code, ?int $now = null): bool
     {
+        return $this->matchedStep($secret, $code, $now) !== null;
+    }
+
+    /**
+     * Returns the 30 s step number (unix time / 30) the code belongs to, checking the
+     * current step and its direct neighbours, or null if the code matches none of them.
+     * Callers store the step to reject replays (accept only steps greater than the last).
+     */
+    public function matchedStep(string $secret, string $code, ?int $now = null): ?int
+    {
         $code = str_replace(' ', '', $code);
         if (preg_match('/\A[0-9]{6}\z/', $code) !== 1) {
-            return false;
+            return null;
         }
-        $now ??= time();
+        $base = intdiv($now ?? time(), self::PERIOD);
         $otp = OtpTotp::createFromSecret($secret);
-        $ok = false;
-        foreach ([-1, 0, 1] as $step) {
+        $match = null;
+        foreach ([-1, 0, 1] as $delta) {
             // No early exit: every step is evaluated and compared in constant time.
-            $expected = $otp->at($now + $step * self::PERIOD);
-            $ok = hash_equals($expected, $code) || $ok;
+            $ok = hash_equals($otp->at(($base + $delta) * self::PERIOD), $code);
+            if ($ok && $match === null) {
+                $match = $base + $delta;
+            }
         }
-        return $ok;
+        return $match;
     }
 }

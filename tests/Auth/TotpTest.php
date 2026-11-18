@@ -97,4 +97,30 @@ final class TotpTest extends TestCase
         $this->assertStringStartsWith('data:image/', $uri);
         $this->assertStringContainsString(';base64,', $uri);
     }
+
+    public function test_matched_step_returns_the_step_of_the_code(): void
+    {
+        $t = new Totp();
+        $s = $t->newSecret();
+        $base = intdiv(self::NOW, 30);
+        foreach ([-1, 0, 1] as $d) {
+            $code = $this->codeAt($s, ($base + $d) * 30);
+            $this->assertSame($base + $d, $t->matchedStep($s, $code, self::NOW), "delta $d");
+        }
+    }
+
+    public function test_matched_step_null_for_wrong_or_malformed_code(): void
+    {
+        $t = new Totp();
+        $s = $t->newSecret();
+        $base = intdiv(self::NOW, 30);
+        $accepted = array_map(fn (int $d) => $this->codeAt($s, ($base + $d) * 30), [-1, 0, 1]);
+        $wrong = '000000';
+        while (in_array($wrong, $accepted, true)) {
+            $wrong = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+        }
+        $this->assertNull($t->matchedStep($s, $wrong, self::NOW));
+        $this->assertNull($t->matchedStep($s, 'abcdef', self::NOW));
+        $this->assertNull($t->matchedStep($s, '', self::NOW));
+    }
 }
