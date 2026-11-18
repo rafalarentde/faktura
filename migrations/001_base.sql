@@ -1,8 +1,9 @@
 -- Base schema: tenants (companies), users, auth helpers, audit log.
 -- Portable DDL: {AUTOID} is replaced per driver. Money columns are integer minor units / basis points.
+-- Re-runnable: CREATE TABLE IF NOT EXISTS; indexes are skipped by the Migrator on MySQL if present.
 -- No foreign keys on purpose (SQLite does not enforce them by default; integrity is kept in the app).
 
-CREATE TABLE companies (
+CREATE TABLE IF NOT EXISTS companies (
     id {AUTOID},
     name VARCHAR(190) NOT NULL,
     address TEXT NULL,
@@ -39,7 +40,7 @@ CREATE TABLE companies (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE users (
+CREATE TABLE IF NOT EXISTS users (
     id {AUTOID},
     email VARCHAR(190) NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
@@ -52,7 +53,7 @@ CREATE TABLE users (
 
 CREATE UNIQUE INDEX users_email_uq ON users (email);
 
-CREATE TABLE backup_codes (
+CREATE TABLE IF NOT EXISTS backup_codes (
     id {AUTOID},
     user_id INTEGER NOT NULL,
     code_hash VARCHAR(255) NOT NULL,
@@ -61,7 +62,7 @@ CREATE TABLE backup_codes (
 
 CREATE INDEX backup_codes_user_idx ON backup_codes (user_id);
 
-CREATE TABLE company_users (
+CREATE TABLE IF NOT EXISTS company_users (
     company_id INTEGER NOT NULL,
     user_id INTEGER NOT NULL,
     role VARCHAR(16) NOT NULL DEFAULT 'user',
@@ -70,7 +71,7 @@ CREATE TABLE company_users (
 
 CREATE INDEX company_users_user_idx ON company_users (user_id);
 
-CREATE TABLE login_attempts (
+CREATE TABLE IF NOT EXISTS login_attempts (
     id {AUTOID},
     `key` VARCHAR(190) NOT NULL,
     at INTEGER NOT NULL
@@ -78,7 +79,7 @@ CREATE TABLE login_attempts (
 
 CREATE INDEX login_attempts_key_idx ON login_attempts (`key`);
 
-CREATE TABLE audit_log (
+CREATE TABLE IF NOT EXISTS audit_log (
     id {AUTOID},
     company_id INTEGER NULL,
     user_id INTEGER NULL,

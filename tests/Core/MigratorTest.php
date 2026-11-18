@@ -68,4 +68,65 @@ final class MigratorTest extends TestCase
         $this->assertSame(0, (int) $u['is_admin']);
         $this->assertNull($u['totp_secret_enc']);
     }
+
+    private function tmpDir(): string
+    {
+        $d = sys_get_temp_dir() . '/mig_' . bin2hex(random_bytes(4));
+        mkdir($d);
+        return $d;
+    }
+
+    private function tableExists(Db $db, string $t): bool
+    {
+        return $db->one("SELECT name FROM sqlite_master WHERE type='table' AND name = ?", [$t]) !== null;
+    }
+
+    public function test_unreadable_file_throws_and_is_not_recorded(): void
+    {
+        $d = $this->tmpDir();
+        symlink($d . '/missing-target', $d . '/001_x.sql'); // dangling link: unreadable
+        $db = $this->rawDb();
+        try {
+            (new Migrator($db, $d))->run();
+            $this->fail('Exception expected');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('001_x.sql', $e->getMessage());
+        }
+        $this->assertSame([], $db->all('SELECT * FROM schema_migrations'));
+    }
+
+    public function test_comment_only_file_throws(): void
+    {
+        $d = $this->tmpDir();
+        file_put_contents($d . '/001_x.sql', "-- nothing here\n\n");
+        $db = $this->rawDb();
+        $this->expectException(\RuntimeException::class);
+        try {
+            (new Migrator($db, $d))->run();
+        } finally {
+            $this->assertSame([], $db->all('SELECT * FROM schema_migrations'));
+        }
+    }
+
+    public function test_failed_file_leaves_nothing_and_can_be_fixed(): void
+    {
+        $d = $this->tmpDir();
+        $f = $d . '/001_x.sql';
+        file_put_contents($f, "CREATE TABLE a (id INTEGER);\nCREATE TABLE b (id INTEGER, ;\n");
+        $db = $this->rawDb();
+        $m = new Migrator($db, $d);
+        try {
+            $m->run();
+            $this->fail('Exception expected');
+        } catch (\PDOException $e) {
+            $this->assertTrue(true);
+        }
+        $this->assertFalse($this->tableExists($db, 'a'));
+        $this->assertSame([], $db->all('SELECT * FROM schema_migrations'));
+
+        file_put_contents($f, "CREATE TABLE a (id INTEGER);\nCREATE TABLE b (id INTEGER);\n");
+        $this->assertSame(1, $m->run());
+        $this->assertTrue($this->tableExists($db, 'a'));
+        $this->assertTrue($this->tableExists($db, 'b'));
+    }
 }
