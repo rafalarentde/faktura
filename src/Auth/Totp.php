@@ -1,0 +1,57 @@
+<?php
+declare(strict_types=1);
+
+namespace App\Auth;
+
+use Endroid\QrCode\Builder\Builder;
+use Endroid\QrCode\Writer\SvgWriter;
+use OTPHP\TOTP as OtpTotp;
+
+/** RFC 6238 TOTP (SHA-1, 6 digits, 30 s) as supported by authenticator apps. */
+final class Totp
+{
+    private const PERIOD = 30;
+    private const DIGITS = 6;
+
+    public function newSecret(): string
+    {
+        return OtpTotp::generate()->getSecret();
+    }
+
+    public function provisioningUri(string $secret, string $email, string $issuer = 'Faktura'): string
+    {
+        $otp = OtpTotp::createFromSecret($secret);
+        $otp->setPeriod(self::PERIOD);
+        $otp->setDigits(self::DIGITS);
+        $otp->setDigest('sha1');
+        $otp->setIssuer($issuer);
+        $otp->setLabel($email);
+        return $otp->getProvisioningUri();
+    }
+
+    /** SVG data URI of the QR code; needs no image extension. */
+    public function qrDataUri(string $uri): string
+    {
+        return (new Builder(writer: new SvgWriter(), data: $uri, size: 240, margin: 8))
+            ->build()
+            ->getDataUri();
+    }
+
+    /** Accepts the current 30 s step and its direct neighbours. */
+    public function verify(string $secret, string $code, ?int $now = null): bool
+    {
+        $code = str_replace(' ', '', $code);
+        if (preg_match('/\A[0-9]{6}\z/', $code) !== 1) {
+            return false;
+        }
+        $now ??= time();
+        $otp = OtpTotp::createFromSecret($secret);
+        $ok = false;
+        foreach ([-1, 0, 1] as $step) {
+            // No early exit: every step is evaluated and compared in constant time.
+            $expected = $otp->at($now + $step * self::PERIOD);
+            $ok = hash_equals($expected, $code) || $ok;
+        }
+        return $ok;
+    }
+}
