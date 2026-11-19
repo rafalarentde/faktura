@@ -21,6 +21,7 @@ use App\Vies\ViesStatus;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Tests\Support\HookPdo;
+use Tests\Support\RecordingStatement;
 
 final class DocumentServiceTest extends TestCase
 {
@@ -36,9 +37,15 @@ final class DocumentServiceTest extends TestCase
 
     protected function setUp(): void
     {
-        $this->pdo = new HookPdo('sqlite::memory:', null, null, [
+        $this->boot('sqlite::memory:');
+    }
+
+    private function boot(string $dsn): void
+    {
+        $this->pdo = new HookPdo($dsn, null, null, [
             \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION,
             \PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC,
+            \PDO::ATTR_TIMEOUT => 5,
         ]);
         $this->db = new Db($this->pdo, 'sqlite');
         (new Migrator($this->db, dirname(__DIR__, 2) . '/migrations'))->run();
@@ -319,24 +326,35 @@ final class DocumentServiceTest extends TestCase
 
     public function test_concurrent_payment_cannot_overpay(): void
     {
-        $id = $this->draft();
-        $this->svc->issue($id, $this->at());
-        // A concurrent request commits a payment of the full balance right before our locked read.
-        $armed = true;
-        $this->pdo->onPrepare = function (string $sql, HookPdo $pdo) use (&$armed, $id): void {
-            if ($armed && str_starts_with($sql, 'SELECT * FROM `documents`')) {
-                $armed = false;
-                $pdo->exec("INSERT INTO payments (company_id, document_id, amount_minor, paid_on) VALUES ({$this->companyA}, $id, 11000, '2026-11-25')");
-            }
-        };
-        $this->assertSame(['amount' => 'document.err_overpayment'], $this->errors(fn () => $this->svc->addPayment($id, 1000, $this->day('2026-11-25'))));
-        $this->pdo->onPrepare = null;
-        // (the simulated row was written on our own connection, so the rollback removed it too)
-        $this->assertSame(11900, $this->svc->balanceMinor($id));
-        // sequential: the second payment fails once the first filled the balance
-        $this->svc->addPayment($id, 11900, $this->day('2026-11-25'));
-        $this->assertSame(['amount' => 'document.err_overpayment'], $this->errors(fn () => $this->svc->addPayment($id, 1, $this->day('2026-11-25'))));
-        $this->assertSame(0, $this->svc->balanceMinor($id));
+        // Two real connections to one file database: the second commits a payment while the
+        // first is inside addPayment's transaction, right before its locked read of the invoice.
+        $file = (string) tempnam(sys_get_temp_dir(), 'faktura_doc_');
+        try {
+            $this->boot('sqlite:' . $file);
+            $id = $this->draft();
+            $this->svc->issue($id, $this->at());
+            $other = new \PDO('sqlite:' . $file, null, null, [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION, \PDO::ATTR_TIMEOUT => 5]);
+            $armed = true;
+            $this->pdo->onPrepare = function (string $sql) use (&$armed, $id, $other): void {
+                if ($armed && str_starts_with($sql, 'SELECT * FROM `documents`')) {
+                    $armed = false;
+                    $other->exec("INSERT INTO payments (company_id, document_id, amount_minor, paid_on) VALUES ({$this->companyA}, $id, 11000, '2026-11-25')");
+                }
+            };
+            $this->assertSame(['amount' => 'document.err_overpayment'], $this->errors(fn () => $this->svc->addPayment($id, 1000, $this->day('2026-11-25'))));
+            $this->assertFalse($armed, 'the concurrent payment was committed during addPayment');
+            $this->pdo->onPrepare = null;
+            $this->assertSame(900, $this->svc->balanceMinor($id), 'the other connection\'s payment is committed and counted');
+            $this->svc->addPayment($id, 900, $this->day('2026-11-25'));
+            $this->assertSame(['amount' => 'document.err_overpayment'], $this->errors(fn () => $this->svc->addPayment($id, 1, $this->day('2026-11-25'))));
+            $this->assertSame(0, $this->svc->balanceMinor($id));
+            $this->assertSame(2, (int) $other->query('SELECT COUNT(*) FROM payments')->fetchColumn());
+        } finally {
+            unset($other);
+            $this->pdo->onPrepare = null;
+            $this->boot('sqlite::memory:'); // release the file connection
+            @unlink($file);
+        }
     }
 
     public function test_payment_only_on_issued_invoices(): void
@@ -971,9 +989,145 @@ final class DocumentServiceTest extends TestCase
         }
     }
 
-    public function test_app_exposes_documents_for_the_current_context(): void
+    // ---- Fix round 1: lock order, dates, valid_until, encoding ----
+
+    private function mysqlSvc(): DocumentService
     {
-        $m = new \ReflectionMethod(\App\Core\App::class, 'documents');
-        $this->assertSame(DocumentService::class, (string) $m->getReturnType());
+        $db = new Db($this->pdo, 'mysql'); // forUpdate() yields ' FOR UPDATE' over the SQLite connection
+        $ctx = CompanyContext::forUser($db, $this->userId, $this->companyA);
+        $clock = fn (): int => self::NOW;
+        $this->pdo->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [RecordingStatement::class]);
+        // SQLite cannot run FOR UPDATE: keep it visible as a comment in the recorded statement.
+        $this->pdo->onPrepare = fn (string $sql): string => str_ends_with($sql, ' FOR UPDATE')
+            ? substr($sql, 0, -strlen(' FOR UPDATE')) . ' /* FOR UPDATE */' : $sql;
+        return new DocumentService($db, $ctx, new NumberSequences($db, $ctx, $clock), new DocumentRepo($db, $ctx), new CustomerRepo($db, $ctx), $clock);
+    }
+
+    /** @return list<array{0: string, 1: array<int|string, mixed>}> the locking statements, in order */
+    private function locks(): array
+    {
+        return array_values(array_filter(RecordingStatement::$log, fn (array $e): bool => str_contains($e[0], 'FOR UPDATE')));
+    }
+
+    /** index of the first locking statement containing $needle (and locking row $id when given) */
+    private function lockAt(array $locks, string $needle, ?int $id = null): int
+    {
+        foreach ($locks as $i => [$sql, $params]) {
+            if (str_contains($sql, $needle) && ($id === null || ($params[1] ?? null) === $id)) {
+                return $i;
+            }
+        }
+        $this->fail("no lock '$needle' in: " . implode(' | ', array_column($locks, 0)));
+    }
+
+    public function test_mysql_lock_order_invoice_before_credit_note(): void
+    {
+        $inv = $this->draft(['lines' => [$this->line(['qty_milli' => 2000])]]);
+        $this->svc->issue($inv, $this->at());
+        $cn = $this->svc->createCorrection($inv);
+        $this->svc->updateDraft($cn, ['lines' => [$this->line()]]);
+        $this->svc->createCorrection($inv); // another draft credit note of the same invoice
+
+        $svc = $this->mysqlSvc();
+        RecordingStatement::$log = [];
+        $this->assertSame('KO-2026-001', $svc->issue($cn, $this->at()));
+        $locks = $this->locks();
+        $byId = array_values(array_filter($locks, fn (array $e): bool => str_contains($e[0], 'FROM `documents`') && str_contains($e[0], '(id = ?)')));
+        $this->assertSame([$inv, $cn], array_map(fn (array $e): int => $e[1][1], $byId), 'invoice row locked before the credit note row');
+        $invoiceLock = $this->lockAt($locks, '(id = ?)', $inv);
+        $ownLock = $this->lockAt($locks, '(id = ?)', $cn);
+        $scan = $this->lockAt($locks, 'related_document_id = ?');
+        $format = $this->lockAt($locks, 'FROM `number_formats`');
+        $taken = $this->lockAt($locks, 'number = ?');
+        $this->assertLessThan($ownLock, $invoiceLock);
+        $this->assertLessThan($scan, $ownLock);
+        $this->assertLessThan($format, $scan);
+        $this->assertLessThan($taken, $format);
+
+        RecordingStatement::$log = [];
+        $svc->addPayment($inv, 100, $this->day('2026-11-25'));
+        $locks = $this->locks();
+        $this->assertSame(0, $this->lockAt($locks, '(id = ?)', $inv), 'addPayment locks the invoice first');
+        $this->assertGreaterThan(0, $this->lockAt($locks, 'related_document_id = ?'));
+        $this->assertGreaterThan(0, $this->lockAt($locks, 'FROM `payments`'));
+        $this->assertCount(1, array_filter($locks, fn (array $e): bool => str_contains($e[0], '(id = ?)')), 'no other document row locked');
+
+        RecordingStatement::$log = [];
+        $svc->createCorrection($inv);
+        $this->assertSame([$inv], array_map(fn (array $e): int => $e[1][1], $this->locks()));
+    }
+
+    public function test_future_dated_draft_cannot_be_issued_and_opens_no_bucket(): void
+    {
+        $count = fn (): int => (int) $this->db->one('SELECT COUNT(*) AS c FROM number_counters')['c'];
+        $this->svc->issue($this->draft(), $this->at());
+        $before = $count();
+        $id = $this->draft(['issue_date' => '2027-03-01']);
+        $this->assertSame(['issue_date' => 'document.err_issue_future'], $this->errors(fn () => $this->svc->issue($id, $this->at())));
+        $this->assertSame($before, $count(), 'no 2027 counter bucket opened');
+        $this->assertSame('draft', $this->doc($id)['status']);
+        $tomorrow = $this->draft(['issue_date' => '2026-11-25']);
+        $this->assertSame(['issue_date' => 'document.err_issue_future'], $this->errors(fn () => $this->svc->issue($tomorrow, $this->at())));
+        // today and backdating stay allowed; "today" is the Berlin date of $at
+        $this->svc->updateDraft($id, ['issue_date' => '2026-11-24']);
+        $this->assertSame('RE-2026-002', $this->svc->issue($id, $this->at()));
+        $this->assertSame('RE-2026-003', $this->svc->issue($tomorrow, $this->at('2026-11-24 23:30:00')));
+        $this->assertSame('RE-2026-004', $this->svc->issue($this->draft(['issue_date' => '2026-01-02']), $this->at()));
+    }
+
+    public function test_credit_note_dated_before_its_invoice_is_rejected(): void
+    {
+        $inv = $this->draft(['issue_date' => '2026-11-20']);
+        $this->svc->issue($inv, $this->at());
+        $cn = $this->svc->createCorrection($inv);
+        $this->svc->updateDraft($cn, ['issue_date' => '2026-11-19']);
+        $this->assertSame(['issue_date' => 'document.err_issue_before_invoice'], $this->errors(fn () => $this->svc->issue($cn, $this->at())));
+        $this->assertSame(0, $this->counter('credit_note'));
+        $this->svc->updateDraft($cn, ['issue_date' => '2026-11-20']);
+        $this->assertSame('KO-2026-001', $this->svc->issue($cn, $this->at()));
+    }
+
+    public function test_valid_until_only_for_offers(): void
+    {
+        $offer = $this->draft(['issue_date' => '2026-11-20', 'valid_until' => '2026-12-31'], null, 'offer');
+        $this->assertSame('2026-12-31', $this->doc($offer)['valid_until']);
+        $this->svc->updateDraft($offer, ['notes' => 'x']);
+        $this->assertSame('2026-12-31', $this->doc($offer)['valid_until'], 'kept when not given');
+        $this->svc->issue($offer, $this->at());
+        $this->assertSame('2026-12-31', $this->doc($offer)['valid_until']);
+
+        $this->assertSame(['valid_until' => 'document.err_valid_until_offer_only'], $this->errors(fn () => $this->draft(['valid_until' => '2026-12-31'])));
+        $this->assertSame(['valid_until' => 'document.err_valid_until_before_issue'], $this->errors(fn () => $this->draft(['issue_date' => '2026-11-20', 'valid_until' => '2026-11-19'], null, 'offer')));
+        $this->assertSame(['valid_until' => 'document.err_date'], $this->errors(fn () => $this->draft(['valid_until' => '2026-02-30'], null, 'offer')));
+        $this->assertNull($this->doc($this->draft(['valid_until' => '']))['valid_until'], 'empty means none, for any type');
+        // issue date defaulted at issue time after valid_until
+        $late = $this->draft(['valid_until' => '2026-11-23'], null, 'offer');
+        $this->assertSame(['valid_until' => 'document.err_valid_until_before_issue'], $this->errors(fn () => $this->svc->issue($late, $this->at())));
+        // a credit note cannot get one either
+        $inv = $this->draft();
+        $this->svc->issue($inv, $this->at());
+        $cn = $this->svc->createCorrection($inv);
+        $this->assertSame(['valid_until' => 'document.err_valid_until_offer_only'], $this->errors(fn () => $this->svc->updateDraft($cn, ['valid_until' => '2026-12-31'])));
+    }
+
+    public function test_invalid_utf8_is_a_validation_error_not_a_crash(): void
+    {
+        $this->assertSame(['notes' => 'document.err_encoding'], $this->errors(fn () => $this->draft(['notes' => "abc\xff"])));
+        $this->assertSame(['lines.0.name' => 'document.err_encoding'], $this->errors(fn () => $this->draft(['lines' => [$this->line(['name' => "ab\xc3"])]])));
+        $this->assertSame(['lines.0.description' => 'document.err_encoding'], $this->errors(fn () => $this->draft(['lines' => [$this->line(['description' => "\xe2\x82"])]])));
+
+        $id = $this->draft();
+        $this->db->exec('UPDATE customers SET address = ? WHERE id = ?', ["Stra\xdfe 1", $this->customer]);
+        $this->assertSame(['customer_id' => 'document.err_encoding'], $this->errors(fn () => $this->svc->issue($id, $this->at())));
+        $this->assertSame(['customer_id' => 'document.err_encoding'], $this->errors(fn () => $this->svc->updateDraft($id, ['notes' => 'n'])));
+        $this->assertSame('draft', $this->doc($id)['status']);
+        $this->assertSame(0, $this->counter('invoice'));
+
+        $this->db->exec('UPDATE customers SET address = ? WHERE id = ?', ['Straße 1', $this->customer]);
+        $this->db->exec('UPDATE companies SET bank = ? WHERE id = ?', ["Sparkasse \xfc", $this->companyA]);
+        $this->assertSame(['company' => 'document.err_encoding'], $this->errors(fn () => $this->svc->issue($id, $this->at())));
+        $this->assertSame(0, $this->counter('invoice'));
+        $this->db->exec('UPDATE companies SET bank = ? WHERE id = ?', ['Sparkasse', $this->companyA]);
+        $this->assertSame('RE-2026-001', $this->svc->issue($id, $this->at()));
     }
 }

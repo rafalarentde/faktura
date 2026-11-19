@@ -22,6 +22,23 @@ use App\Tenant\CompanyContext;
  *   totalsFor() recomputes the unsigned Totals from the lines; stored = sign x recomputed.
  * - Every id comes from the caller but every read/write is company-scoped; an id of another
  *   company behaves exactly like an unknown id (DocumentNotFound).
+ *
+ * LOCK ORDER (InnoDB locking reads; SQLite serializes writers anyway). Every transaction that
+ * locks several rows takes them in this order, so two of them can never wait for each other in
+ * a cycle:
+ *  1. the invoice row: for a credit note its RELATED invoice, taken FIRST (issue() reads the
+ *     credit note's related_document_id with a plain read, locks the invoice, then locks the
+ *     credit note and re-checks that the link is unchanged); addPayment and createCorrection
+ *     lock only the invoice;
+ *  2. the document's own row (lockedDraft);
+ *  3. scans under the invoice lock: issued credit notes / payments of that invoice (locking
+ *     reads; they may touch draft credit-note rows of the same invoice, whose writers all take
+ *     the invoice lock first, so they are never held by a transaction waiting for us);
+ *  4. the number_formats row, then the counter rows (NumberSequences::next(), see its docblock),
+ *     then the numberTaken() check of the drawn number.
+ * Step 3 deliberately runs BEFORE step 4: the per-type number_formats row is the most contended
+ * lock of the company, so it is never held while waiting for per-invoice scan locks.
+ * updateDraft/deleteDraft lock only the draft's own row; createDraft locks nothing existing.
  */
 final class DocumentService
 {
@@ -37,9 +54,9 @@ final class DocumentService
     private const PRICE_MAX = 99_999_999_999;
     private const NUMBER_ATTEMPTS = 50;
     private const TEXT_FIELDS = ['intro_text', 'outro_text', 'notes'];
-    private const DATE_FIELDS = ['issue_date', 'service_date', 'due_date'];
+    private const DATE_FIELDS = ['issue_date', 'service_date', 'due_date', 'valid_until'];
     private const INPUT_FIELDS = ['customer_id', 'lang', 'currency', 'eur_rate', 'issue_date', 'service_date', 'due_date',
-        'intro_text', 'outro_text', 'notes', 'lines'];
+        'valid_until', 'intro_text', 'outro_text', 'notes', 'lines'];
     /** Fields of a credit note fixed by its invoice. */
     private const CREDIT_NOTE_FIXED = ['customer_id', 'currency', 'lang', 'eur_rate', 'related_document_id'];
     private const BUYER_FIELDS = ['name', 'address', 'country', 'vat_id', 'is_company', 'email', 'vies_status', 'vies_checked_at'];
@@ -64,7 +81,8 @@ final class DocumentService
     /**
      * Creates a draft invoice or offer. $data: customer_id (required), lang/currency (default:
      * the customer's), eur_rate (string|null; required for PLN/USD unless reverse charge),
-     * issue_date/service_date/due_date ('Y-m-d'|null), intro_text/outro_text (null = company
+     * issue_date/service_date/due_date ('Y-m-d'|null), valid_until ('Y-m-d'|null, offers only,
+     * >= issue_date), intro_text/outro_text (null = company
      * default text), notes, lines (1..200 arrays: name, description, unit, qty_milli,
      * unit_minor, discount_bp, vat_bp, item_id). Allowed for suspended companies too.
      *
@@ -79,7 +97,7 @@ final class DocumentService
         return $this->db->transaction(function () use ($type, $data): int {
             $company = $this->docs->company();
             $in = ['customer_id' => null, 'lang' => null, 'currency' => null, 'eur_rate' => null, 'issue_date' => null,
-                'service_date' => null, 'due_date' => null, 'notes' => null, 'lines' => null,
+                'service_date' => null, 'due_date' => null, 'valid_until' => null, 'notes' => null, 'lines' => null,
                 'intro_text' => $company['intro_text'] ?? null, 'outro_text' => $company['outro_text'] ?? null];
             foreach (self::INPUT_FIELDS as $f) {
                 if (array_key_exists($f, $data) && !(in_array($f, ['intro_text', 'outro_text'], true) && $data[$f] === null)) {
@@ -149,7 +167,16 @@ final class DocumentService
     public function issue(int $id, \DateTimeImmutable $at, bool $confirmUnverifiedVat = false): string
     {
         return $this->db->transaction(function () use ($id, $at, $confirmUnverifiedVat): string {
+            // Lock order (class docblock): a credit note's invoice BEFORE the credit note itself.
+            $pre = $this->docs->row($id) ?? throw new DocumentNotFound();
+            $invoice = null;
+            if ($pre['type'] === DocType::CREDIT_NOTE) {
+                $invoice = $this->docs->lockedFind((int) $pre['related_document_id']);
+            }
             $doc = $this->lockedDraft($id);
+            if ($doc['type'] !== $pre['type'] || $doc['related_document_id'] !== $pre['related_document_id']) {
+                throw new DocumentLocked(); // changed between the plain read and the lock
+            }
             if (!$this->ctx->canIssue($at)) {
                 throw new AccessSuspended();
             }
@@ -161,15 +188,20 @@ final class DocumentService
             if ($lines === []) {
                 throw new ValidationException(['lines' => 'document.err_lines']);
             }
-            $issueDate = $doc['issue_date'] ?? $this->berlin($at)->format('Y-m-d');
+            $today = $this->berlin($at)->format('Y-m-d');
+            $issueDate = $doc['issue_date'] ?? $today;
+            if ($issueDate > $today) {
+                throw new ValidationException(['issue_date' => 'document.err_issue_future']);
+            }
             $dueDate = $doc['due_date'];
             $confirmed = false;
-            $invoice = null;
 
             if ($type === DocType::CREDIT_NOTE) {
-                $invoice = $this->docs->lockedFind((int) $doc['related_document_id']);
                 if ($invoice === null || $invoice['type'] !== DocType::INVOICE || $invoice['status'] !== 'issued') {
                     throw new ValidationException(['document' => 'document.err_correction_not_allowed']);
+                }
+                if ($issueDate < (string) $invoice['issue_date']) {
+                    throw new ValidationException(['issue_date' => 'document.err_issue_before_invoice']);
                 }
                 $buyer = $invoice['buyer'];
                 $buyerName = $invoice['buyer_name'];
@@ -182,6 +214,9 @@ final class DocumentService
                     throw new ValidationException(['customer_id' => 'document.err_customer']);
                 }
                 $buyer = self::buyerSnapshot($customer);
+                if (!self::validUtf8($buyer)) {
+                    throw new ValidationException(['customer_id' => 'document.err_encoding']);
+                }
                 $buyerName = (string) $customer['name'];
                 $decision = VatRule::decide(VatRule::buyerFromCustomerRow($customer));
                 if ($decision->needsConfirmation) {
@@ -194,12 +229,21 @@ final class DocumentService
                 $noteKey = $decision->noteKey;
                 $reason = $decision->reason;
                 if ($dueDate === null && $type === DocType::INVOICE) {
-                    $days = (int) ($customer['payment_days'] ?? $this->docs->company()['default_payment_days'] ?? 14);
+                    // customers.payment_days is NOT NULL (defaulted from the company when the
+                    // customer was created), so no company fallback is needed here.
+                    $days = (int) $customer['payment_days'];
                     $dueDate = (new \DateTimeImmutable($issueDate))->modify("+{$days} days")->format('Y-m-d');
                 }
             }
             if ($dueDate !== null && $dueDate < $issueDate) {
                 throw new ValidationException(['due_date' => 'document.err_due_before_issue']);
+            }
+            if ($doc['valid_until'] !== null && $doc['valid_until'] < $issueDate) {
+                throw new ValidationException(['valid_until' => 'document.err_valid_until_before_issue']);
+            }
+            $seller = self::sellerSnapshot($this->docs->company());
+            if (!self::validUtf8($seller)) {
+                throw new ValidationException(['company' => 'document.err_encoding']);
             }
 
             $totals = $this->computeTotals($lines, $reverseCharge, (string) $doc['currency'], $doc['eur_rate']);
@@ -224,7 +268,7 @@ final class DocumentService
                 'issued_at' => $at->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d H:i:s'),
                 'issue_date' => $issueDate,
                 'due_date' => $dueDate,
-                'seller_json' => self::json(self::sellerSnapshot($this->docs->company())),
+                'seller_json' => self::json($seller),
                 'buyer_json' => self::json($buyer),
                 'buyer_name' => $buyerName,
                 'reverse_charge' => $reverseCharge ? 1 : 0,
@@ -458,6 +502,14 @@ final class DocumentService
         if ($dates['issue_date'] !== null && $dates['due_date'] !== null && $dates['due_date'] < $dates['issue_date']) {
             $e['due_date'] = 'document.err_due_before_issue';
         }
+        if ($type !== DocType::OFFER && $in['valid_until'] !== null && $in['valid_until'] !== '') {
+            $e['valid_until'] = 'document.err_valid_until_offer_only';
+        } elseif ($dates['issue_date'] !== null && $dates['valid_until'] !== null && $dates['valid_until'] < $dates['issue_date']) {
+            $e['valid_until'] = 'document.err_valid_until_before_issue';
+        }
+        if ($customer !== null && !self::validUtf8(self::buyerSnapshot($customer))) {
+            $e['customer_id'] = 'document.err_encoding';
+        }
         $texts = [];
         foreach (self::TEXT_FIELDS as $f) {
             $v = $in[$f];
@@ -466,7 +518,9 @@ final class DocumentService
                 continue;
             }
             $v = trim(str_replace(["\r\n", "\r"], "\n", (string) $v));
-            if (mb_strlen($v, 'UTF-8') > self::TEXT_MAX) {
+            if (!mb_check_encoding($v, 'UTF-8')) {
+                $e[$f] = 'document.err_encoding';
+            } elseif (mb_strlen($v, 'UTF-8') > self::TEXT_MAX) {
                 $e[$f] = 'document.err_text';
             }
             $texts[$f] = $v === '' ? null : $v;
@@ -529,12 +583,16 @@ final class DocumentService
                 continue;
             }
             $name = is_scalar($l['name'] ?? null) ? trim((string) $l['name']) : '';
-            if ($name === '' || mb_strlen($name, 'UTF-8') > self::NAME_MAX) {
+            if (!mb_check_encoding($name, 'UTF-8')) {
+                $e[$p . 'name'] = 'document.err_encoding';
+            } elseif ($name === '' || mb_strlen($name, 'UTF-8') > self::NAME_MAX) {
                 $e[$p . 'name'] = 'document.err_line_name';
             }
             $desc = $l['description'] ?? null;
             $desc = is_scalar($desc) ? trim(str_replace(["\r\n", "\r"], "\n", (string) $desc)) : '';
-            if (mb_strlen($desc, 'UTF-8') > self::TEXT_MAX) {
+            if (!mb_check_encoding($desc, 'UTF-8')) {
+                $e[$p . 'description'] = 'document.err_encoding';
+            } elseif (mb_strlen($desc, 'UTF-8') > self::TEXT_MAX) {
                 $e[$p . 'description'] = 'document.err_line_description';
             }
             $unit = $l['unit'] ?? null;
@@ -697,6 +755,17 @@ final class DocumentService
     private function berlin(\DateTimeImmutable $d): \DateTimeImmutable
     {
         return $d->setTimezone(new \DateTimeZone('Europe/Berlin'));
+    }
+
+    /** @param array<string, mixed> $v true when every string value is valid UTF-8 (JSON-encodable) */
+    private static function validUtf8(array $v): bool
+    {
+        foreach ($v as $x) {
+            if (is_string($x) && !mb_check_encoding($x, 'UTF-8')) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /** @param array<string, mixed> $v */

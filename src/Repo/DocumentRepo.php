@@ -47,6 +47,10 @@ final class DocumentRepo extends BaseRepo
      * Filters: type, status (unknown values match nothing), customer_id (int), q (number or
      * buyer name, substring, case-insensitive). Unknown filter keys are ignored.
      *
+     * buyer_name is a snapshot too: issued documents show the name from the issue, drafts the
+     * customer's name as of the last draft save (a later customer rename is not reflected until
+     * the draft is saved again).
+     *
      * Search design (same as CustomerRepo): user input goes only into `?` parameters; % _ and
      * backslash are stripped from the term (BaseRepo forbids backslashes, so no ESCAPE clause).
      *
@@ -67,6 +71,17 @@ final class DocumentRepo extends BaseRepo
     {
         [$where, $params] = $this->filterWhere($filter);
         return $this->scopedCount(self::DOCS, $where, $params);
+    }
+
+    /**
+     * The document row (no lines), plain (non-locking) read.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function row(int $id): ?array
+    {
+        $row = $this->scopedOne(self::DOCS, $id);
+        return $row === null ? null : $this->normalize($row);
     }
 
     /**
