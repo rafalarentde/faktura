@@ -71,6 +71,8 @@ return function (App $app, RouteCollector $r): void {
     $r->addRoute('POST', '/settings/company/logo', $settings('uploadLogo'));
     $r->addRoute('POST', '/settings/company/logo/remove', $settings('removeLogo'));
     $r->addRoute('GET', '/company/logo', $settings('logo'));
+    $r->addRoute('GET', '/settings/numbers', $settings('numbers'));
+    $r->addRoute('POST', '/settings/numbers', $settings('saveNumbers'));
     $r->addRoute('GET', '/settings/dunning', $settings('dunning'));
     $r->addRoute('POST', '/settings/dunning', $settings('saveDunning'));
     $r->addRoute('GET', '/settings/mail', $settings('mail'));

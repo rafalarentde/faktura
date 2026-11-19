@@ -6,6 +6,11 @@ namespace App\Http;
 use App\Core\App;
 use App\Core\Request;
 use App\Core\Response;
+use App\Domain\ConfigureResult;
+use App\Domain\DocType;
+use App\Domain\InvalidNumberFormat;
+use App\Domain\NumberFormat;
+use App\Domain\NumberSequences;
 use App\Domain\Percent;
 use App\Domain\ValidationException;
 use App\Money\Formatter;
@@ -109,6 +114,77 @@ final class SettingsController
             'Cache-Control' => 'private, max-age=300',
             'Content-Disposition' => 'inline',
         ]));
+    }
+
+    // ---- numbering ----
+
+    /** @param array<string, string> $params */
+    public function numbers(Request $request, array $params): Response
+    {
+        return $this->gate() ?? $this->numbersPage($this->numbersForm(), [], 200, $request->queryParam('saved') === '1');
+    }
+
+    /**
+     * Saves all four document types in ONE transaction: if any row is invalid nothing is saved
+     * (422, typed values kept, red line per row). A successful save with warnings/notes (yearly
+     * reset forced off, skipped numbers) re-renders directly so the orange lines are visible;
+     * otherwise it redirects.
+     *
+     * @param array<string, string> $params
+     */
+    public function saveNumbers(Request $request, array $params): Response
+    {
+        if ($denied = $this->gate()) {
+            return $denied;
+        }
+        $form = [];
+        foreach (DocType::ALL as $type) {
+            $form[$type] = [
+                'pattern' => $request->input('pattern_' . $type),
+                'reset' => $request->input('reset_' . $type) === '1',
+                'next' => trim($request->input('next_' . $type)),
+                'next_shown' => trim($request->input('next_shown_' . $type)),
+            ];
+        }
+        $seq = $this->sequences();
+        $today = $this->berlinNow();
+        /** @var array<string, array{pattern?: string, next_value?: string}> $errors */
+        $errors = [];
+        /** @var array<string, ConfigureResult> $results */
+        $results = [];
+        try {
+            $this->app->db()->transaction(function () use ($form, $seq, $today, &$errors, &$results): void {
+                foreach ($form as $type => $row) {
+                    try {
+                        $results[$type] = $seq->configure($type, $row['pattern'], $row['reset'], $this->nextValue($row), $today);
+                    } catch (InvalidNumberFormat $e) {
+                        $errors[$type]['pattern'] = $e->translationKey();
+                    } catch (ValidationException $e) {
+                        $errors[$type] = array_merge($errors[$type] ?? [], $e->errors);
+                    }
+                }
+                if ($errors !== []) {
+                    throw new \DomainException('rollback'); // nothing of this save may stay
+                }
+            });
+        } catch (\DomainException) {
+            $display = [];
+            foreach ($form as $type => $row) {
+                $display[$type] = ['pattern' => $row['pattern'], 'reset' => $row['reset'], 'next' => $row['next'], 'next_shown' => $row['next_shown']];
+            }
+            return $this->numbersPage($display, $errors, 422);
+        }
+        $flags = [];
+        foreach ($results as $type => $result) {
+            $flags[$type] = [
+                'warnings' => array_map(fn (string $w): string => 'settings.warn_no_year', $result->warnings),
+                'notes' => array_map(fn (string $n): string => 'settings.note_skips_numbers', $result->notes),
+            ];
+        }
+        if (array_filter($flags, fn (array $f): bool => $f['warnings'] !== [] || $f['notes'] !== []) === []) {
+            return Response::redirect('/settings/numbers?saved=1');
+        }
+        return $this->numbersPage($this->numbersForm(), [], 200, true, $flags);
     }
 
     // ---- dunning ----
@@ -365,6 +441,79 @@ final class SettingsController
     private function translate(array $errors): array
     {
         return array_map(fn (string $key): string => $this->app->t($key), $errors);
+    }
+
+    /**
+     * The "next number" input as an int, or null when it is empty or still what the form showed
+     * (so a stale but untouched value cannot fail a save after another document was issued).
+     * Anything that is not plain digits is passed as 0, which configure() rejects as out of range.
+     *
+     * @param array{next: string, next_shown: string} $row
+     */
+    private function nextValue(array $row): ?int
+    {
+        if ($row['next'] === '' || $row['next'] === $row['next_shown']) {
+            return null;
+        }
+        return preg_match('/\A[0-9]{1,10}\z/', $row['next']) === 1 ? (int) $row['next'] : 0;
+    }
+
+    private function sequences(): NumberSequences
+    {
+        return new NumberSequences($this->app->db(), $this->ctx(), fn (): int => $this->app->now());
+    }
+
+    /** The current business date: Europe/Berlin, which decides the year bucket and the date tokens. */
+    private function berlinNow(): \DateTimeImmutable
+    {
+        return (new \DateTimeImmutable('@' . $this->app->now()))->setTimezone(new \DateTimeZone('Europe/Berlin'));
+    }
+
+    /** @return array<string, array{pattern: string, reset: bool, next: string, next_shown: string}> the saved state */
+    private function numbersForm(): array
+    {
+        $seq = $this->sequences();
+        $today = $this->berlinNow();
+        $form = [];
+        foreach (DocType::ALL as $type) {
+            $f = $seq->format($type);
+            $next = (string) ($seq->lastCounter($type, $today) + 1);
+            $form[$type] = ['pattern' => $f['pattern'], 'reset' => $f['reset_yearly'], 'next' => $next, 'next_shown' => $next];
+        }
+        return $form;
+    }
+
+    /**
+     * @param array<string, array{pattern: string, reset: bool, next: string, next_shown: string}> $form
+     * @param array<string, array<string, string>> $errors doc type => field => translation key
+     * @param array<string, array{warnings: list<string>, notes: list<string>}> $flags
+     */
+    private function numbersPage(array $form, array $errors, int $status = 200, bool $saved = false, array $flags = []): Response
+    {
+        $seq = $this->sequences();
+        $today = $this->berlinNow();
+        $rows = [];
+        foreach (DocType::ALL as $type) {
+            $rows[] = [
+                'type' => $type,
+                'label' => 'settings.doctype_' . ($type === DocType::CREDIT_NOTE ? 'correction' : $type),
+                'pattern' => $form[$type]['pattern'],
+                'reset' => $form[$type]['reset'],
+                'next' => $form[$type]['next'],
+                'next_shown' => $form[$type]['next_shown'],
+                'preview' => $seq->preview($type, $today), // of the SAVED format, never consumed
+                'error' => isset($errors[$type]['pattern']) ? $this->app->t($errors[$type]['pattern']) : null,
+                'next_error' => isset($errors[$type]['next_value']) ? $this->app->t($errors[$type]['next_value']) : null,
+                'warnings' => array_map(fn (string $k): string => $this->app->t($k), $flags[$type]['warnings'] ?? []),
+                'notes' => array_map(fn (string $k): string => $this->app->t($k), $flags[$type]['notes'] ?? []),
+            ];
+        }
+        return $this->page('settings/numbers.twig', 'numbers', [
+            'rows' => $rows,
+            'has_errors' => $errors !== [],
+            'saved' => $saved,
+            'max_pattern' => NumberFormat::MAX_PATTERN_LENGTH,
+        ], $status);
     }
 
     /** @param array<string, string> $form @param array<string, string> $errors */

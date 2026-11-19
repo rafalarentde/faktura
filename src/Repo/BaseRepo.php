@@ -92,6 +92,25 @@ abstract class BaseRepo
         return $this->db->lastId();
     }
 
+    /**
+     * Atomically adds $by to an integer column of a row of the context company in ONE statement
+     * (`SET col = col + ?`), so concurrent callers can never read-modify-write the same value.
+     * Returns affected rows (0 when the row is not the company's). The caller reads the new value
+     * back inside the same transaction.
+     */
+    protected function scopedIncrement(string $table, int $id, string $column, int $by = 1): int
+    {
+        $t = $this->ident($table);
+        $c = $this->ident($column);
+        if ($c === 'id' || $c === 'company_id') {
+            throw new \InvalidArgumentException('Column cannot be incremented.');
+        }
+        return $this->db->exec(
+            "UPDATE `$t` SET `$c` = `$c` + ? WHERE company_id = ? AND id = ?",
+            [$by, $this->ctx->id(), $id]
+        );
+    }
+
     /** Updates a row of the context company; company_id in $row is ignored. Returns affected rows. */
     protected function scopedUpdate(string $table, int $id, array $row): int
     {

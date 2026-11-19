@@ -19,6 +19,7 @@ final class ItemRepo extends BaseRepo
     public function delete(int $id): int { return $this->scopedDelete('scoped_items', $id); }
     public function count(string $where = '1=1', array $p = []): int { return $this->scopedCount('scoped_items', $where, $p); }
     public function page(int $limit, int $offset): array { return $this->scopedAll('scoped_items', '1=1', [], 'id', $limit, $offset); }
+    public function bump(int $id, string $column = 'qty', int $by = 1): int { return $this->scopedIncrement('scoped_items', $id, $column, $by); }
     public function onTable(string $table): ?array { return $this->scopedOne($table, 1); }
 }
 
@@ -36,7 +37,7 @@ final class IsolationTest extends TestCase
     protected function setUp(): void
     {
         $this->db = \TestDb::fresh();
-        $this->db->exec('CREATE TABLE scoped_items (id INTEGER PRIMARY KEY AUTOINCREMENT, company_id INTEGER NOT NULL, name VARCHAR(50) NOT NULL)');
+        $this->db->exec('CREATE TABLE scoped_items (id INTEGER PRIMARY KEY AUTOINCREMENT, company_id INTEGER NOT NULL, name VARCHAR(50) NOT NULL, qty BIGINT NOT NULL DEFAULT 0)');
         $this->companyA = $this->company('A');
         $this->companyB = $this->company('B');
         $this->userA = $this->user('a@example.pl', $this->companyA);
@@ -249,5 +250,27 @@ final class IsolationTest extends TestCase
         } catch (\InvalidArgumentException) {
             $this->assertSame('a-item', $this->repoA->one($this->itemA)['name']);
         }
+    }
+
+    public function test_scoped_increment_adds_atomically_and_only_for_own_rows(): void
+    {
+        $this->assertSame(1, $this->repoA->bump($this->itemA));
+        $this->assertSame(1, $this->repoA->bump($this->itemA, 'qty', 5));
+        $this->assertSame(6, (int) $this->repoA->one($this->itemA)['qty']);
+        $this->assertSame(0, $this->repoA->bump($this->itemB), 'another company row is not touched');
+        $this->assertSame(0, (int) $this->rowB()['qty']);
+    }
+
+    public function test_scoped_increment_rejects_bad_columns(): void
+    {
+        foreach (['id', 'company_id', 'qty; DROP TABLE x', "qty\n", 'qty`', ''] as $col) {
+            try {
+                $this->repoA->bump($this->itemA, $col);
+                $this->fail('Accepted column ' . $col);
+            } catch (\InvalidArgumentException) {
+                $this->addToAssertionCount(1);
+            }
+        }
+        $this->assertSame(0, (int) $this->repoA->one($this->itemA)['qty']);
     }
 }

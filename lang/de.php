@@ -449,4 +449,18 @@ return [
     'security.err_locked' => 'Zu viele Versuche. Bitte versuche es in 15 Minuten erneut.',
     'admin.reset_2fa' => '2FA zurücksetzen',
     'admin.reset_2fa_hint' => 'Entfernt die Zwei-Faktor-Anmeldung und die Backup-Codes. Die Person richtet sie bei der nächsten Anmeldung neu ein.',
+    // Task 13: numbering
+    'settings.err_num_no_counter' => 'Es fehlt ein Zähler, z. B. {NNN}. Ohne Zähler wären Nummern doppelt.',
+    'settings.err_num_multiple_counters' => 'Es darf nur ein Zähler vorkommen ({N}, {NN}, {NNN} …).',
+    'settings.err_num_unknown_token' => 'Unbekannter Platzhalter. Erlaubt sind {YYYY}, {YY}, {MM}, {DD} und der Zähler {NNN}. Groß- und Kleinschreibung beachten.',
+    'settings.err_num_unbalanced' => 'Die geschweiften Klammern passen nicht zusammen. Jedes { braucht ein } und umgekehrt.',
+    'settings.err_num_too_short' => 'Bitte gib ein Format ein.',
+    'settings.err_num_too_long' => 'Das Format darf höchstens 60 Zeichen lang sein.',
+    'settings.err_num_invalid_char' => 'Das Format enthält ein unzulässiges Zeichen (z. B. Zeilenumbruch).',
+    'settings.err_num_rendered_too_long' => 'Die fertige Nummer darf höchstens 40 Zeichen lang werden. Kürze den Text im Format.',
+    'settings.err_next_low' => 'Die nächste Nummer muss größer sein als die zuletzt vergebene. Vergebene Nummern lassen sich nicht erneut verwenden.',
+    'settings.err_next_range' => 'Die nächste Nummer muss eine ganze Zahl von 1 bis 9999999999 sein.',
+    'settings.note_skips_numbers' => 'Hinweis: Die Nummern dazwischen werden übersprungen.',
+    'settings.numbers_next_hint' => 'Du kannst die nächste Nummer nur erhöhen, nie senken.',
+    'settings.numbers_legend' => 'Platzhalter: {YYYY} = Jahr (2026), {YY} = Jahr kurz (26), {MM} = Monat, {DD} = Tag, {N} / {NNN} = Zähler (so viele N, so viele Stellen, mindestens). Genau ein Zähler ist Pflicht. Alles andere ist frei wählbarer Text, höchstens 60 Zeichen.',
 ];

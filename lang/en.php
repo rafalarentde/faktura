@@ -449,4 +449,18 @@ return [
     'security.err_locked' => 'Too many attempts. Please try again in 15 minutes.',
     'admin.reset_2fa' => 'Reset 2FA',
     'admin.reset_2fa_hint' => 'Removes two-factor sign-in and the backup codes. The person sets it up again at the next sign-in.',
+    // Task 13: numbering
+    'settings.err_num_no_counter' => 'A counter is missing, e.g. {NNN}. Without it, numbers would repeat.',
+    'settings.err_num_multiple_counters' => 'Only one counter is allowed ({N}, {NN}, {NNN} …).',
+    'settings.err_num_unknown_token' => 'Unknown placeholder. Allowed are {YYYY}, {YY}, {MM}, {DD} and the counter {NNN}. Upper and lower case matter.',
+    'settings.err_num_unbalanced' => 'The curly braces do not match. Every { needs a } and the other way round.',
+    'settings.err_num_too_short' => 'Please enter a format.',
+    'settings.err_num_too_long' => 'The format may have at most 60 characters.',
+    'settings.err_num_invalid_char' => 'The format contains a character that is not allowed (e.g. a line break).',
+    'settings.err_num_rendered_too_long' => 'The finished number may have at most 40 characters. Shorten the text in the format.',
+    'settings.err_next_low' => 'The next number must be higher than the last one issued. Issued numbers cannot be used again.',
+    'settings.err_next_range' => 'The next number must be a whole number from 1 to 9999999999.',
+    'settings.note_skips_numbers' => 'Note: the numbers in between will be skipped.',
+    'settings.numbers_next_hint' => 'You can only raise the next number, never lower it.',
+    'settings.numbers_legend' => 'Placeholders: {YYYY} = year (2026), {YY} = short year (26), {MM} = month, {DD} = day, {N} / {NNN} = counter (as many N, as many digits at least). Exactly one counter is required. Everything else is free text, at most 60 characters.',
 ];

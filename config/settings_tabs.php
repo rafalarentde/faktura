@@ -14,6 +14,7 @@ declare(strict_types=1);
  */
 return [
     ['key' => 'company', 'label' => 'settings.tab_company', 'path' => '/settings/company', 'owner_only' => true],
+    ['key' => 'numbers', 'label' => 'settings.tab_numbering', 'path' => '/settings/numbers', 'owner_only' => true],
     ['key' => 'dunning', 'label' => 'settings.tab_dunning', 'path' => '/settings/dunning', 'owner_only' => true],
     ['key' => 'mail', 'label' => 'settings.tab_mail', 'path' => '/settings/mail', 'owner_only' => true],
     ['key' => 'security', 'label' => 'settings.tab_security', 'path' => '/settings/security', 'owner_only' => false],

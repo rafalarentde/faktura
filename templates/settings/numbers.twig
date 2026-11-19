@@ -1,0 +1,59 @@
+{% extends 'layout.twig' %}
+{% block title %}{{ t('settings.title') }}{% endblock %}
+{% block subtitle %}{{ company_name }}{% endblock %}
+{% block content %}
+    {% include 'settings/_tabs.twig' %}
+    <section class="panel">
+        {% if saved %}<p class="notice" role="status">{{ t('settings.saved') }}</p>{% endif %}
+        {% if has_errors %}<p class="warn" role="alert">{{ t('settings.err_summary') }}</p>{% endif %}
+        <form class="form-grid" method="post" action="/settings/numbers">
+            {{ csrf_field() }}
+            <p class="hint">{{ t('settings.numbering_hint') }}</p>
+            <table class="table nums">
+                <thead>
+                    <tr>
+                        <th>{{ t('settings.numbering_type') }}</th>
+                        <th>{{ t('settings.numbering_format') }}</th>
+                        <th>{{ t('settings.numbering_next') }}</th>
+                        <th>{{ t('settings.numbering_reset_yearly') }}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in rows %}
+                        <tr>
+                            <td>{{ t(row.label) }}</td>
+                            <td class="wrap">
+                                <div class="field">
+                                    <label class="sr-only" for="n-pattern-{{ row.type }}">{{ t('settings.numbering_format') }}: {{ t(row.label) }}</label>
+                                    <input class="input-mono" id="n-pattern-{{ row.type }}" name="pattern_{{ row.type }}" value="{{ row.pattern }}" maxlength="{{ max_pattern }}" autocomplete="off" spellcheck="false" required>
+                                    <p class="hint">{{ t('settings.next_number') }}: <b class="mono">{{ row.preview }}</b></p>
+                                    {% if row.error %}<p class="warn" role="alert">{{ row.error }}</p>{% endif %}
+                                    {% for w in row.warnings %}<p class="warn-soft" role="status">{{ w }}</p>{% endfor %}
+                                    {% for n in row.notes %}<p class="warn-soft" role="status">{{ n }}</p>{% endfor %}
+                                </div>
+                            </td>
+                            <td class="wrap">
+                                <div class="field">
+                                    <label class="sr-only" for="n-next-{{ row.type }}">{{ t('settings.numbering_next') }}: {{ t(row.label) }}</label>
+                                    <input class="input-mono" id="n-next-{{ row.type }}" name="next_{{ row.type }}" value="{{ row.next }}" inputmode="numeric" maxlength="10" autocomplete="off">
+                                    <input type="hidden" name="next_shown_{{ row.type }}" value="{{ row.next_shown }}">
+                                    {% if row.next_error %}<p class="warn" role="alert">{{ row.next_error }}</p>{% endif %}
+                                </div>
+                            </td>
+                            <td>
+                                <label class="toggle">
+                                    <input type="checkbox" name="reset_{{ row.type }}" value="1"{% if row.reset %} checked{% endif %}>
+                                    <span><span>{{ t('settings.reset_counter_yearly') }}</span></span>
+                                </label>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            <p class="hint">{{ t('settings.number_format_hint') }}</p>
+            <p class="hint">{{ t('settings.numbers_legend') }}</p>
+            <p class="hint">{{ t('settings.numbers_next_hint') }}</p>
+            <div class="form-actions"><button class="btn btn-primary" type="submit">{{ t('common.save') }}</button></div>
+        </form>
+    </section>
+{% endblock %}

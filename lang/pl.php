@@ -449,4 +449,18 @@ return [
     'security.err_locked' => 'Zbyt wiele prób. Spróbuj ponownie za 15 minut.',
     'admin.reset_2fa' => 'Zresetuj 2FA',
     'admin.reset_2fa_hint' => 'Usuwa uwierzytelnianie dwuskładnikowe i kody zapasowe. Użytkownik skonfiguruje je ponownie przy następnym logowaniu.',
+    // Task 13: numbering
+    'settings.err_num_no_counter' => 'Brakuje licznika, np. {NNN}. Bez niego numery by się powtarzały.',
+    'settings.err_num_multiple_counters' => 'W formacie może być tylko jeden licznik ({N}, {NN}, {NNN} …).',
+    'settings.err_num_unknown_token' => 'Nieznany znacznik. Dozwolone: {YYYY}, {YY}, {MM}, {DD} oraz licznik {NNN}. Liczy się wielkość liter.',
+    'settings.err_num_unbalanced' => 'Nawiasy klamrowe nie pasują do siebie. Każde { wymaga } i odwrotnie.',
+    'settings.err_num_too_short' => 'Wpisz format numeru.',
+    'settings.err_num_too_long' => 'Format może mieć najwyżej 60 znaków.',
+    'settings.err_num_invalid_char' => 'Format zawiera niedozwolony znak (np. koniec wiersza).',
+    'settings.err_num_rendered_too_long' => 'Gotowy numer może mieć najwyżej 40 znaków. Skróć tekst w formacie.',
+    'settings.err_next_low' => 'Następny numer musi być większy niż ostatnio nadany. Nadanych numerów nie można użyć ponownie.',
+    'settings.err_next_range' => 'Następny numer musi być liczbą całkowitą od 1 do 9999999999.',
+    'settings.note_skips_numbers' => 'Uwaga: numery pomiędzy zostaną pominięte.',
+    'settings.numbers_next_hint' => 'Następny numer można tylko zwiększyć, nigdy zmniejszyć.',
+    'settings.numbers_legend' => 'Znaczniki: {YYYY} = rok (2026), {YY} = rok skrócony (26), {MM} = miesiąc, {DD} = dzień, {N} / {NNN} = licznik (tyle N, ile minimalnie cyfr). Dokładnie jeden licznik jest wymagany. Reszta to dowolny tekst, najwyżej 60 znaków.',
 ];
