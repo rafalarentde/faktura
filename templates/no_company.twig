@@ -2,9 +2,12 @@
 {% block title %}{{ t('company.none_title') }}{% endblock %}
 {% block content %}
     <h1>{{ t('company.none_title') }}</h1>
-    <p>{{ t('company.none_text') }}</p>
-    <form method="post" action="/logout">
+    <p class="auth-sub">{{ t('company.none_text') }}</p>
+    {% if shell().is_admin %}
+        <a class="btn btn-primary btn-wide" href="/admin/companies">{{ t('nav.admin') }}</a>
+    {% endif %}
+    <form class="auth-secondary" method="post" action="/logout">
         {{ csrf_field() }}
-        <button type="submit">{{ t('login.logout') }}</button>
+        <button class="link-button" type="submit">{{ t('login.logout') }}</button>
     </form>
 {% endblock %}

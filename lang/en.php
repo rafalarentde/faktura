@@ -48,7 +48,6 @@ return [
 
     'company.none_title' => 'No company assigned',
     'company.none_text' => 'No company has been assigned to your account yet. Please contact the administrator.',
-    'home.signed_in_as' => 'Signed in as {email}',
 
     'common.save' => 'Save',
 
@@ -304,4 +303,29 @@ return [
     'admin.err_unknown_user' => 'This user does not exist. Enter an initial password to create them.',
     'admin.err_password_short' => 'The password needs at least 12 characters.',
     'admin.err_duplicate_member' => 'This user already belongs to the company.',
+
+    // Task 9: layout, switchers, dashboard shell
+    'nav.menu' => 'Menu',
+    'nav.main' => 'Main navigation',
+    'nav.switch_company' => 'Switch company',
+    'nav.choose_company' => 'Choose company',
+    'nav.plan_named' => '{plan} plan',
+    'nav.access_until' => 'until {date}',
+    'theme.label' => 'Theme',
+    'theme.light' => 'Light',
+    'theme.dark' => 'Dark',
+    'lang.label' => 'Language',
+    'lang.de' => 'Deutsch',
+    'lang.pl' => 'Polski',
+    'lang.en' => 'English',
+    'dash.welcome_title' => 'Welcome to Faktura',
+    'dash.welcome_text' => 'Soon you will see open, overdue and paid invoices here at a glance.',
+    'dash.partner_label' => 'Partner notice',
+    'company.choose_title' => 'Choose company',
+    'company.choose_subtitle' => 'Which company do you want to work with?',
+    'company.current' => 'Current',
+    'company.choose_action' => 'Select',
+    'error.bad_request' => 'Invalid request.',
+    'admin.actions' => 'Actions',
+    'admin.no_companies' => 'No companies yet.',
 ];

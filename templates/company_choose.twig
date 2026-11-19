@@ -1,0 +1,25 @@
+{% extends 'layout.twig' %}
+{% import '_icons.twig' as icons %}
+{% block title %}{{ t('company.choose_title') }}{% endblock %}
+{% block subtitle %}{{ t('company.choose_subtitle') }}{% endblock %}
+{% block content %}
+    {% if companies is empty %}
+        <div class="card"><p>{{ t('company.none_text') }}</p></div>
+    {% else %}
+        <ul class="choose-list">
+            {% for c in companies %}
+                <li>
+                    <form class="choose-item{{ c.id == selected ? ' is-selected' }}" method="post" action="/company/switch">
+                        {{ csrf_field() }}
+                        <input type="hidden" name="company_id" value="{{ c.id }}">
+                        <span class="choose-name">{{ c.name }}</span>
+                        {% if c.id == selected %}
+                            <span class="chip chip-ok">{{ icons.icon('check') }}{{ t('company.current') }}</span>
+                        {% endif %}
+                        <button type="submit" class="btn{{ c.id == selected ? ' btn-ghost' : ' btn-primary' }}">{{ t('company.choose_action') }}</button>
+                    </form>
+                </li>
+            {% endfor %}
+        </ul>
+    {% endif %}
+{% endblock %}

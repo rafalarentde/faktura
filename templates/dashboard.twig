@@ -1,0 +1,17 @@
+{% extends 'layout.twig' %}
+{% block title %}{{ t('dash.title') }}{% endblock %}
+{% block subtitle %}{{ shell().company.name }}{% endblock %}
+{% block content %}
+    <section class="card empty-state">
+        <h2>{{ t('dash.welcome_title') }}</h2>
+        <p>{{ t('dash.welcome_text') }}</p>
+    </section>
+{% endblock %}
+{% block promo %}
+    <aside class="promo" aria-label="{{ t('dash.partner_label') }}">
+        <div>
+            <b>{{ t('dash.partner_title') }}</b>
+            <span class="hint">{{ t('dash.partner_text') }}</span>
+        </div>
+    </aside>
+{% endblock %}

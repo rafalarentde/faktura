@@ -48,7 +48,6 @@ return [
 
     'company.none_title' => 'Keine Firma zugewiesen',
     'company.none_text' => 'Deinem Konto ist noch keine Firma zugewiesen. Bitte wende dich an den Administrator.',
-    'home.signed_in_as' => 'Angemeldet als {email}',
 
     'common.save' => 'Speichern',
 
@@ -304,4 +303,29 @@ return [
     'admin.err_unknown_user' => 'Diesen Nutzer gibt es nicht. Gib ein Anfangspasswort an, um ihn anzulegen.',
     'admin.err_password_short' => 'Das Passwort braucht mindestens 12 Zeichen.',
     'admin.err_duplicate_member' => 'Dieser Nutzer gehört schon zur Firma.',
+
+    // Task 9: layout, switchers, dashboard shell
+    'nav.menu' => 'Menü',
+    'nav.main' => 'Hauptnavigation',
+    'nav.switch_company' => 'Firma wechseln',
+    'nav.choose_company' => 'Firma wählen',
+    'nav.plan_named' => 'Plan {plan}',
+    'nav.access_until' => 'bis {date}',
+    'theme.label' => 'Farbschema',
+    'theme.light' => 'Hell',
+    'theme.dark' => 'Dunkel',
+    'lang.label' => 'Sprache',
+    'lang.de' => 'Deutsch',
+    'lang.pl' => 'Polski',
+    'lang.en' => 'English',
+    'dash.welcome_title' => 'Willkommen bei Faktura',
+    'dash.welcome_text' => 'Hier siehst du bald offene, überfällige und bezahlte Rechnungen auf einen Blick.',
+    'dash.partner_label' => 'Partner-Hinweis',
+    'company.choose_title' => 'Firma wählen',
+    'company.choose_subtitle' => 'Mit welcher Firma möchtest du arbeiten?',
+    'company.current' => 'Aktuell',
+    'company.choose_action' => 'Auswählen',
+    'error.bad_request' => 'Ungültige Anfrage.',
+    'admin.actions' => 'Aktionen',
+    'admin.no_companies' => 'Noch keine Firmen angelegt.',
 ];

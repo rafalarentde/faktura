@@ -48,7 +48,6 @@ return [
 
     'company.none_title' => 'Brak przypisanej firmy',
     'company.none_text' => 'Do Twojego konta nie przypisano jeszcze żadnej firmy. Skontaktuj się z administratorem.',
-    'home.signed_in_as' => 'Zalogowano jako {email}',
 
     'common.save' => 'Zapisz',
 
@@ -304,4 +303,29 @@ return [
     'admin.err_unknown_user' => 'Taki użytkownik nie istnieje. Podaj hasło początkowe, aby go utworzyć.',
     'admin.err_password_short' => 'Hasło musi mieć co najmniej 12 znaków.',
     'admin.err_duplicate_member' => 'Ten użytkownik już należy do firmy.',
+
+    // Task 9: layout, switchers, dashboard shell
+    'nav.menu' => 'Menu',
+    'nav.main' => 'Nawigacja główna',
+    'nav.switch_company' => 'Zmień firmę',
+    'nav.choose_company' => 'Wybierz firmę',
+    'nav.plan_named' => 'Plan {plan}',
+    'nav.access_until' => 'do {date}',
+    'theme.label' => 'Motyw',
+    'theme.light' => 'Jasny',
+    'theme.dark' => 'Ciemny',
+    'lang.label' => 'Język',
+    'lang.de' => 'Deutsch',
+    'lang.pl' => 'Polski',
+    'lang.en' => 'English',
+    'dash.welcome_title' => 'Witaj w Fakturze',
+    'dash.welcome_text' => 'Wkrótce zobaczysz tu otwarte, zaległe i opłacone faktury w jednym miejscu.',
+    'dash.partner_label' => 'Informacja partnera',
+    'company.choose_title' => 'Wybierz firmę',
+    'company.choose_subtitle' => 'Z którą firmą chcesz pracować?',
+    'company.current' => 'Bieżąca',
+    'company.choose_action' => 'Wybierz',
+    'error.bad_request' => 'Nieprawidłowe żądanie.',
+    'admin.actions' => 'Akcje',
+    'admin.no_companies' => 'Nie ma jeszcze żadnych firm.',
 ];

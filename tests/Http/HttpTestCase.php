@@ -80,6 +80,17 @@ abstract class HttpTestCase extends TestCase
         return ['id' => $id, 'secret' => $secret];
     }
 
+    protected function createCompany(string $name = 'Muster GmbH'): int
+    {
+        $this->db->exec('INSERT INTO companies (name) VALUES (?)', [$name]);
+        return $this->db->lastId();
+    }
+
+    protected function addMember(int $userId, int $companyId, string $role = 'owner'): void
+    {
+        $this->db->exec('INSERT INTO company_users (company_id, user_id, role) VALUES (?, ?, ?)', [$companyId, $userId, $role]);
+    }
+
     protected function code(string $secret, ?int $at = null): string
     {
         return Otp::createFromSecret($secret)->at($at ?? $this->now);

@@ -4,8 +4,10 @@ declare(strict_types=1);
 use App\Core\App;
 use App\Http\AdminController;
 use App\Http\AuthController;
-use App\Http\HomeController;
+use App\Http\DashboardController;
 use App\Http\Middleware\RequireAdmin;
+use App\Http\Middleware\RequireCompany;
+use App\Http\SwitchController;
 use FastRoute\RouteCollector;
 
 /*
@@ -22,7 +24,13 @@ return function (App $app, RouteCollector $r): void {
     $r->addRoute('GET', '/2fa/setup', $app->protect([AuthController::class, 'showSetup']));
     $r->addRoute('POST', '/2fa/setup', $app->protect([AuthController::class, 'confirmSetup']));
 
-    $r->addRoute('GET', '/', $app->protect([HomeController::class, 'index']));
+    $r->addRoute('GET', '/', $app->protect([DashboardController::class, 'index'], [RequireCompany::class]));
+
+    // Shell switchers. /lang is open so the login page can switch language too. The company
+    // chooser must not use RequireCompany (RequireCompany redirects there).
+    $r->addRoute('POST', '/lang', $app->open([SwitchController::class, 'language']));
+    $r->addRoute('GET', RequireCompany::CHOOSE_PATH, $app->protect([SwitchController::class, 'choose']));
+    $r->addRoute('POST', '/company/switch', $app->protect([SwitchController::class, 'switch']));
 
     // Administration: every route is admin-only; admins need no company.
     $admin = fn (string $method) => $app->protect([AdminController::class, $method], [RequireAdmin::class]);

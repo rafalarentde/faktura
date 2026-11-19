@@ -1,55 +1,61 @@
-{% extends '_auth_base.twig' %}
+{% extends 'layout.twig' %}
+{% import '_icons.twig' as icons %}
 {% block title %}{{ t('admin.title') }}{% endblock %}
+{% block subtitle %}{{ t('admin.subtitle') }}{% endblock %}
+{% block actions %}<a class="btn btn-primary" href="/admin/companies/new">{{ icons.icon('plus') }}{{ t('admin.new_company') }}</a>{% endblock %}
 {% block content %}
-    <header>
-        <h1>{{ t('admin.title') }}</h1>
-        <p>{{ t('admin.subtitle') }}</p>
-        <p><a href="/admin/companies/new">{{ t('admin.new_company') }}</a></p>
-    </header>
-    {% if error %}<p role="alert">{{ error }}</p>{% endif %}
-    <table>
-        <thead>
-            <tr>
-                <th>{{ t('admin.col_company') }}</th>
-                <th>{{ t('admin.col_plan') }}</th>
-                <th>{{ t('admin.col_until') }}</th>
-                <th>{{ t('admin.col_users') }}</th>
-                <th>{{ t('admin.col_access') }}</th>
-                <th></th>
-            </tr>
-        </thead>
-        <tbody>
-        {% for c in companies %}
-            <tr>
-                <td><a href="/admin/companies/{{ c.id }}">{{ c.name }}</a></td>
-                <td>{{ c.plan }}</td>
-                <td>{{ c.access_until ? c.access_until|slice(0, 10) : '' }}</td>
-                <td>{{ c.user_count }}</td>
-                <td>
-                    {% if c.access_status == 'active' %}{{ t('admin.status_active') }}
-                    {% elseif c.access_status == 'trial' %}{{ t('admin.status_trial') }}
-                    {% else %}{{ t('admin.status_suspended') }}{% endif %}
-                </td>
-                <td>
-                    {% if c.access_status != 'active' %}
-                    <form method="post" action="/admin/companies/{{ c.id }}/access">
-                        {{ csrf_field() }}
-                        <input type="hidden" name="action" value="activate">
-                        <input type="date" name="until" value="{{ default_until }}" aria-label="{{ t('admin.until_label') }}">
-                        <button type="submit">{{ t('admin.activate') }}</button>
-                    </form>
-                    {% endif %}
-                    {% if c.access_status != 'suspended' %}
-                    <form method="post" action="/admin/companies/{{ c.id }}/access">
-                        {{ csrf_field() }}
-                        <input type="hidden" name="action" value="suspend">
-                        <button type="submit">{{ t('admin.block') }}</button>
-                    </form>
-                    {% endif %}
-                </td>
-            </tr>
-        {% endfor %}
-        </tbody>
-    </table>
-    <p>{{ t('admin.hint') }}</p>
+    {% if error %}<p class="warn" role="alert">{{ error }}</p>{% endif %}
+    <div class="panel">
+        <div class="tbl-wrap">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>{{ t('admin.col_company') }}</th>
+                        <th>{{ t('admin.col_plan') }}</th>
+                        <th>{{ t('admin.col_until') }}</th>
+                        <th class="r">{{ t('admin.col_users') }}</th>
+                        <th>{{ t('admin.col_access') }}</th>
+                        <th><span class="sr-only">{{ t('admin.actions') }}</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for c in companies %}
+                    <tr>
+                        <td class="wrap"><a class="strong-link" href="/admin/companies/{{ c.id }}">{{ c.name }}</a></td>
+                        <td>{{ c.plan }}</td>
+                        <td class="num">{{ c.access_until ? c.access_until|slice(0, 10) : '—' }}</td>
+                        <td class="r num">{{ c.user_count }}</td>
+                        <td>
+                            {% if c.access_status == 'active' %}<span class="chip chip-ok">{{ t('admin.status_active') }}</span>
+                            {% elseif c.access_status == 'trial' %}<span class="chip chip-sent">{{ t('admin.status_trial') }}</span>
+                            {% else %}<span class="chip chip-late">{{ t('admin.status_suspended') }}</span>{% endif %}
+                        </td>
+                        <td class="r">
+                            <div class="row-actions">
+                                {% if c.access_status != 'active' %}
+                                <form class="inline-form" method="post" action="/admin/companies/{{ c.id }}/access">
+                                    {{ csrf_field() }}
+                                    <input type="hidden" name="action" value="activate">
+                                    <input class="input-date" type="date" name="until" value="{{ default_until }}" aria-label="{{ t('admin.until_label') }}">
+                                    <button class="btn btn-primary btn-sm" type="submit">{{ t('admin.activate') }}</button>
+                                </form>
+                                {% endif %}
+                                {% if c.access_status != 'suspended' %}
+                                <form class="inline-form" method="post" action="/admin/companies/{{ c.id }}/access">
+                                    {{ csrf_field() }}
+                                    <input type="hidden" name="action" value="suspend">
+                                    <button class="btn btn-ghost btn-sm" type="submit">{{ t('admin.block') }}</button>
+                                </form>
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                {% else %}
+                    <tr><td colspan="6" class="empty-row">{{ t('admin.no_companies') }}</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <p class="hint">{{ t('admin.hint') }}</p>
 {% endblock %}

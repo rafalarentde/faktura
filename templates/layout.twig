@@ -1,0 +1,112 @@
+{#
+  Application shell: sidebar (brand, company box, nav, plan box, user, language + theme switchers)
+  and the main area with the page head.
+
+  Blocks for pages:
+    title     <title> text and, by default, the <h1>
+    heading   <h1> text (defaults to the title block)
+    subtitle  optional line under the <h1> (rendered only when the page defines it)
+    actions   optional buttons right of the heading (rendered only when defined)
+    content   page body
+    promo     partner banner slot; rendered only when config promo_enabled is truthy
+
+  Layout data comes from the shell() Twig function (App\Http\Shell), so controllers pass
+  nothing extra. No inline style/script/event handlers anywhere (CSP).
+#}
+{% import '_icons.twig' as icons %}
+{% set s = shell() %}
+<!doctype html>
+<html lang="{{ current_lang() }}">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex">
+    <meta name="color-scheme" content="light dark">
+    <title>{% block title %}{% endblock %} · Faktura</title>
+    <link rel="stylesheet" href="{{ asset('/assets/app.css') }}">
+    <script src="{{ asset('/assets/app.js') }}"></script>
+</head>
+<body>
+<div class="app">
+    <aside class="side" id="side">
+        <div class="side-top">
+            <a class="brand" href="/">
+                <span class="brand-mark" aria-hidden="true">F</span>
+                <span class="brand-text"><b>Faktura</b><small>{{ t('nav.byline') }}</small></span>
+            </a>
+            <button type="button" class="nav-toggle" data-nav-toggle aria-controls="side-panel" aria-expanded="false" aria-label="{{ t('nav.menu') }}">{{ icons.icon('menu') }}</button>
+        </div>
+        <div class="side-panel" id="side-panel">
+            {% if s.company %}
+                <div class="company-box">
+                    <small>{{ t('nav.company') }}</small>
+                    <b>{{ s.company.name }}</b>
+                    {% if s.company_count > 1 %}
+                        <a class="company-switch" href="/company/choose">{{ icons.icon('swap') }}<span>{{ t('nav.switch_company') }}</span></a>
+                    {% endif %}
+                </div>
+            {% elseif s.company_count > 0 %}
+                <div class="company-box">
+                    <small>{{ t('nav.company') }}</small>
+                    <a class="company-switch" href="/company/choose">{{ icons.icon('swap') }}<span>{{ t('nav.choose_company') }}</span></a>
+                </div>
+            {% endif %}
+
+            <nav class="nav" aria-label="{{ t('nav.main') }}">
+                {% for item in s.nav %}
+                    {% if item.separator ?? false %}
+                        <div class="nav-sep" role="separator"></div>
+                    {% else %}
+                        <a class="nav-item{{ item.active ? ' is-active' }}" href="{{ item.path }}" data-nav="{{ item.key }}"{% if item.active %} aria-current="page"{% endif %}>{{ icons.icon(item.icon) }}<span>{{ t(item.label) }}</span></a>
+                    {% endif %}
+                {% endfor %}
+            </nav>
+
+            <div class="side-spacer"></div>
+
+            {% if s.company %}
+                <div class="plan-box">
+                    <b>{{ s.company.plan == 'free' ? t('nav.plan_free') : t('nav.plan_named', {plan: s.company.plan}) }}</b>
+                    <span class="plan-status plan-{{ s.company.access_status }}">
+                        {% if s.company.access_status == 'active' %}{{ t('admin.status_active') }}
+                        {% elseif s.company.access_status == 'trial' %}{{ t('admin.status_trial') }}
+                        {% else %}{{ t('admin.status_suspended') }}{% endif %}
+                        {%- if s.company.access_until and s.company.access_status != 'suspended' %} · {{ t('nav.access_until', {date: s.company.access_until}) }}{% endif %}
+                    </span>
+                </div>
+            {% endif %}
+
+            {% if s.user %}
+                <div class="side-user">
+                    <span class="side-email" title="{{ s.user.email }}">{{ s.user.email }}</span>
+                    <form method="post" action="/logout">
+                        {{ csrf_field() }}
+                        <button type="submit" class="side-logout" title="{{ t('login.logout') }}">{{ icons.icon('logout') }}<span class="sr-only">{{ t('login.logout') }}</span></button>
+                    </form>
+                </div>
+            {% endif %}
+
+            <div class="tools">
+                {% include '_lang_switch.twig' with {back: current_path()} only %}
+                <div class="seg seg-dark" role="group" aria-label="{{ t('theme.label') }}">
+                    <button type="button" data-theme-set="light" title="{{ t('theme.light') }}" aria-label="{{ t('theme.light') }}">{{ icons.icon('sun') }}</button>
+                    <button type="button" data-theme-set="dark" title="{{ t('theme.dark') }}" aria-label="{{ t('theme.dark') }}">{{ icons.icon('moon') }}</button>
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <main class="main" id="main">
+        <header class="page-head">
+            <div>
+                <h1>{% block heading %}{{ block('title') }}{% endblock %}</h1>
+                {% if block('subtitle') is defined %}<p class="page-sub">{{ block('subtitle') }}</p>{% endif %}
+            </div>
+            {% if block('actions') is defined %}<div class="page-actions">{{ block('actions') }}</div>{% endif %}
+        </header>
+        {% block content %}{% endblock %}
+        {% if s.promo %}{% block promo %}{% endblock %}{% endif %}
+    </main>
+</div>
+</body>
+</html>

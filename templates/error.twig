@@ -2,9 +2,9 @@
 {% block title %}{{ status }}{% endblock %}
 {% block content %}
     <h1>{{ status }}</h1>
-    <p>{{ message }}</p>
+    <p class="auth-sub">{{ message }}</p>
     {% if detail %}
-        <pre>{{ detail }}</pre>
+        <pre class="error-detail">{{ detail }}</pre>
     {% endif %}
-    <p><a href="/">{{ t('error.back_home') }}</a></p>
+    <a class="btn btn-primary btn-wide" href="/">{{ t('error.back_home') }}</a>
 {% endblock %}

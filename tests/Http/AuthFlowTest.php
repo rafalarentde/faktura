@@ -53,6 +53,7 @@ final class AuthFlowTest extends HttpTestCase
     public function test_valid_totp_completes_login(): void
     {
         ['id' => $id, 'secret' => $secret] = $this->createUser();
+        $this->addMember($id, $this->createCompany()); // the start page needs a company
         $this->loginFully($secret);
         $this->assertSame('full', $this->app->session()->loginStage());
         $this->assertSame($id, $this->app->session()->userId());
@@ -255,6 +256,7 @@ final class AuthFlowTest extends HttpTestCase
     public function test_2fa_setup_flow(): void
     {
         ['id' => $id] = $this->createUser(totp: false);
+        $this->addMember($id, $this->createCompany()); // the start page needs a company
         $this->loginPassword();
 
         $page = $this->get('/2fa/setup');
@@ -338,7 +340,8 @@ final class AuthFlowTest extends HttpTestCase
 
     public function test_idle_timeout_expires_session(): void
     {
-        ['secret' => $secret] = $this->createUser();
+        ['id' => $id, 'secret' => $secret] = $this->createUser();
+        $this->addMember($id, $this->createCompany()); // the start page needs a company
         $this->loginFully($secret);
         $this->now += 7200;
         $this->assertSame(200, $this->get('/')->status);
@@ -349,7 +352,8 @@ final class AuthFlowTest extends HttpTestCase
 
     public function test_absolute_lifetime_expires_session(): void
     {
-        ['secret' => $secret] = $this->createUser();
+        ['id' => $id, 'secret' => $secret] = $this->createUser();
+        $this->addMember($id, $this->createCompany()); // the start page needs a company
         $this->loginFully($secret);
         for ($h = 1; $h <= 11; $h++) {
             $this->now += 3600;

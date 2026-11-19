@@ -2,20 +2,20 @@
 {% block title %}{{ t('login.title') }}{% endblock %}
 {% block content %}
     <h1>{{ t('login.title') }}</h1>
-    <p>{{ t('login.subtitle') }}</p>
+    <p class="auth-sub">{{ t('login.subtitle') }}</p>
     {% if error %}
-        <p class="error" role="alert">{{ t(error) }}</p>
+        <p class="warn" role="alert">{{ t(error) }}</p>
     {% endif %}
-    <form method="post" action="/login">
+    <form class="form-grid form-tight" method="post" action="/login">
         {{ csrf_field() }}
-        <p>
+        <div class="field">
             <label for="email">{{ t('login.email') }}</label>
             <input id="email" name="email" type="email" value="{{ email }}" autocomplete="username" required autofocus>
-        </p>
-        <p>
+        </div>
+        <div class="field">
             <label for="password">{{ t('login.password') }}</label>
             <input id="password" name="password" type="password" autocomplete="current-password" required>
-        </p>
-        <button type="submit">{{ t('login.next') }}</button>
+        </div>
+        <button class="btn btn-primary btn-wide" type="submit">{{ t('login.next') }}</button>
     </form>
 {% endblock %}

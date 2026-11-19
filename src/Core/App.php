@@ -9,6 +9,7 @@ use App\Auth\RateLimiter;
 use App\Auth\Totp;
 use App\Auth\UserService;
 use App\Http\Middleware\RequireLogin;
+use App\Http\Shell;
 use App\I18n\Translator;
 use App\Tenant\AccessDenied;
 use App\Tenant\CompanyContext;
@@ -26,6 +27,10 @@ use Twig\TwigFunction;
  */
 final class App
 {
+    /** Sent with every HTML response that does not set its own policy. No inline script or style anywhere. */
+    public const CSP = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; "
+        . "form-action 'self'; frame-ancestors 'none'; base-uri 'self'";
+
     private string $root;
     private SessionStore $sessionStore;
     private \Closure $clock;
@@ -50,6 +55,8 @@ final class App
     /** @var array<string, mixed>|false|null null = not loaded yet, false = nobody */
     private array|false|null $currentUser = null;
     private CompanyContext|false|null $context = null;
+    /** @var array<string, mixed>|null */
+    private ?array $shell = null;
     private string $lang = Translator::FALLBACK;
 
     /**
@@ -76,6 +83,7 @@ final class App
         $this->csrf = null;
         $this->currentUser = null;
         $this->context = null;
+        $this->shell = null;
         $this->lang = Translator::FALLBACK;
         try {
             $this->session()->start();
@@ -237,6 +245,7 @@ final class App
     public function resetContext(): void
     {
         $this->context = null;
+        $this->shell = null;
     }
 
     private function resolveContext(): ?CompanyContext
@@ -292,6 +301,13 @@ final class App
         ));
         $twig->addFunction(new TwigFunction('asset', fn (string $path): string => $this->asset($path)));
         $twig->addFunction(new TwigFunction('current_lang', fn (): string => $this->lang));
+        // Path of the current GET request (for "redirect back" fields); '/' for other methods.
+        $twig->addFunction(new TwigFunction(
+            'current_path',
+            fn (): string => $this->request !== null && $this->request->method === 'GET' ? $this->request->path : '/'
+        ));
+        // Layout data (nav, user, company, promo) for templates/layout.twig; once per request.
+        $twig->addFunction(new TwigFunction('shell', fn (): array => $this->shell ??= (new Shell($this))->data()));
         return $this->twig = $twig;
     }
 
@@ -364,6 +380,9 @@ final class App
             'Referrer-Policy' => 'same-origin',
             'Cache-Control' => 'no-store',
         ];
+        if (str_starts_with((string) ($r->headers['Content-Type'] ?? ''), 'text/html')) {
+            $r->headers += ['Content-Security-Policy' => self::CSP];
+        }
         return $r;
     }
 

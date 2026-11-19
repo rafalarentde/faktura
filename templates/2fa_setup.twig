@@ -3,33 +3,34 @@
 {% block content %}
     {% if backup_codes %}
         <h1>{{ t('twofa.backup_title') }}</h1>
-        <p>{{ t('twofa.backup_intro') }}</p>
+        <p class="auth-sub">{{ t('twofa.backup_intro') }}</p>
         <ol class="backup-codes">
             {% for code in backup_codes %}
                 <li><code>{{ code }}</code></li>
             {% endfor %}
         </ol>
-        <p><a href="/" autofocus>{{ t('twofa.continue') }}</a></p>
+        <a class="btn btn-primary btn-wide" href="/" autofocus>{{ t('twofa.continue') }}</a>
     {% else %}
         <h1>{{ t('twofa.setup_title') }}</h1>
-        <p>{{ t('twofa.setup_intro') }}</p>
+        <p class="auth-sub">{{ t('twofa.setup_intro') }}</p>
         {% if error %}
-            <p class="error" role="alert">{{ t(error) }}</p>
+            <p class="warn" role="alert">{{ t(error) }}</p>
         {% endif %}
-        <p><img src="{{ qr }}" alt="{{ t('twofa.qr_alt') }}" width="240" height="240"></p>
-        <p>{{ t('twofa.manual_secret') }} <code id="totp-secret">{{ secret }}</code></p>
-        <form method="post" action="/2fa/setup">
+        <div class="qr"><img src="{{ qr }}" alt="{{ t('twofa.qr_alt') }}" width="240" height="240"></div>
+        <p class="hint">{{ t('twofa.manual_secret') }}</p>
+        <p><code class="secret" id="totp-secret">{{ secret }}</code></p>
+        <form class="form-grid form-tight" method="post" action="/2fa/setup">
             {{ csrf_field() }}
-            <p>
+            <div class="field">
                 <label for="code">{{ t('login.two_factor') }}</label>
-                <input id="code" name="code" type="text" inputmode="numeric" pattern="[0-9 ]*" maxlength="7"
+                <input id="code" class="input-otp" name="code" type="text" inputmode="numeric" pattern="[0-9 ]*" maxlength="7"
                        autocomplete="one-time-code" required autofocus>
-            </p>
-            <button type="submit">{{ t('twofa.confirm') }}</button>
+            </div>
+            <button class="btn btn-primary btn-wide" type="submit">{{ t('twofa.confirm') }}</button>
         </form>
-        <form method="post" action="/logout">
+        <form class="auth-secondary" method="post" action="/logout">
             {{ csrf_field() }}
-            <button type="submit">{{ t('login.logout') }}</button>
+            <button class="link-button" type="submit">{{ t('login.logout') }}</button>
         </form>
     {% endif %}
 {% endblock %}
