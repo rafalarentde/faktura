@@ -12,15 +12,41 @@ use FastRoute\RouteCollector;
 
 final class AdminTest extends HttpTestCase
 {
-    private const ROUTES = [
-        ['GET', '/admin/companies'],
-        ['GET', '/admin/companies/new'],
-        ['POST', '/admin/companies'],
-        ['GET', '/admin/companies/1'],
-        ['POST', '/admin/companies/1/access'],
-        ['POST', '/admin/companies/1/users'],
-        ['POST', '/admin/companies/1/users/1/remove'],
-    ];
+    /**
+     * Every route registered under /admin, collected from config/routes.php itself, with
+     * placeholders replaced by ids that do not exist (so 403 must come before any 404).
+     *
+     * @return list<array{0: string, 1: string}>
+     */
+    private function adminRoutes(): array
+    {
+        $collector = new class (new \FastRoute\RouteParser\Std(), new \FastRoute\DataGenerator\GroupCountBased()) extends \FastRoute\RouteCollector {
+            /** @var list<array{0: string, 1: string}> */
+            public array $seen = [];
+
+            public function addRoute($httpMethod, $route, $handler): void
+            {
+                foreach ((array) $httpMethod as $m) {
+                    $this->seen[] = [$m, $route];
+                }
+                parent::addRoute($httpMethod, $route, $handler);
+            }
+        };
+        (require __DIR__ . '/../../config/routes.php')($this->app, $collector);
+        $out = [];
+        foreach ($collector->seen as [$method, $pattern]) {
+            if (str_starts_with($pattern, '/admin')) {
+                $path = (string) preg_replace_callback(
+                    '/\{(\w+)(?::[^}]*)?\}/',
+                    fn (array $m): string => $m[1] === 'uid' ? '998' : '999',
+                    $pattern
+                );
+                $out[] = [$method, $path];
+            }
+        }
+        $this->assertGreaterThanOrEqual(7, count($out), 'Admin routes not found in config/routes.php');
+        return $out;
+    }
 
     private function admin(string $email = 'admin@example.com'): array
     {
@@ -47,21 +73,39 @@ final class AdminTest extends HttpTestCase
         $this->loginFully($u['secret']);
         $c = $this->company();
         $this->db->exec('INSERT INTO company_users (company_id, user_id, role) VALUES (?, ?, ?)', [$c, $u['id'], 'owner']);
-        foreach (self::ROUTES as [$method, $path]) {
+        foreach ($this->adminRoutes() as [$method, $path]) {
             $r = $method === 'GET'
                 ? $this->get($path)
                 : $this->post($path, ['name' => 'Hack', 'action' => 'activate', 'email' => 'jan@example.com', 'role' => 'user']);
             $this->assertSame(403, $r->status, "$method $path");
             $this->assertStringNotContainsString('Acme', $r->body);
         }
+        // The real id and member too (ids above were nonexistent: 403 must precede 404).
+        foreach (["/admin/companies/$c/users", "/admin/companies/$c/access"] as $path) {
+            $this->assertSame(403, $this->post($path, ['action' => 'activate'])->status);
+        }
         $this->assertSame(1, (int) $this->db->one('SELECT COUNT(*) c FROM companies')['c']);
         $this->assertSame('suspended', $this->db->one('SELECT access_status s FROM companies WHERE id = ?', [$c])['s']);
         $this->assertSame([], $this->audit());
     }
 
+    public function test_state_change_rolls_back_when_audit_insert_fails(): void
+    {
+        $this->admin();
+        $c = $this->company('Acme', 'suspended');
+        $this->db->exec('DROP TABLE audit_log');
+        $this->assertSame(500, $this->post('/admin/companies', ['name' => 'New', 'plan' => 'free', 'access_status' => 'suspended'])->status);
+        $this->assertSame(500, $this->post("/admin/companies/$c/access", ['action' => 'activate', 'until' => '2027-01-01'])->status);
+        $this->assertSame(500, $this->post("/admin/companies/$c/users", ['email' => 'n@example.com', 'role' => 'user', 'password' => 'correct horse battery'])->status);
+        $this->assertSame(1, (int) $this->db->one('SELECT COUNT(*) c FROM companies')['c']);
+        $this->assertSame('suspended', $this->db->one('SELECT access_status s FROM companies WHERE id = ?', [$c])['s']);
+        $this->assertNull($this->db->one('SELECT id FROM users WHERE email = ?', ['n@example.com']));
+        $this->assertSame(0, (int) $this->db->one('SELECT COUNT(*) c FROM company_users')['c']);
+    }
+
     public function test_anonymous_is_redirected_to_login(): void
     {
-        foreach (self::ROUTES as [$method, $path]) {
+        foreach ($this->adminRoutes() as [$method, $path]) {
             $r = $method === 'GET' ? $this->get($path) : $this->post($path);
             $this->assertRedirect('/login', $r);
         }

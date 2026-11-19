@@ -40,18 +40,22 @@ final class AdminController
             'access_until' => trim((string) $request->input('access_until')),
         ];
         try {
-            $id = $this->companies->create($form);
+            // State change and audit row commit together or not at all.
+            $id = $this->app->db()->transaction(function () use ($form): int {
+                $id = $this->companies->create($form);
+                $company = $this->companies->find($id);
+                $this->audit($id, 'admin.company_create', [
+                    'company_id' => $id,
+                    'name' => $company['name'],
+                    'plan' => $company['plan'],
+                    'status' => $company['access_status'],
+                    'until' => $this->date($company['access_until']),
+                ]);
+                return $id;
+            });
         } catch (\InvalidArgumentException $e) {
             return $this->newPage($form, $this->message($e), 422);
         }
-        $company = $this->companies->find($id);
-        $this->audit($id, 'admin.company_create', [
-            'company_id' => $id,
-            'name' => $company['name'],
-            'plan' => $company['plan'],
-            'status' => $company['access_status'],
-            'until' => $this->date($company['access_until']),
-        ]);
         return Response::redirect('/admin/companies/' . $id);
     }
 
@@ -87,17 +91,19 @@ final class AdminController
             return $this->list($this->app->t('admin.err_status'), 422);
         }
         try {
-            $this->companies->setAccess($id, $status, $until);
+            $this->app->db()->transaction(function () use ($id, $status, $until, $company): void {
+                $this->companies->setAccess($id, $status, $until);
+                $this->audit($id, 'admin.access_change', [
+                    'company_id' => $id,
+                    'old_status' => $company['access_status'],
+                    'new_status' => $status,
+                    'old_until' => $this->date($company['access_until']),
+                    'new_until' => $until,
+                ]);
+            });
         } catch (\InvalidArgumentException $e) {
             return $this->list($this->message($e), 422);
         }
-        $this->audit($id, 'admin.access_change', [
-            'company_id' => $id,
-            'old_status' => $company['access_status'],
-            'new_status' => $status,
-            'old_until' => $this->date($company['access_until']),
-            'new_until' => $until,
-        ]);
         return Response::redirect('/admin/companies');
     }
 
@@ -112,17 +118,19 @@ final class AdminController
         $email = (string) $request->input('email');
         $role = (string) $request->input('role');
         try {
-            $userId = $this->companies->addUser($id, $email, $role, (string) $request->input('password'));
+            $this->app->db()->transaction(function () use ($id, $email, $role, $request): void {
+                $userId = $this->companies->addUser($id, $email, $role, (string) $request->input('password'));
+                // Never log the initial password.
+                $this->audit($id, 'admin.user_add', [
+                    'company_id' => $id,
+                    'user_id' => $userId,
+                    'email' => \App\Auth\UserService::normaliseEmail($email),
+                    'role' => $role,
+                ]);
+            });
         } catch (\InvalidArgumentException $e) {
             return $this->detail($company, $this->message($e), 422);
         }
-        // Never log the initial password.
-        $this->audit($id, 'admin.user_add', [
-            'company_id' => $id,
-            'user_id' => $userId,
-            'email' => \App\Auth\UserService::normaliseEmail($email),
-            'role' => $role,
-        ]);
         return Response::redirect('/admin/companies/' . $id);
     }
 
@@ -141,8 +149,10 @@ final class AdminController
         if (!$isMember) {
             return $this->notFound();
         }
-        $this->companies->removeUser($id, $uid);
-        $this->audit($id, 'admin.user_remove', ['company_id' => $id, 'user_id' => $uid]);
+        $this->app->db()->transaction(function () use ($id, $uid): void {
+            $this->companies->removeUser($id, $uid);
+            $this->audit($id, 'admin.user_remove', ['company_id' => $id, 'user_id' => $uid]);
+        });
         return Response::redirect('/admin/companies/' . $id);
     }
 
