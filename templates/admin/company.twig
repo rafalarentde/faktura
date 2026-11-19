@@ -1,0 +1,52 @@
+{% extends '_auth_base.twig' %}
+{% block title %}{{ company.name }}{% endblock %}
+{% block content %}
+    <h1>{{ company.name }}</h1>
+    <p>
+        {{ t('admin.col_plan') }}: {{ company.plan }} ·
+        {{ t('admin.col_access') }}:
+        {% if company.access_status == 'active' %}{{ t('admin.status_active') }}
+        {% elseif company.access_status == 'trial' %}{{ t('admin.status_trial') }}
+        {% else %}{{ t('admin.status_suspended') }}{% endif %}
+        {% if company.access_until %} · {{ t('admin.col_until') }}: {{ company.access_until|slice(0, 10) }}{% endif %}
+    </p>
+    {% if error %}<p role="alert">{{ error }}</p>{% endif %}
+
+    <h2>{{ t('admin.users_title') }}</h2>
+    {% if members is empty %}
+        <p>{{ t('admin.no_users') }}</p>
+    {% else %}
+    <table>
+        <thead><tr><th>{{ t('admin.email') }}</th><th>{{ t('admin.role') }}</th><th></th></tr></thead>
+        <tbody>
+        {% for m in members %}
+            <tr>
+                <td>{{ m.email }}</td>
+                <td>{{ m.role == 'owner' ? t('admin.role_owner') : t('admin.role_user') }}</td>
+                <td>
+                    <form method="post" action="/admin/companies/{{ company.id }}/users/{{ m.user_id }}/remove">
+                        {{ csrf_field() }}
+                        <button type="submit">{{ t('admin.remove') }}</button>
+                    </form>
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% endif %}
+
+    <h2>{{ t('admin.add_user') }}</h2>
+    <form method="post" action="/admin/companies/{{ company.id }}/users" autocomplete="off">
+        {{ csrf_field() }}
+        <p><label>{{ t('admin.email') }}<br><input type="email" name="email" required></label></p>
+        <p><label>{{ t('admin.role') }}<br>
+            <select name="role">
+                <option value="user">{{ t('admin.role_user') }}</option>
+                <option value="owner">{{ t('admin.role_owner') }}</option>
+            </select></label></p>
+        <p><label>{{ t('admin.initial_password') }}<br><input type="password" name="password" autocomplete="new-password"></label><br>
+            <small>{{ t('admin.initial_password_hint') }}</small></p>
+        <button type="submit">{{ t('admin.add_user') }}</button>
+    </form>
+    <p><a href="/admin/companies">{{ t('admin.back') }}</a></p>
+{% endblock %}

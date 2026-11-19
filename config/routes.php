@@ -2,8 +2,10 @@
 declare(strict_types=1);
 
 use App\Core\App;
+use App\Http\AdminController;
 use App\Http\AuthController;
 use App\Http\HomeController;
+use App\Http\Middleware\RequireAdmin;
 use FastRoute\RouteCollector;
 
 /*
@@ -21,4 +23,14 @@ return function (App $app, RouteCollector $r): void {
     $r->addRoute('POST', '/2fa/setup', $app->protect([AuthController::class, 'confirmSetup']));
 
     $r->addRoute('GET', '/', $app->protect([HomeController::class, 'index']));
+
+    // Administration: every route is admin-only; admins need no company.
+    $admin = fn (string $method) => $app->protect([AdminController::class, $method], [RequireAdmin::class]);
+    $r->addRoute('GET', '/admin/companies', $admin('index'));
+    $r->addRoute('GET', '/admin/companies/new', $admin('newForm'));
+    $r->addRoute('POST', '/admin/companies', $admin('create'));
+    $r->addRoute('GET', '/admin/companies/{id:\d+}', $admin('show'));
+    $r->addRoute('POST', '/admin/companies/{id:\d+}/access', $admin('access'));
+    $r->addRoute('POST', '/admin/companies/{id:\d+}/users', $admin('addUser'));
+    $r->addRoute('POST', '/admin/companies/{id:\d+}/users/{uid:\d+}/remove', $admin('removeUser'));
 };
