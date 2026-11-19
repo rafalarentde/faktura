@@ -344,6 +344,7 @@ return [
     'customer.err_currency' => 'Bitte wähle eine Währung aus der Liste.',
     'customer.err_payment_days' => 'Das Zahlungsziel muss zwischen 0 und 365 Tagen liegen.',
     'customer.err_vat_id' => 'Die USt-IdNr. hat ein ungültiges Format.',
+    'customer.err_vies_non_eu' => 'Die USt-IdNr. dieses Landes kann nicht über VIES geprüft werden.',
     'customer.err_vies_no_vat' => 'Trage zuerst eine USt-IdNr. ein und speichere sie.',
     'customer.days' => '{n} Tage',
     'customer.vies_hint' => 'VIES prüft die gespeicherte USt-IdNr. Speichere Änderungen zuerst.',

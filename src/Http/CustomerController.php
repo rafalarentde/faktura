@@ -82,6 +82,9 @@ final class CustomerController
             return $this->page($request, $customer, $this->formFrom($customer), ['vat_id' => 'customer.err_vies_no_vat'], 422);
         }
         $country = (string) $customer['country'];
+        if (!Countries::isEu($country)) {
+            return $this->page($request, $customer, $this->formFrom($customer), ['vat_id' => 'customer.err_vies_non_eu'], 422);
+        }
         $status = $this->app->vies()->check(VatId::prefix($country), VatId::number($country, $vatId));
         $this->repo()->recordVies($id, $status, (new \DateTimeImmutable('@' . $this->app->now())));
         return Response::redirect('/customers/' . $id);
@@ -185,7 +188,7 @@ final class CustomerController
         }
         $status = $c['vies_status'] ?? null;
         $date = $this->checkedDate($c['vies_checked_at'] ?? null);
-        $reverse = (string) $c['country'] !== 'DE' && (int) $c['is_company'] === 1;
+        $reverse = (string) $c['country'] !== 'DE' && Countries::isEu((string) $c['country']) && (int) $c['is_company'] === 1;
         if ($status === ViesStatus::Valid->value) {
             if (!$reverse) {
                 return ['kind' => 'hint', 'text' => $this->app->t('customer.vies_valid_plain', ['date' => $date['text']])];

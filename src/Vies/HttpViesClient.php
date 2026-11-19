@@ -14,10 +14,10 @@ final class HttpViesClient implements ViesClient
 {
     public const BASE_URL = 'https://ec.europa.eu/taxation_customs/vies/rest-api/ms/';
     private const TIMEOUT = 5;
-    private const SERVICE_ERRORS = [
-        'SERVICE_UNAVAILABLE', 'MS_UNAVAILABLE', 'TIMEOUT', 'SERVER_BUSY',
-        'MS_MAX_CONCURRENT_REQ', 'GLOBAL_MAX_CONCURRENT_REQ', 'MS_MAX_CONCURRENT_REQ_TIME', 'GLOBAL_MAX_CONCURRENT_REQ_TIME',
-    ];
+    /** Responses larger than this are not parsed (a VIES answer is a few hundred bytes). */
+    public const MAX_BODY = 65536;
+    /** userError values that accompany a definite answer; any other value is a service problem. */
+    private const DEFINITE_ERRORS = ['VALID', 'INVALID'];
 
     /** @var \Closure(string): array{status: int, body: string} */
     private \Closure $transport;
@@ -41,21 +41,28 @@ final class HttpViesClient implements ViesClient
             if (($res['status'] ?? 0) !== 200) {
                 return ViesStatus::Unavailable;
             }
-            $data = json_decode((string) $res['body'], true, 16, JSON_THROW_ON_ERROR);
+            $body = (string) $res['body'];
+            if ($body === '' || strlen($body) > self::MAX_BODY) {
+                return ViesStatus::Unavailable;
+            }
+            $data = json_decode($body, true, 16, JSON_THROW_ON_ERROR);
         } catch (\Throwable) {
             return ViesStatus::Unavailable;
         }
-        if (!is_array($data) || !empty($data['errorWrappers'])) {
+        // Allow-list: Valid only for a strict boolean true; Invalid only for a strict boolean false
+        // with no userError or a definite one. Everything else is Unavailable.
+        if (!is_array($data) || array_is_list($data) || !empty($data['errorWrappers'])) {
             return ViesStatus::Unavailable;
         }
-        if (in_array($data['userError'] ?? null, self::SERVICE_ERRORS, true)) {
-            return ViesStatus::Unavailable;
+        $isValid = $data['isValid'] ?? null;
+        if ($isValid === true) {
+            return ViesStatus::Valid;
         }
-        return match ($data['isValid'] ?? null) {
-            true => ViesStatus::Valid,
-            false => ViesStatus::Invalid,
-            default => ViesStatus::Unavailable,
-        };
+        $userError = $data['userError'] ?? null;
+        if ($isValid === false && ($userError === null || in_array($userError, self::DEFINITE_ERRORS, true))) {
+            return ViesStatus::Invalid;
+        }
+        return ViesStatus::Unavailable;
     }
 
     /** @return array{status: int, body: string} */
@@ -66,7 +73,6 @@ final class HttpViesClient implements ViesClient
             throw new \RuntimeException('curl_init failed');
         }
         curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
             CURLOPT_CONNECTTIMEOUT => self::TIMEOUT,
             CURLOPT_TIMEOUT => self::TIMEOUT,
             CURLOPT_FOLLOWLOCATION => false,
@@ -75,14 +81,20 @@ final class HttpViesClient implements ViesClient
             CURLOPT_PROTOCOLS => CURLPROTO_HTTPS,
             CURLOPT_HTTPHEADER => ['Accept: application/json'],
             CURLOPT_USERAGENT => 'faktura-vies/1.0',
+            // Abort (write callback returns a short count) once the body exceeds the cap.
+            CURLOPT_WRITEFUNCTION => static function ($ch, string $chunk) use (&$received): int {
+                $received .= $chunk;
+                return strlen($received) > self::MAX_BODY + 1 ? 0 : strlen($chunk);
+            },
         ]);
-        $body = curl_exec($ch);
+        $received = '';
+        $ok = curl_exec($ch);
         $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
         $error = curl_error($ch);
         curl_close($ch);
-        if (!is_string($body)) {
+        if ($ok === false) {
             throw new \RuntimeException('VIES request failed: ' . $error);
         }
-        return ['status' => $status, 'body' => $body];
+        return ['status' => $status, 'body' => $received];
     }
 }

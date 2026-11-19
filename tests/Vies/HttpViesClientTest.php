@@ -80,4 +80,37 @@ final class HttpViesClientTest extends TestCase
         $c = $this->client($this->body(['actionSucceed' => false, 'errorWrappers' => [['error' => 'MS_UNAVAILABLE']]]));
         $this->assertSame(ViesStatus::Unavailable, $c->check('DE', '1'));
     }
+
+    public function test_blocked_and_input_errors_are_unavailable(): void
+    {
+        foreach (['IP_BLOCKED', 'VAT_BLOCKED', 'INVALID_INPUT', 'INVALID_REQUESTER_INFO', 'SOMETHING_NEW'] as $err) {
+            $c = $this->client($this->body(['isValid' => false, 'userError' => $err]));
+            $this->assertSame(ViesStatus::Unavailable, $c->check('DE', '1'), $err);
+        }
+    }
+
+    public function test_only_strict_boolean_counts(): void
+    {
+        foreach ([['isValid' => 'true'], ['isValid' => 1], ['isValid' => 0], ['isValid' => 'false'], ['isValid' => null], ['userError' => 'VALID'], []] as $payload) {
+            $this->assertSame(ViesStatus::Unavailable, $this->client($this->body($payload))->check('DE', '1'), json_encode($payload));
+        }
+        $this->assertSame(ViesStatus::Invalid, $this->client($this->body(['isValid' => false]))->check('DE', '1'));
+        $this->assertSame(ViesStatus::Invalid, $this->client($this->body(['isValid' => false, 'userError' => 'VALID']))->check('DE', '1'));
+    }
+
+    public function test_odd_bodies_and_statuses_are_unavailable(): void
+    {
+        foreach (['', '[]', '[true]', 'null', 'true', '1'] as $body) {
+            $this->assertSame(ViesStatus::Unavailable, $this->client(['status' => 200, 'body' => $body])->check('DE', '1'), $body);
+        }
+        foreach ([301, 302, 400, 429, 500, 503] as $status) {
+            $this->assertSame(ViesStatus::Unavailable, $this->client(['status' => $status, 'body' => '{"isValid":true}'])->check('DE', '1'), (string) $status);
+        }
+    }
+
+    public function test_oversized_body_is_unavailable(): void
+    {
+        $big = '{"isValid":true,"pad":"' . str_repeat('a', HttpViesClient::MAX_BODY) . '"}';
+        $this->assertSame(ViesStatus::Unavailable, $this->client(['status' => 200, 'body' => $big])->check('DE', '1'));
+    }
 }

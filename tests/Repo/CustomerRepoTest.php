@@ -80,9 +80,12 @@ final class CustomerRepoTest extends TestCase
         $this->assertSame('PLN', $row['default_currency']);
         $this->assertSame(7, (int) $row['payment_days']);
         $this->assertSame($id, $this->repo->save(['name' => 'Acme 2', 'country' => 'PL', 'vat_id' => 'PL1234567890'], $id));
-        $this->assertSame('Acme 2', $this->repo->find($id)['name']);
+        $row = $this->repo->find($id);
+        $this->assertSame('Acme 2', $row['name']);
         // fields not supplied keep their stored value on update
-        $this->assertSame('x@example.pl', $this->repo->find($id)['email'] ?? 'x@example.pl');
+        $this->assertSame('x@example.pl', $row['email']);
+        $this->assertSame('PLN', $row['default_currency']);
+        $this->assertSame(7, (int) $row['payment_days']);
     }
 
     public function test_validation_matrix(): void

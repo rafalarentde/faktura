@@ -270,6 +270,19 @@ final class CustomerControllerTest extends HttpTestCase
         $this->assertSame([], $this->vies->calls);
     }
 
+    public function test_vies_for_non_eu_country_makes_no_call_and_is_422(): void
+    {
+        $this->login();
+        foreach (['US', 'CH', 'GB', 'NO'] as $country) {
+            $id = $this->customer($this->companyA, 'Non-EU ' . $country, ['country' => $country, 'vat_id' => $country . '123456']);
+            $r = $this->post('/customers/' . $id . '/vies');
+            $this->assertSame(422, $r->status, $country);
+            $this->assertStringContainsString('kann nicht über VIES geprüft werden', $r->body);
+            $this->assertNull($this->row($id)['vies_status']);
+        }
+        $this->assertSame([], $this->vies->calls);
+    }
+
     public function test_greek_customer_uses_el_prefix_for_vies(): void
     {
         $this->login();

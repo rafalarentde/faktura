@@ -344,6 +344,7 @@ return [
     'customer.err_currency' => 'Please choose a currency from the list.',
     'customer.err_payment_days' => 'Payment terms must be between 0 and 365 days.',
     'customer.err_vat_id' => 'The VAT ID has an invalid format.',
+    'customer.err_vies_non_eu' => 'VAT IDs of this country cannot be checked with VIES.',
     'customer.err_vies_no_vat' => 'Enter a VAT ID and save it first.',
     'customer.days' => '{n} days',
     'customer.vies_hint' => 'VIES checks the saved VAT ID. Save your changes first.',

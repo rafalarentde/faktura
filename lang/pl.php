@@ -344,6 +344,7 @@ return [
     'customer.err_currency' => 'Wybierz walutę z listy.',
     'customer.err_payment_days' => 'Termin płatności musi mieścić się w przedziale 0–365 dni.',
     'customer.err_vat_id' => 'Numer VAT-UE ma nieprawidłowy format.',
+    'customer.err_vies_non_eu' => 'Numeru VAT z tego kraju nie można sprawdzić w VIES.',
     'customer.err_vies_no_vat' => 'Najpierw wpisz i zapisz numer VAT-UE.',
     'customer.days' => '{n} dni',
     'customer.vies_hint' => 'VIES sprawdza zapisany numer VAT-UE. Najpierw zapisz zmiany.',
