@@ -26,10 +26,16 @@
                             <td>{{ m.email }}</td>
                             <td>{{ m.role == 'owner' ? t('admin.role_owner') : t('admin.role_user') }}</td>
                             <td class="r">
-                                <form class="inline-form" method="post" action="/admin/companies/{{ company.id }}/users/{{ m.user_id }}/remove">
-                                    {{ csrf_field() }}
-                                    <button class="btn btn-ghost btn-sm" type="submit">{{ t('admin.remove') }}</button>
-                                </form>
+                                <div class="row-actions">
+                                    <form class="inline-form" method="post" action="/admin/companies/{{ company.id }}/users/{{ m.user_id }}/reset-2fa">
+                                        {{ csrf_field() }}
+                                        <button class="btn btn-ghost btn-sm" type="submit" title="{{ t('admin.reset_2fa_hint') }}">{{ t('admin.reset_2fa') }}</button>
+                                    </form>
+                                    <form class="inline-form" method="post" action="/admin/companies/{{ company.id }}/users/{{ m.user_id }}/remove">
+                                        {{ csrf_field() }}
+                                        <button class="btn btn-ghost btn-sm" type="submit">{{ t('admin.remove') }}</button>
+                                    </form>
+                                </div>
                             </td>
                         </tr>
                     {% endfor %}

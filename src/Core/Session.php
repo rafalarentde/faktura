@@ -127,6 +127,12 @@ final class Session
         $this->store->destroy();
     }
 
+    /** New session id with the data kept (after a credential change); the old id stops working. */
+    public function regenerate(): void
+    {
+        $this->store->regenerate();
+    }
+
     public function get(string $key, mixed $default = null): mixed
     {
         return $this->store->get($key, $default);

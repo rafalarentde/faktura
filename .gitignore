@@ -2,3 +2,5 @@
 /config/config.php
 /.phpunit.cache/
 /.phpunit.result.cache
+/storage/logos/*
+!/storage/logos/.gitkeep

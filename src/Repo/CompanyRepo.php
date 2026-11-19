@@ -126,6 +126,24 @@ final class CompanyRepo
         $this->db->exec('DELETE FROM company_users WHERE company_id = ? AND user_id = ?', [$companyId, $userId]);
     }
 
+    /**
+     * Removes the user's second factor: secret, enabled flag, replay step and all backup codes.
+     * The next login pins the user to the 2FA setup page. Call inside the caller's transaction
+     * together with the audit row; membership of a particular company is checked by the caller.
+     */
+    public function resetTwoFactor(int $userId): void
+    {
+        $this->db->transaction(function () use ($userId): void {
+            $this->db->exec('UPDATE users SET totp_secret_enc = NULL, totp_enabled = 0, totp_last_step = NULL WHERE id = ?', [$userId]);
+            $this->db->exec('DELETE FROM backup_codes WHERE user_id = ?', [$userId]);
+        });
+    }
+
+    public function isMember(int $companyId, int $userId): bool
+    {
+        return $this->db->one('SELECT 1 AS x FROM company_users WHERE company_id = ? AND user_id = ?', [$companyId, $userId]) !== null;
+    }
+
     /** Validates status and until together; returns the normalised until (Y-m-d or null). */
     private function until(string $status, ?string $until): ?string
     {

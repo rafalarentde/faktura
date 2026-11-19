@@ -1,0 +1,5 @@
+<nav class="tabs-pill" aria-label="{{ t('settings.tabs_label') }}">
+    {% for tab in tabs %}
+        <a href="{{ tab.path }}"{% if tab.key == active_tab %} aria-current="page"{% endif %}>{{ t(tab.label) }}</a>
+    {% endfor %}
+</nav>

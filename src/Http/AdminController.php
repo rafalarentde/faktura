@@ -142,16 +142,28 @@ final class AdminController
         if ($this->companies->find($id) === null) {
             return $this->notFound();
         }
-        $isMember = false;
-        foreach ($this->companies->members($id) as $m) {
-            $isMember = $isMember || (int) $m['user_id'] === $uid;
-        }
-        if (!$isMember) {
+        if (!$this->companies->isMember($id, $uid)) {
             return $this->notFound();
         }
         $this->app->db()->transaction(function () use ($id, $uid): void {
             $this->companies->removeUser($id, $uid);
             $this->audit($id, 'admin.user_remove', ['company_id' => $id, 'user_id' => $uid]);
+        });
+        return Response::redirect('/admin/companies/' . $id);
+    }
+
+    /** Only for a member of this company (404 otherwise); ends in the setup flow at the user's next login. @param array<string, string> $params */
+    public function reset2fa(Request $request, array $params): Response
+    {
+        $id = (int) $params['id'];
+        $uid = (int) $params['uid'];
+        if ($this->companies->find($id) === null || !$this->companies->isMember($id, $uid)) {
+            return $this->notFound();
+        }
+        // The reset and its audit row commit together or not at all. No secrets in the detail.
+        $this->app->db()->transaction(function () use ($id, $uid): void {
+            $this->companies->resetTwoFactor($uid);
+            $this->audit($id, 'admin.user_reset_2fa', ['company_id' => $id, 'user_id' => $uid]);
         });
         return Response::redirect('/admin/companies/' . $id);
     }

@@ -378,4 +378,117 @@ final class AdminTest extends HttpTestCase
         $this->loginFully($m['secret'], 'm@example.com');
         $this->assertSame('yes', $this->get('/_t/can')->body);
     }
+
+    // ---- Reset 2FA ----
+
+    /** @return array{c: int, m: array{id: int, secret: string}} company with a member who has 2FA and backup codes */
+    private function memberWithTwoFactor(string $email = 'm@example.com'): array
+    {
+        $c = $this->company('Acme', 'active');
+        $m = $this->createUser($email);
+        $this->db->exec('INSERT INTO company_users (company_id, user_id, role) VALUES (?, ?, ?)', [$c, $m['id'], 'user']);
+        $this->db->exec('UPDATE users SET totp_last_step = 12345 WHERE id = ?', [$m['id']]);
+        $this->app->backupCodes()->generate($m['id']);
+        return ['c' => $c, 'm' => $m];
+    }
+
+    public function test_reset_2fa_clears_everything_in_one_step_and_audits_without_secrets(): void
+    {
+        $a = $this->admin();
+        ['c' => $c, 'm' => $m] = $this->memberWithTwoFactor();
+        $other = $this->createUser('other@example.com');
+        $this->db->exec('INSERT INTO company_users (company_id, user_id, role) VALUES (?, ?, ?)', [$c, $other['id'], 'user']);
+        $this->app->backupCodes()->generate($other['id']);
+        $secretEnc = (string) $this->db->one('SELECT totp_secret_enc s FROM users WHERE id = ?', [$m['id']])['s'];
+        $this->assertNotSame('', $secretEnc);
+
+        $this->assertStringContainsString("/admin/companies/$c/users/{$m['id']}/reset-2fa", $this->get("/admin/companies/$c")->body);
+        $r = $this->post("/admin/companies/$c/users/{$m['id']}/reset-2fa");
+        $this->assertRedirect("/admin/companies/$c", $r);
+
+        $u = $this->db->one('SELECT * FROM users WHERE id = ?', [$m['id']]);
+        $this->assertNull($u['totp_secret_enc']);
+        $this->assertSame(0, (int) $u['totp_enabled']);
+        $this->assertNull($u['totp_last_step']);
+        $this->assertSame(0, (int) $this->db->one('SELECT COUNT(*) c FROM backup_codes WHERE user_id = ?', [$m['id']])['c']);
+        // Other users untouched.
+        $this->assertSame(1, (int) $this->db->one('SELECT totp_enabled t FROM users WHERE id = ?', [$other['id']])['t']);
+        $this->assertSame(8, (int) $this->db->one('SELECT COUNT(*) c FROM backup_codes WHERE user_id = ?', [$other['id']])['c']);
+        $this->assertSame(1, (int) $this->db->one('SELECT totp_enabled t FROM users WHERE id = ?', [$a['id']])['t']);
+
+        $rows = array_values(array_filter($this->audit(), fn (array $r): bool => $r['action'] === 'admin.user_reset_2fa'));
+        $this->assertCount(1, $rows);
+        $this->assertSame($c, (int) $rows[0]['company_id']);
+        $this->assertSame($a['id'], (int) $rows[0]['user_id']);
+        $this->assertSame(['company_id' => $c, 'user_id' => $m['id']], json_decode((string) $rows[0]['detail'], true));
+        $this->assertStringNotContainsString($secretEnc, json_encode($rows));
+        $this->assertStringNotContainsString($m['secret'], json_encode($rows));
+    }
+
+    public function test_reset_2fa_forces_setup_at_next_full_login(): void
+    {
+        $this->admin();
+        ['c' => $c, 'm' => $m] = $this->memberWithTwoFactor();
+        $this->assertRedirect("/admin/companies/$c", $this->post("/admin/companies/$c/users/{$m['id']}/reset-2fa"));
+        $this->post('/logout');
+        // Password alone now completes the login and the user is pinned to the setup page.
+        $this->assertRedirect('/2fa/setup', $this->loginPassword('m@example.com'));
+        $this->assertRedirect('/2fa/setup', $this->get('/'));
+        $this->assertRedirect('/2fa/setup', $this->get('/settings/security'));
+        $this->assertSame(200, $this->get('/2fa/setup')->status);
+        // The old authenticator code no longer works and a fresh secret was created.
+        $secretEnc = $this->db->one('SELECT totp_secret_enc s FROM users WHERE id = ?', [$m['id']])['s'];
+        $this->assertNotNull($secretEnc);
+        $this->assertNotSame($m['secret'], $this->app->crypto()->decrypt((string) $secretEnc));
+    }
+
+    public function test_reset_2fa_only_for_members_of_that_company(): void
+    {
+        $this->admin();
+        ['c' => $c, 'm' => $m] = $this->memberWithTwoFactor();
+        $other = $this->company('Other', 'active');
+        $stranger = $this->createUser('stranger@example.com');
+        $this->db->exec('INSERT INTO company_users (company_id, user_id, role) VALUES (?, ?, ?)', [$other, $stranger['id'], 'user']);
+        foreach ([
+            "/admin/companies/$c/users/{$stranger['id']}/reset-2fa",   // member of another company
+            "/admin/companies/$other/users/{$m['id']}/reset-2fa",      // member of $c, wrong company
+            "/admin/companies/$c/users/99999/reset-2fa",               // no such user
+            "/admin/companies/99999/users/{$m['id']}/reset-2fa",       // no such company
+        ] as $path) {
+            $this->assertSame(404, $this->post($path)->status, $path);
+        }
+        foreach ([$m['id'], $stranger['id']] as $id) {
+            $this->assertSame(1, (int) $this->db->one('SELECT totp_enabled t FROM users WHERE id = ?', [$id])['t']);
+        }
+        $this->assertSame(8, (int) $this->db->one('SELECT COUNT(*) c FROM backup_codes WHERE user_id = ?', [$m['id']])['c']);
+        $this->assertSame([], array_filter($this->audit(), fn (array $r): bool => $r['action'] === 'admin.user_reset_2fa'));
+    }
+
+    public function test_reset_2fa_is_admin_only_and_csrf_checked(): void
+    {
+        ['c' => $c, 'm' => $m] = $this->memberWithTwoFactor();
+        $path = "/admin/companies/$c/users/{$m['id']}/reset-2fa";
+        $this->assertRedirect('/login', $this->post($path));
+        // A normal owner of that very company is refused.
+        $this->db->exec('UPDATE company_users SET role = ? WHERE user_id = ?', ['owner', $m['id']]);
+        $this->loginFully($m['secret'], 'm@example.com');
+        $this->assertSame(403, $this->post($path)->status);
+        $this->assertSame(1, (int) $this->db->one('SELECT totp_enabled t FROM users WHERE id = ?', [$m['id']])['t']);
+        $this->post('/logout');
+        $this->admin();
+        $this->assertSame(419, $this->post($path, csrf: false)->status);
+        $this->assertSame(1, (int) $this->db->one('SELECT totp_enabled t FROM users WHERE id = ?', [$m['id']])['t']);
+    }
+
+    public function test_reset_2fa_rolls_back_when_audit_insert_fails(): void
+    {
+        $this->admin();
+        ['c' => $c, 'm' => $m] = $this->memberWithTwoFactor();
+        $this->db->exec('DROP TABLE audit_log');
+        $this->assertSame(500, $this->post("/admin/companies/$c/users/{$m['id']}/reset-2fa")->status);
+        $u = $this->db->one('SELECT * FROM users WHERE id = ?', [$m['id']]);
+        $this->assertSame(1, (int) $u['totp_enabled']);
+        $this->assertNotNull($u['totp_secret_enc']);
+        $this->assertSame(8, (int) $this->db->one('SELECT COUNT(*) c FROM backup_codes WHERE user_id = ?', [$m['id']])['c']);
+    }
 }

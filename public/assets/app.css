@@ -526,3 +526,6 @@ img, svg { max-width: 100%; }
 /* Segmented control built from radio inputs (works without JS): the checked label looks active. */
 .seg > label:has(input:checked) { background: var(--y); color: #0f0f0f; }
 .seg > label:has(input:focus-visible) { outline: 2px solid var(--y); outline-offset: 2px; }
+
+/* ---- Settings: logo preview ---- */
+.logo-preview { display: block; max-width: 240px; max-height: 120px; object-fit: contain; border: 1px solid var(--line); border-radius: 8px; padding: 6px; background: #fff; }

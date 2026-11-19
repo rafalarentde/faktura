@@ -13,6 +13,7 @@ final class Request
      * @param array<string, mixed> $post
      * @param array<string, mixed> $cookies
      * @param array<string, mixed> $server
+     * @param array<string, mixed> $files $_FILES-shaped uploads (field => name/type/tmp_name/size/error)
      */
     public function __construct(
         string $method,
@@ -21,6 +22,7 @@ final class Request
         public readonly array $post = [],
         public readonly array $cookies = [],
         public readonly array $server = [],
+        public readonly array $files = [],
     ) {
         $this->method = strtoupper($method);
     }
@@ -30,8 +32,9 @@ final class Request
      * @param array<string, mixed>|null $query
      * @param array<string, mixed>|null $post
      * @param array<string, mixed>|null $cookies
+     * @param array<string, mixed>|null $files
      */
-    public static function fromGlobals(?array $server = null, ?array $query = null, ?array $post = null, ?array $cookies = null): self
+    public static function fromGlobals(?array $server = null, ?array $query = null, ?array $post = null, ?array $cookies = null, ?array $files = null): self
     {
         $server ??= $_SERVER;
         $path = parse_url((string) ($server['REQUEST_URI'] ?? '/'), PHP_URL_PATH);
@@ -44,6 +47,7 @@ final class Request
             $post ?? $_POST,
             $cookies ?? $_COOKIE,
             $server,
+            $files ?? $_FILES,
         );
     }
 

@@ -158,4 +158,32 @@ final class CompanyRepoTest extends TestCase
         $this->assertCount(1, $this->repo->members($d));
         $this->assertNotNull($this->db->one('SELECT id FROM users WHERE id = ?', [$u]));
     }
+
+    public function test_reset_two_factor_clears_secret_flag_step_and_codes_of_that_user_only(): void
+    {
+        $a = $this->user('a@example.com');
+        $b = $this->user('b@example.com');
+        $this->db->exec('UPDATE users SET totp_secret_enc = ?, totp_enabled = 1, totp_last_step = 77 WHERE id IN (?, ?)', ['enc', $a, $b]);
+        $codes = new \App\Auth\BackupCodes($this->db);
+        $codes->generate($a);
+        $codes->generate($b);
+        $this->repo->resetTwoFactor($a);
+        $row = $this->db->one('SELECT * FROM users WHERE id = ?', [$a]);
+        $this->assertNull($row['totp_secret_enc']);
+        $this->assertSame(0, (int) $row['totp_enabled']);
+        $this->assertNull($row['totp_last_step']);
+        $this->assertSame(0, (int) $this->db->one('SELECT COUNT(*) c FROM backup_codes WHERE user_id = ?', [$a])['c']);
+        $this->assertSame(1, (int) $this->db->one('SELECT totp_enabled t FROM users WHERE id = ?', [$b])['t']);
+        $this->assertSame(8, (int) $this->db->one('SELECT COUNT(*) c FROM backup_codes WHERE user_id = ?', [$b])['c']);
+    }
+
+    public function test_is_member(): void
+    {
+        $c = $this->repo->create(['name' => 'Acme']);
+        $u = $this->user();
+        $this->assertFalse($this->repo->isMember($c, $u));
+        $this->repo->addUser($c, 'a@example.com', 'user');
+        $this->assertTrue($this->repo->isMember($c, $u));
+        $this->assertFalse($this->repo->isMember($c + 1, $u));
+    }
 }

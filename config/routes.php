@@ -9,6 +9,7 @@ use App\Http\DashboardController;
 use App\Http\ItemController;
 use App\Http\Middleware\RequireAdmin;
 use App\Http\Middleware\RequireCompany;
+use App\Http\SettingsController;
 use App\Http\SwitchController;
 use FastRoute\RouteCollector;
 
@@ -43,6 +44,7 @@ return function (App $app, RouteCollector $r): void {
     $r->addRoute('POST', '/admin/companies/{id:\d+}/access', $admin('access'));
     $r->addRoute('POST', '/admin/companies/{id:\d+}/users', $admin('addUser'));
     $r->addRoute('POST', '/admin/companies/{id:\d+}/users/{uid:\d+}/remove', $admin('removeUser'));
+    $r->addRoute('POST', '/admin/companies/{id:\d+}/users/{uid:\d+}/reset-2fa', $admin('reset2fa'));
 
     // Customers (no delete route in v1).
     $customer = fn (string $method) => $app->protect([CustomerController::class, $method], [RequireCompany::class]);
@@ -59,4 +61,21 @@ return function (App $app, RouteCollector $r): void {
     $r->addRoute('POST', '/items', $item('create'));
     $r->addRoute('POST', '/items/{id:\d+}', $item('update'));
     $r->addRoute('POST', '/items/{id:\d+}/active', $item('active'));
+
+    // Settings: company/dunning/mail/logo are owner-only (checked in the controller, 403 for
+    // role 'user'); the security tab is personal. The logo is served only for the context company.
+    $settings = fn (string $method) => $app->protect([SettingsController::class, $method], [RequireCompany::class]);
+    $r->addRoute('GET', '/settings', $settings('index'));
+    $r->addRoute('GET', '/settings/company', $settings('company'));
+    $r->addRoute('POST', '/settings/company', $settings('saveCompany'));
+    $r->addRoute('POST', '/settings/company/logo', $settings('uploadLogo'));
+    $r->addRoute('POST', '/settings/company/logo/remove', $settings('removeLogo'));
+    $r->addRoute('GET', '/company/logo', $settings('logo'));
+    $r->addRoute('GET', '/settings/dunning', $settings('dunning'));
+    $r->addRoute('POST', '/settings/dunning', $settings('saveDunning'));
+    $r->addRoute('GET', '/settings/mail', $settings('mail'));
+    $r->addRoute('POST', '/settings/mail', $settings('saveMail'));
+    $r->addRoute('GET', '/settings/security', $settings('security'));
+    $r->addRoute('POST', '/settings/security/backup-codes', $settings('regenerateCodes'));
+    $r->addRoute('POST', '/settings/security/password', $settings('changePassword'));
 };
