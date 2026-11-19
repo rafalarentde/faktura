@@ -275,4 +275,14 @@ final class NumberSettingsTest extends HttpTestCase
             $this->assertContains($row['doc_type'], ['invoice', 'offer', 'dunning', 'credit_note']);
         }
     }
+
+    public function test_literal_year_shows_an_orange_warning_line(): void
+    {
+        $this->loginOwner();
+        $r = $this->post('/settings/numbers', $this->form(['pattern_invoice' => 'RE-2026-{NNN}', 'reset_invoice' => '']));
+        $this->assertSame(200, $r->status);
+        $this->assertStringContainsString('<p class="warn-soft" role="status">Das Format enthält eine feste Jahreszahl', $r->body);
+        $ok = $this->post('/settings/numbers', $this->form(['pattern_invoice' => 'RE-{YYYY}-{NNN}']));
+        $this->assertRedirect('/settings/numbers?saved=1', $ok);
+    }
 }

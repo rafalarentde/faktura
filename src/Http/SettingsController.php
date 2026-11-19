@@ -177,7 +177,7 @@ final class SettingsController
         $flags = [];
         foreach ($results as $type => $result) {
             $flags[$type] = [
-                'warnings' => array_map(fn (string $w): string => 'settings.warn_no_year', $result->warnings),
+                'warnings' => array_map(fn (string $w): string => $w === ConfigureResult::WARNING_LITERAL_YEAR ? 'settings.warn_literal_year' : 'settings.warn_no_year', $result->warnings),
                 'notes' => array_map(fn (string $n): string => 'settings.note_skips_numbers', $result->notes),
             ];
         }

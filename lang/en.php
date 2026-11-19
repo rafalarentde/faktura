@@ -464,4 +464,5 @@ return [
     'settings.numbers_next_hint' => 'You can only raise the next number, never lower it.',
     'settings.numbers_legend' => 'Placeholders: {YYYY} = year (2026), {YY} = short year (26), {MM} = month, {DD} = day, {N} / {NNN} = counter (as many N, as many digits at least). Exactly one counter is required. Everything else is free text, at most 60 characters.',
     'settings.err_num_outer_space' => 'The format must not start or end with a space.',
+    'settings.warn_literal_year' => 'The format contains a fixed year. It will not change when the year changes. Use {YYYY} to always get the right year.',
 ];

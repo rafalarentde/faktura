@@ -7,6 +7,7 @@ namespace App\Domain;
 final class ConfigureResult
 {
     public const WARNING_RESET_WITHOUT_YEAR = 'reset_without_year';
+    public const WARNING_LITERAL_YEAR = 'literal_year';
     public const NOTE_SKIPS_NUMBERS = 'skips_numbers';
 
     /**

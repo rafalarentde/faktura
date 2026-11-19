@@ -104,6 +104,17 @@ final class NumberFormat
         return $format;
     }
 
+    /** True when the literal text contains a hand-typed 4-digit year (1900-2099), e.g. RE-2026-{NNN}. */
+    public function hasLiteralYear(): bool
+    {
+        foreach ($this->parts as [$kind, $value]) {
+            if ($kind === 'lit' && preg_match('/(?<!\d)(19|20)\d{2}(?!\d)/', (string) $value) === 1) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public function pattern(): string
     {
         return $this->pattern;

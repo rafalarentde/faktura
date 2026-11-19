@@ -738,51 +738,172 @@ final class NumberSequencesTest extends TestCase
         }
     }
 
-    public function test_mysql_path_locks_the_format_row_first_and_lists_floor_rows_with_a_locking_read(): void
+    /**
+     * A NumberSequences on a Db that reports 'mysql' (so forUpdate() yields ' FOR UPDATE') over the
+     * SQLite connection; every statement is appended to $log as [sql, isLocking] and the suffix
+     * is stripped because SQLite cannot run it.
+     *
+     * @param list<array{0: string, 1: bool}> $log
+     */
+    private function mysqlSeq(array &$log): NumberSequences
     {
-        [$sqliteDb, $pdo, , $cid] = $this->hooked();
-        // same connection, but the Db reports 'mysql' so forUpdate() yields ' FOR UPDATE'; SQLite
-        // cannot run it, so the hook records the statement and strips the suffix.
+        [, $pdo, , $cid] = $this->hooked();
         $db = new Db($pdo, 'mysql');
         $userId = (int) $db->one('SELECT id FROM users LIMIT 1')['id'];
-        $s = new NumberSequences($db, CompanyContext::forUser($db, $userId, $cid), fn (): int => 1_700_000_000);
-        $log = [];
         $pdo->onPrepare = function (string $sql) use (&$log): string {
             $locking = str_ends_with($sql, ' FOR UPDATE');
             $log[] = [$sql, $locking];
             return $locking ? substr($sql, 0, -strlen(' FOR UPDATE')) : $sql;
         };
-        $s->next('invoice', $this->d('2026-05-01'));
-        $s->next('invoice', $this->d('2026-05-02')); // second call: rows exist
+        return new NumberSequences($db, CompanyContext::forUser($db, $userId, $cid), fn (): int => 1_700_000_000);
+    }
 
-        foreach ([[0, count($log)]] as [$from, $to]) {
-            $firstFormatLock = $firstCounterAny = null;
-            foreach ($log as $n => [$sql, $locking]) {
-                if ($firstFormatLock === null && $locking && str_contains($sql, '`number_formats`')) {
-                    $firstFormatLock = $n;
-                }
-                if ($firstCounterAny === null && str_contains($sql, '`number_counters`')) {
-                    $firstCounterAny = $n;
-                }
-            }
-            $this->assertNotNull($firstFormatLock, 'format row read with FOR UPDATE');
-            $this->assertLessThan($firstCounterAny, $firstFormatLock, 'format row locked before any bucket row');
-        }
-        $floorQueries = array_filter($log, fn (array $e): bool => str_contains($e[0], 'period` <> ?') || str_contains($e[0], 'period <> ?') || str_contains($e[0], '(doc_type = ? AND period <> ?)'));
-        $this->assertNotEmpty($floorQueries, 'floor sources are listed');
-        foreach ($floorQueries as [$sql, $locking]) {
-            $this->assertTrue($locking, 'floor source rows are listed with FOR UPDATE: ' . $sql);
-        }
-        // the format used for rendering comes from a locking read, never from a plain one only
+    /**
+     * @param list<array{0: string, 1: bool}> $log
+     * @return array{fmt: int, own: int, floor: int, write: int}
+     */
+    private function lockOrder(array $log): array
+    {
+        $pos = ['fmt' => null, 'own' => null, 'floor' => null, 'write' => null];
         foreach ($log as $n => [$sql, $locking]) {
-            if (str_contains($sql, 'FROM `number_formats`') && !$locking) {
-                $next = array_slice($log, $n + 1, 3);
-                $this->assertTrue(
-                    (bool) array_filter($next, fn (array $e): bool => $e[1] && str_contains($e[0], '`number_formats`')),
-                    'a plain format existence check is always followed by the locking read'
-                );
+            if ($pos['fmt'] === null && $locking && str_contains($sql, 'FROM `number_formats`')) {
+                $pos['fmt'] = $n;
+            } elseif ($pos['own'] === null && $locking && str_contains($sql, 'FROM `number_counters`') && str_contains($sql, 'period = ?')) {
+                $pos['own'] = $n;
+            } elseif ($pos['floor'] === null && $locking && str_contains($sql, 'period <> ?') && str_contains($sql, 'ORDER BY `period` ASC')) {
+                $pos['floor'] = $n;
+            } elseif ($pos['write'] === null && str_starts_with($sql, 'UPDATE `number_counters`')) {
+                $pos['write'] = $n;
             }
         }
-        $this->assertSame($db->one('SELECT last_value AS v FROM number_counters')['v'], 2);
+        foreach ($pos as $k => $v) {
+            $this->assertNotNull($v, "statement '$k' missing in: " . implode(' | ', array_column($log, 0)));
+        }
+        return $pos;
+    }
+
+    public function test_mysql_path_next_locks_format_then_own_bucket_then_floor_then_writes(): void
+    {
+        $log = [];
+        $s = $this->mysqlSeq($log);
+        $s->next('invoice', $this->d('2026-05-01')); // creates the rows
+        $log = [];
+        $s->next('invoice', $this->d('2026-05-02'));
+        $o = $this->lockOrder($log);
+        $this->assertLessThan($o['own'], $o['fmt']);
+        $this->assertLessThan($o['floor'], $o['own']);
+        $this->assertLessThan($o['write'], $o['floor']);
+    }
+
+    public function test_mysql_path_configure_locks_in_the_same_order(): void
+    {
+        $log = [];
+        $s = $this->mysqlSeq($log);
+        $log = [];
+        $s->configure('invoice', 'RE-{YYYY}-{NNN}', true, 10, $this->d('2026-05-01'));
+        $o = $this->lockOrder($log);
+        $this->assertLessThan($o['own'], $o['fmt']);
+        $this->assertLessThan($o['floor'], $o['own']);
+        $this->assertLessThan($o['write'], $o['floor']);
+    }
+
+    public function test_mysql_path_preview_and_last_counter_take_no_locks_and_write_nothing(): void
+    {
+        $log = [];
+        $s = $this->mysqlSeq($log);
+        $s->next('invoice', $this->d('2026-05-01'));
+        $log = [];
+        $s->preview('invoice', $this->d('2026-05-02'));
+        $s->lastCounter('invoice', $this->d('2026-05-02'));
+        $s->format('invoice');
+        $this->assertNotEmpty($log);
+        foreach ($log as [$sql, $locking]) {
+            $this->assertFalse($locking, "no lock expected: $sql");
+            $this->assertDoesNotMatchRegularExpression('/^\s*(INSERT|UPDATE|DELETE)/i', $sql);
+        }
+    }
+
+    // ---- literal years, R23 corner case ----
+
+    public function test_r23_backdated_issue_after_switching_reset_off_skips_but_never_repeats(): void
+    {
+        $s = $this->seq($this->company());
+        $s->configure('invoice', 'RE-{YYYY}-{NNN}', true, 501, $this->d('2026-05-01'));
+        $s->next('invoice', $this->d('2026-05-01')); // RE-2026-501
+        $this->issue($s, 3, '2027-02-01');
+        $s->configure('invoice', 'RE-{YYYY}-{NNN}', false, null, $this->d('2027-02-01'));
+        $this->assertSame('RE-2027-004', $s->next('invoice', $this->d('2027-02-01')));
+        $this->assertSame('RE-2026-502', $s->next('invoice', $this->d('2026-12-01')), 'bucket 0 raised to the 2026 bucket');
+        // PINNED (ruling R23): the jump is accepted, uniqueness wins. Change only consciously.
+        $this->assertSame('RE-2027-503', $s->next('invoice', $this->d('2027-03-01')));
+    }
+
+    public function test_literal_year_pattern_without_token_never_repeats_after_yearly_use(): void
+    {
+        $s = $this->seq($this->company());
+        $got = $this->issue($s, 3, '2026-05-01'); // RE-2026-001..003 with reset on
+        $r = $s->configure('invoice', 'RE-2026-{NNN}', false, null, $this->d('2027-02-01'));
+        $this->assertSame([ConfigureResult::WARNING_LITERAL_YEAR], $r->warnings);
+        $got[] = $s->next('invoice', $this->d('2027-02-01'));
+        $this->assertSame(['RE-2026-001', 'RE-2026-002', 'RE-2026-003', 'RE-2026-004'], $got);
+        $this->assertSame(count($got), count(array_unique($got)));
+    }
+
+    public function test_literal_year_on_bucket_zero_then_year_token_with_reset_is_warned(): void
+    {
+        // the opposite direction is only covered by the warning (see class docblock)
+        $s = $this->seq($this->company());
+        $r = $s->configure('invoice', 'RE-2027-{NNN}', false, null, $this->d('2026-05-01'));
+        $this->assertSame([ConfigureResult::WARNING_LITERAL_YEAR], $r->warnings);
+    }
+
+    public function test_literal_year_warning_matrix(): void
+    {
+        $s = $this->seq($this->company());
+        $cases = [
+            'RE-{YYYY}-{NNN}' => [],
+            'RE-2026-{NNN}' => [ConfigureResult::WARNING_LITERAL_YEAR],
+            'AB12345-{NNN}' => [],
+            'RE-{YYYY}-{NNN}-2026' => [ConfigureResult::WARNING_LITERAL_YEAR],
+            'RE-{YY}-{NNN}-12026' => [],
+        ];
+        foreach ($cases as $pattern => $expected) {
+            $this->assertSame($expected, $s->configure('invoice', $pattern, false, null, $this->d('2026-05-01'))->warnings, $pattern);
+        }
+    }
+
+    public function test_random_simulation_with_literal_year_patterns(): void
+    {
+        mt_srand(777);
+        $patterns = ['RE-{YYYY}-{NNN}', 'RE-{YY}-{NNN}', 'INV-{NNN}', 'RE-2026-{NNN}'];
+        for ($round = 0; $round < 6; $round++) {
+            $db = \TestDb::fresh();
+            $userId = (new UserService($db))->create("l$round@example.com", 'correct horse battery', false);
+            $db->exec('INSERT INTO companies (name) VALUES (?)', ['L']);
+            $cid = $db->lastId();
+            $db->exec('INSERT INTO company_users (company_id, user_id, role) VALUES (?, ?, ?)', [$cid, $userId, 'owner']);
+            $s = new NumberSequences($db, CompanyContext::forUser($db, $userId, $cid), fn (): int => 1_700_000_000);
+            $year = 2026;
+            $seen = [];
+            for ($i = 0; $i < 150; $i++) {
+                $date = $this->d("$year-06-15");
+                switch (mt_rand(0, 5)) {
+                    case 0:
+                        $s->configure('invoice', $patterns[mt_rand(0, 3)], (bool) mt_rand(0, 1), null, $date);
+                        break;
+                    case 1:
+                        $year++;
+                        break;
+                    default:
+                        $y = mt_rand(2026, $year);
+                        $when = $this->d("$y-03-10");
+                        $preview = $s->preview('invoice', $when);
+                        $number = $s->next('invoice', $when);
+                        $this->assertSame($preview, $number);
+                        $this->assertArrayNotHasKey($number, $seen, "repeated $number (round $round, step $i)");
+                        $seen[$number] = true;
+                }
+            }
+        }
     }
 }
