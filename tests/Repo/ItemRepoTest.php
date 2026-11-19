@@ -94,6 +94,12 @@ final class ItemRepoTest extends TestCase
         $this->assertSame(45050, $en->find($id2)['price_minor'] + 0);
     }
 
+    public function test_maximum_price_round_trips(): void
+    {
+        $id = $this->repo->save($this->valid(['price' => '999.999.999,99']));
+        $this->assertSame(99999999999, (int) $this->repo->find($id)['price_minor']);
+    }
+
     public function test_price_errors(): void
     {
         foreach (['', 'abc', '-5', '1,234', '1000000000'] as $bad) {

@@ -26,7 +26,17 @@ final class AmountParser
     public static function parse(string $input, string $lang): int
     {
         [$dec, $grp] = self::SEPARATORS[$lang] ?? throw new \InvalidArgumentException("Unsupported language: {$lang}");
-        $s = str_replace(["\u{00A0}", "\u{202F}", "\u{2009}", ' '], '', trim($input));
+        if (str_contains($input, "\0")) {
+            throw self::bad($input);
+        }
+        $s = trim($input, " \t\n\r\u{00A0}\u{202F}\u{2009}");
+        // Internal spaces are only valid as proper thousands grouping (1-3 digits, then groups of 3).
+        if (preg_match('/[ \x{00A0}\x{202F}\x{2009}]/u', $s) === 1) {
+            if (preg_match('/\A[0-9]{1,3}(?:[ \x{00A0}\x{202F}\x{2009}][0-9]{3})+(?:[.,][0-9]*)?\z/u', $s) !== 1) {
+                throw self::bad($input);
+            }
+            $s = preg_replace('/[ \x{00A0}\x{202F}\x{2009}]/u', '', $s);
+        }
         if ($s === '' || preg_match('/\A[0-9.,]+\z/', $s) !== 1 || preg_match('/\A[0-9]/', $s) !== 1) {
             throw self::bad($input);
         }

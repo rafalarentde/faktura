@@ -31,7 +31,15 @@ final class AmountParserTest extends TestCase
             yield "$l leading zero" => ['0,05', $l, 5];
             yield "$l max" => ['999999999.99', $l, 99999999999];
             yield "$l trimmed" => ['  12  ', $l, 1200];
+            yield "$l 00012,50" => ['00012,50', $l, 1250];
+            yield "$l 1 234 567,89 spaces" => ['1 234 567,89', $l, 123456789];
+            yield "$l 1 234 plain" => ['1 234', $l, 123400];
+            yield "$l nbsp grouping" => ["1\u{00A0}234,56", $l, 123456];
+            yield "$l trailing nbsp" => ["12\u{00A0}", $l, 1200];
         }
+        yield 'en 1,5' => ['1,5', 'en', 150];
+        yield 'de 1,5' => ['1,5', 'de', 150];
+        yield 'de 1.500 (point = thousands)' => ['1.500', 'de', 150000];
         // de / pl
         foreach (['de', 'pl'] as $l) {
             yield "$l 450,5" => ['450,5', $l, 45050];
@@ -81,10 +89,22 @@ final class AmountParserTest extends TestCase
             yield "$l two decimal points" => ['1,2,3,4', $l];
             yield "$l exponent" => ['1e3', $l];
             yield "$l unicode digits" => ["\u{0661}\u{0662}", $l];
+            yield "$l trailing NUL" => ["5\0", $l];
+            yield "$l leading NUL" => ["\0 5", $l];
+            yield "$l hex" => ['0x10', $l];
+            yield "$l euro suffix" => ['5 €', $l];
+            yield "$l euro prefix" => ['€5', $l];
+            yield "$l minus zero" => ['-0', $l];
+            yield "$l 1 2 3" => ['1 2 3', $l];
+            yield "$l 12 34" => ['12 34', $l];
+            yield "$l double space" => ['1  234', $l];
+            yield "$l 1 2" => ['1 2', $l];
+            yield "$l space before decimals" => ['1 234 ,56', $l];
             yield "$l inner newline" => ["1\n2", $l];
         }
         yield 'de 1,234 = three decimals' => ['1,234', 'de'];
         yield 'pl 1,234 = three decimals' => ['1,234', 'pl'];
+        yield 'en 1.500 = three decimals' => ['1.500', 'en'];
         yield 'en 1.234 = three decimals' => ['1.234', 'en'];
         yield 'de 12,345' => ['12,345', 'de'];
         yield 'de bad grouping' => ['12.34.567,00', 'de'];

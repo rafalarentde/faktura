@@ -104,16 +104,16 @@ final class ItemRepo extends BaseRepo
      */
     public function save(array $data, ?int $id = null): int
     {
-        $existing = null;
-        if ($id !== null) {
-            $existing = $this->find($id) ?? throw new \InvalidArgumentException('Unknown item.');
-        }
-        [$row, $names, $errors] = $this->validate($data, $existing);
-        if ($errors !== []) {
-            throw new ValidationException($errors);
-        }
         $now = gmdate('Y-m-d H:i:s');
-        return (int) $this->db->transaction(function () use ($row, $names, $existing, $now): int {
+        return (int) $this->db->transaction(function () use ($data, $id, $now): int {
+            $existing = null;
+            if ($id !== null) {
+                $existing = $this->find($id) ?? throw new \InvalidArgumentException('Unknown item.');
+            }
+            [$row, $names, $errors] = $this->validate($data, $existing);
+            if ($errors !== []) {
+                throw new ValidationException($errors);
+            }
             if ($existing === null) {
                 $itemId = $this->scopedInsert(self::ITEMS, $row + ['is_active' => 1, 'created_at' => $now, 'updated_at' => $now]);
             } else {

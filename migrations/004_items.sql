@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS items (
     company_id INTEGER NOT NULL,
     type VARCHAR(16) NOT NULL DEFAULT 'service',
     unit VARCHAR(16) NOT NULL DEFAULT 'hour',
-    price_minor INTEGER NOT NULL DEFAULT 0,
+    price_minor BIGINT NOT NULL DEFAULT 0,
     currency VARCHAR(3) NOT NULL DEFAULT 'EUR',
     vat_bp INTEGER NOT NULL DEFAULT 1900,
     is_active INTEGER NOT NULL DEFAULT 1,

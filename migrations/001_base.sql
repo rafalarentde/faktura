@@ -1,5 +1,6 @@
 -- Base schema: tenants (companies), users, auth helpers, audit log.
 -- Portable DDL: {AUTOID} is replaced per driver. Money columns are integer minor units / basis points.
+-- Convention: every *_minor (money) and *_milli (quantity) column and every unix-timestamp column is BIGINT (MySQL INTEGER is 32 bit); basis points and small counts may be INTEGER.
 -- Re-runnable: CREATE TABLE IF NOT EXISTS; indexes are skipped by the Migrator on MySQL if present.
 -- No foreign keys on purpose (SQLite does not enforce them by default; integrity is kept in the app).
 
@@ -32,8 +33,8 @@ CREATE TABLE IF NOT EXISTS companies (
     dunning_base_rate_bp INTEGER NULL,
     dunning_b2b_surcharge_bp INTEGER NOT NULL DEFAULT 900,
     dunning_b2c_surcharge_bp INTEGER NOT NULL DEFAULT 500,
-    dunning_flat_minor INTEGER NOT NULL DEFAULT 4000,
-    dunning_fee_minor INTEGER NOT NULL DEFAULT 0,
+    dunning_flat_minor BIGINT NOT NULL DEFAULT 4000,
+    dunning_fee_minor BIGINT NOT NULL DEFAULT 0,
     access_status VARCHAR(16) NOT NULL DEFAULT 'active',
     access_until DATE NULL,
     plan VARCHAR(32) NOT NULL DEFAULT 'free',
@@ -74,7 +75,7 @@ CREATE INDEX company_users_user_idx ON company_users (user_id);
 CREATE TABLE IF NOT EXISTS login_attempts (
     id {AUTOID},
     `key` VARCHAR(190) NOT NULL,
-    at INTEGER NOT NULL
+    at BIGINT NOT NULL
 );
 
 CREATE INDEX login_attempts_key_idx ON login_attempts (`key`);
