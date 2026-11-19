@@ -57,7 +57,7 @@ final class CompanyContext
 
     /**
      * May this company issue documents at $now? Active: yes. Trial: until the end of the
-     * access_until day. Suspended, expired trial or an unknown status: no.
+     * access_until day, in Europe/Berlin time. Suspended, expired trial or an unknown status: no.
      */
     public function canIssue(\DateTimeImmutable $now): bool
     {
@@ -67,7 +67,7 @@ final class CompanyContext
         }
         if ($status === 'trial') {
             $until = $this->company['access_until'] ?? null;
-            return is_string($until) && $until !== '' && substr($until, 0, 10) >= $now->format('Y-m-d');
+            return is_string($until) && $until !== '' && substr($until, 0, 10) >= $now->setTimezone(new \DateTimeZone('Europe/Berlin'))->format('Y-m-d');
         }
         return false;
     }

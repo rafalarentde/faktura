@@ -233,6 +233,12 @@ final class App
         return $this->context === false ? null : $this->context;
     }
 
+    /** Forgets the cached context (tests; flows that change the selected company should redirect instead). */
+    public function resetContext(): void
+    {
+        $this->context = null;
+    }
+
     private function resolveContext(): ?CompanyContext
     {
         $user = $this->currentUser();
@@ -249,11 +255,18 @@ final class App
                 $session->clearCompanyId(); // membership gone: do not trust the stored id
             }
         }
-        $rows = $this->db->all('SELECT company_id FROM company_users WHERE user_id = ? LIMIT 2', [$userId]);
+        $rows = $this->db->all(
+            'SELECT cu.company_id FROM company_users cu JOIN companies c ON c.id = cu.company_id WHERE cu.user_id = ? LIMIT 2',
+            [$userId]
+        );
         if (count($rows) !== 1) {
             return null;
         }
-        $ctx = CompanyContext::forUser($this->db, $userId, (int) $rows[0]['company_id']);
+        try {
+            $ctx = CompanyContext::forUser($this->db, $userId, (int) $rows[0]['company_id']);
+        } catch (AccessDenied) {
+            return null;
+        }
         $session->setCompanyId($ctx->id());
         return $ctx;
     }

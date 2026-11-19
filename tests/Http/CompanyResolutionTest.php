@@ -187,4 +187,38 @@ final class CompanyResolutionTest extends HttpTestCase
         $this->loginPassword();
         $this->assertNull($this->app->context());
     }
+
+    public function test_orphaned_membership_only_gives_403(): void
+    {
+        $this->addRoute();
+        $u = $this->login();
+        $c = $this->company();
+        $this->member($u['id'], $c);
+        $this->db->exec('DELETE FROM companies WHERE id = ?', [$c]);
+        $this->assertSame(403, $this->get('/_t/company')->status);
+    }
+
+    public function test_valid_plus_orphaned_membership_selects_valid(): void
+    {
+        $this->addRoute();
+        $u = $this->login();
+        $valid = $this->company('V');
+        $gone = $this->company('G');
+        $this->member($u['id'], $valid);
+        $this->member($u['id'], $gone);
+        $this->db->exec('DELETE FROM companies WHERE id = ?', [$gone]);
+        $this->assertSame("company=$valid", $this->get('/_t/company')->body);
+    }
+
+    public function test_reset_context_forgets_cached_context(): void
+    {
+        $this->addRoute();
+        $u = $this->login();
+        $a = $this->company('A');
+        $this->member($u['id'], $a);
+        $this->get('/_t/company');
+        $first = $this->app->context();
+        $this->app->resetContext();
+        $this->assertNotSame($first, $this->app->context());
+    }
 }

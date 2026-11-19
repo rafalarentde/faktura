@@ -17,6 +17,8 @@ final class ItemRepo extends BaseRepo
     public function insert(array $row): int { return $this->scopedInsert('scoped_items', $row); }
     public function update(int $id, array $row): int { return $this->scopedUpdate('scoped_items', $id, $row); }
     public function delete(int $id): int { return $this->scopedDelete('scoped_items', $id); }
+    public function count(string $where = '1=1', array $p = []): int { return $this->scopedCount('scoped_items', $where, $p); }
+    public function page(int $limit, int $offset): array { return $this->scopedAll('scoped_items', '1=1', [], 'id', $limit, $offset); }
     public function onTable(string $table): ?array { return $this->scopedOne($table, 1); }
 }
 
@@ -179,5 +181,73 @@ final class IsolationTest extends TestCase
         $this->assertNull($repoB->one($this->itemA));
         $this->assertSame(0, $repoB->delete($this->itemA));
         $this->assertSame('a-item', $this->db->one('SELECT name FROM scoped_items WHERE id = ?', [$this->itemA])['name']);
+    }
+
+    public function test_where_cannot_break_out_of_parentheses(): void
+    {
+        foreach (['1=1) OR (1=1', '1=0) OR (company_id=' . $this->companyB, '1=0) OR company_id=' . $this->companyB . ' --',
+                  '1=0) UNION SELECT * FROM scoped_items WHERE (1=1', '1=1;', '1=1 /* x */', "name = 'a", '(1=1', '1=1 # x', "name = 'a\\' OR 1=1 --"] as $bad) {
+            try {
+                $rows = $this->repoA->all($bad);
+                $this->assertNotContains('b-item', array_column($rows, 'name'), $bad);
+                $this->fail("Accepted: $bad");
+            } catch (\InvalidArgumentException) {
+                $this->addToAssertionCount(1);
+            }
+            try {
+                $this->repoA->count($bad);
+                $this->fail("Count accepted: $bad");
+            } catch (\InvalidArgumentException) {
+                $this->addToAssertionCount(1);
+            }
+        }
+        $this->assertSame(['a-item'], array_column($this->repoA->all("name = 'it''s (x)' OR (name = ? AND 1=1)", ['a-item']), 'name'));
+    }
+
+    public function test_trailing_newline_in_identifiers_is_rejected(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->repoA->onTable("scoped_items\n");
+    }
+
+    public function test_trailing_newline_in_column_is_rejected(): void
+    {
+        foreach ([fn () => $this->repoA->insert(["name\n" => 'x'])]  as $call) {
+            try {
+                $call();
+                $this->fail('Accepted');
+            } catch (\InvalidArgumentException) {
+                $this->addToAssertionCount(1);
+            }
+        }
+    }
+
+    public function test_scoped_count_counts_only_own_rows(): void
+    {
+        $this->item($this->companyA, 'a-two');
+        $this->assertSame(2, $this->repoA->count());
+        $this->assertSame(1, $this->repoA->count('name = ?', ['a-two']));
+        $this->assertSame(0, $this->repoA->count('name = ?', ['b-item']));
+        $this->assertSame(2, $this->repoA->count('1=1 OR 1=1'));
+    }
+
+    public function test_limit_and_offset(): void
+    {
+        $this->item($this->companyA, 'a-two');
+        $this->item($this->companyA, 'a-three');
+        $this->assertSame(['a-item', 'a-two'], array_column($this->repoA->page(2, 0), 'name'));
+        $this->assertSame(['a-three'], array_column($this->repoA->page(2, 2), 'name'));
+        $this->expectException(\InvalidArgumentException::class);
+        $this->repoA->page(-1, 0);
+    }
+
+    public function test_update_with_id_key_throws_and_changes_nothing(): void
+    {
+        try {
+            $this->repoA->update($this->itemA, ['id' => $this->itemB, 'name' => 'x']);
+            $this->fail('Expected exception');
+        } catch (\InvalidArgumentException) {
+            $this->assertSame('a-item', $this->repoA->one($this->itemA)['name']);
+        }
     }
 }

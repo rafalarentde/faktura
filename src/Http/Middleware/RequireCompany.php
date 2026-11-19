@@ -28,7 +28,7 @@ final class RequireCompany
         if ($user === null) {
             return Response::redirect('/login');
         }
-        $count = $this->app->db()->one('SELECT COUNT(*) AS c FROM company_users WHERE user_id = ?', [(int) $user['id']]);
+        $count = $this->app->db()->one('SELECT COUNT(*) AS c FROM company_users cu JOIN companies c ON c.id = cu.company_id WHERE cu.user_id = ?', [(int) $user['id']]);
         if ((int) ($count['c'] ?? 0) === 0) {
             return $this->app->render('no_company.twig', [], 403);
         }

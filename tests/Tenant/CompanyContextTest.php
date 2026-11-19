@@ -65,4 +65,12 @@ final class CompanyContextTest extends TestCase
     {
         $this->assertInstanceOf(\RuntimeException::class, new AccessDenied());
     }
+
+    public function test_can_issue_uses_berlin_date(): void
+    {
+        $ctx = $this->company('trial', '2026-11-20');
+        $utc = new \DateTimeZone('UTC');
+        $this->assertFalse($ctx->canIssue(new \DateTimeImmutable('2026-11-20 23:30:00', $utc)), '00:30 on the 21st in Berlin');
+        $this->assertTrue($ctx->canIssue(new \DateTimeImmutable('2026-11-20 22:59:00', $utc)), '23:59 on the 20th in Berlin');
+    }
 }
