@@ -31,7 +31,8 @@ abstract class BaseRepo
      * break out of them (unbalanced parentheses or quotes; any of ; # [ ] { } backslash NUL --
      * /* ?<digit> UNION: [..] and {..} are SQLite/MySQL quoting and escape syntax the checker
      * does not model).
-     * $orderBy is a list like "name ASC, id DESC". $limit/$offset are integers.
+     * $orderBy is a list like "name ASC, id DESC". $limit/$offset are integers. $lock appends
+     * the driver's row-lock suffix (FOR UPDATE on MySQL), only meaningful inside a transaction.
      *
      * @param list<scalar|null> $params positional parameters for $where
      * @return list<array<string, mixed>>
@@ -43,6 +44,7 @@ abstract class BaseRepo
         string $orderBy = '',
         ?int $limit = null,
         int $offset = 0,
+        bool $lock = false,
     ): array {
         $t = $this->ident($table);
         $this->checkWhere($where);
@@ -57,6 +59,9 @@ abstract class BaseRepo
             $sql .= ' LIMIT ' . $limit . ' OFFSET ' . $offset;
         } elseif ($offset !== 0) {
             throw new \InvalidArgumentException('OFFSET requires LIMIT.');
+        }
+        if ($lock) {
+            $sql .= $this->db->forUpdate(); // locking read: current data, rows locked until commit (MySQL)
         }
         return $this->db->all($sql, [$this->ctx->id(), ...array_values($params)]);
     }

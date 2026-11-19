@@ -13,8 +13,8 @@ use App\Tenant\CompanyContext;
  * Storage (see migrations/005_numbering.sql): one number_formats row per document type (absent =
  * the default pattern, reset yearly) and one number_counters row per period bucket. The bucket is
  * the Europe/Berlin calendar year when the format resets yearly, otherwise 0. All access goes
- * through the BaseRepo scoped helpers (plus one company_id-bound locking SELECT, lockedFind), so
- * company_id is bound to the context company in every statement; the document type is validated
+ * through the BaseRepo scoped helpers (reads that must see current data use scopedAll with
+ * $lock), so company_id is bound to the context company in every statement; the document type is validated
  * against the fixed DocType list before it is used anywhere.
  *
  * next() is the only way a number is handed out. It is atomic: one `last_value = last_value + 1`
@@ -35,7 +35,22 @@ use App\Tenant\CompanyContext;
  *    used in an earlier year cannot collide with year Y, so a normal yearly restart is untouched.
  * Skipping numbers by this rule is possible (conservative, e.g. after a backdated document), repeating
  * is not. preview()/lastCounter() apply the same floors read-only, so the page shows the true next
- * number after a toggle. All raises run in the issuing transaction with locking reads.
+ * number after a toggle.
+ *
+ * CONCURRENCY (MySQL REPEATABLE READ; SQLite serializes writers anyway). Every write path (next,
+ * configure) first takes the number_formats row of the company+type with a locking read (creating
+ * it with the default pattern when missing) and reads the format AFTER that lock, so issues and
+ * format/reset changes of one company+type are serialized and always see committed data. Lock
+ * order: format row first, then bucket rows (floor sources with a locking read, then the own
+ * bucket); because the format lock serializes these paths, the bucket order cannot deadlock among
+ * them. Plain SELECTs (a snapshot) are used only by the read-only preview()/lastCounter()/format().
+ * All raises are monotonic conditional UPDATEs. A three-way race on the very first INSERT of a
+ * format or bucket row can still end in MySQL deadlock 1213 for one of the requests: that
+ * exception propagates, rolls its issue transaction back and can never produce a duplicate.
+ *
+ * DEPLOYMENT NOTE: migration 005 was edited in place (last_year column) because the code was
+ * unreleased; a database that already ran an earlier 005 needs
+ * `ALTER TABLE number_counters ADD COLUMN last_year BIGINT NOT NULL DEFAULT 0` first.
  *
  * Changing a pattern never resets a counter.
  */
@@ -94,7 +109,8 @@ final class NumberSequences extends BaseRepo
         }
 
         return $this->db->transaction(function () use ($docType, $pattern, $resetYearly, $nextValue, $today, $warnings): ConfigureResult {
-            $old = $this->format($docType);
+            $row = $this->lockedFormat($docType);
+            $old = ['pattern' => (string) $row['pattern'], 'reset_yearly' => (int) $row['reset_yearly'] === 1];
             $changed = [];
             if ($old['pattern'] !== $pattern) {
                 $changed[] = 'pattern';
@@ -102,7 +118,11 @@ final class NumberSequences extends BaseRepo
             if ($old['reset_yearly'] !== $resetYearly) {
                 $changed[] = 'reset_yearly';
             }
-            $this->saveFormat($docType, $pattern, $resetYearly);
+            $this->scopedUpdate('number_formats', (int) $row['id'], [
+                'pattern' => $pattern,
+                'reset_yearly' => $resetYearly ? 1 : 0,
+                'updated_at' => ($this->clock)(),
+            ]);
 
             $notes = [];
             if ($nextValue !== null) {
@@ -149,18 +169,21 @@ final class NumberSequences extends BaseRepo
      */
     public function next(string $docType, \DateTimeImmutable $d): string
     {
+        DocType::assertValid($docType);
         $d = $this->berlin($d);
-        $fmt = $this->parsedFormat($docType);
         $year = (int) $d->format('Y');
-        return $this->db->transaction(function () use ($docType, $fmt, $d, $year): string {
-            $id = (int) $this->activeBucket($docType, $fmt['reset'], $year)['id'];
+        return $this->db->transaction(function () use ($docType, $d, $year): string {
+            // Format row first (lock order), then read the format from the locked, current row.
+            $f = $this->lockedFormat($docType);
+            $parsed = NumberFormat::parse((string) $f['pattern']);
+            $id = (int) $this->activeBucket($docType, (int) $f['reset_yearly'] === 1, $year)['id'];
             if ($this->scopedIncrement('number_counters', $id, 'last_value', 1, NumberFormat::MAX_COUNTER) !== 1) {
                 throw new \RuntimeException('Number range exhausted.'); // counter not moved
             }
             $this->scopedRaise('number_counters', $id, 'last_year', $year);
             // Read back inside the same transaction: the row is locked by our own UPDATE.
             $value = (int) ($this->scopedOne('number_counters', $id)['last_value'] ?? 0);
-            return $fmt['parsed']->render($d, $value);
+            return $parsed->render($d, $value);
         });
     }
 
@@ -196,17 +219,17 @@ final class NumberSequences extends BaseRepo
     }
 
     /**
-     * Highest counter the bucket $period must not fall below (see class invariant).
-     * With $lock the source rows are read with a locking read (current data, not a snapshot).
+     * Highest counter the bucket $period must not fall below (see class invariant). With $lock the
+     * source rows are LISTED with a locking read, so rows committed by a concurrent transaction
+     * after our snapshot are seen too.
      */
     private function floor(string $docType, int $period, int $year, bool $lock): int
     {
         $floor = 0;
-        foreach ($this->scopedAll('number_counters', 'doc_type = ? AND period <> ?', [$docType, $period]) as $row) {
-            if ($lock) {
-                $row = $this->lockedFind('number_counters', 'id = ?', [(int) $row['id']]) ?? $row;
-            }
-            if ($period === 0 || ((int) $row['period'] === 0 && (int) $row['last_year'] >= $year)) {
+        $rows = $this->scopedAll('number_counters', 'doc_type = ? AND period <> ?', [$docType, $period], 'period ASC', null, 0, $lock);
+        foreach ($rows as $row) {
+            $from = (int) $row['period'];
+            if ($period === 0 ? $from === $year : ($from === 0 && (int) $row['last_year'] >= $year)) {
                 $floor = max($floor, (int) $row['last_value']);
             }
         }
@@ -232,17 +255,24 @@ final class NumberSequences extends BaseRepo
         if ($floor > (int) $row['last_value']) {
             $this->scopedRaise('number_counters', (int) $row['id'], 'last_value', $floor);
             $row['last_value'] = $floor;
-            // a concurrent raise may have gone even higher: re-read the locked row
-            $row = $this->lockedFind('number_counters', 'id = ?', [(int) $row['id']]) ?? $row;
         }
         return $row;
     }
 
-    private function saveFormat(string $docType, string $pattern, bool $resetYearly): void
+    /**
+     * The locked number_formats row of the type (default pattern, reset on, when missing). Every
+     * write path calls this FIRST.
+     *
+     * @return array<string, mixed>
+     */
+    private function lockedFormat(string $docType): array
     {
-        $values = ['pattern' => $pattern, 'reset_yearly' => $resetYearly ? 1 : 0, 'updated_at' => ($this->clock)()];
-        $row = $this->insertOrFetch('number_formats', 'doc_type = ?', [$docType], ['doc_type' => $docType] + $values);
-        $this->scopedUpdate('number_formats', (int) $row['id'], $values);
+        return $this->insertOrFetch('number_formats', 'doc_type = ?', [$docType], [
+            'doc_type' => $docType,
+            'pattern' => DocType::defaultPattern($docType),
+            'reset_yearly' => 1,
+            'updated_at' => ($this->clock)(),
+        ]);
     }
 
     /**
@@ -250,7 +280,8 @@ final class NumberSequences extends BaseRepo
      * if a concurrent request inserts the same unique key first, the INSERT fails with an
      * integrity-constraint error (SQLSTATE class 23 only; deadlocks and everything else
      * propagate, because the transaction is then already lost) and we use the winner's row via a
-     * LOCKING read (a plain SELECT would still show the old snapshot under REPEATABLE READ).
+     * LOCKING read (a plain SELECT would still show the old snapshot under REPEATABLE READ). When
+     * no winner row can be found the original constraint error is rethrown.
      *
      * @param list<scalar> $params
      * @param array<string, scalar> $row
@@ -258,6 +289,7 @@ final class NumberSequences extends BaseRepo
      */
     private function insertOrFetch(string $table, string $where, array $params, array $row): array
     {
+        $caught = null;
         if (($this->scopedAll($table, $where, $params)[0] ?? null) === null) {
             try {
                 $this->scopedInsert($table, $row);
@@ -265,27 +297,11 @@ final class NumberSequences extends BaseRepo
                 if (!self::isConstraintViolation($e)) {
                     throw $e;
                 }
+                $caught = $e;
             }
         }
-        return $this->lockedFind($table, $where, $params) ?? throw new \RuntimeException('Row vanished.');
-    }
-
-    /**
-     * SELECT ... FOR UPDATE of one row of the context company. $table is only ever one of this
-     * class's own table literals and $where a literal with ? parameters; company_id is bound.
-     *
-     * @param list<scalar> $params
-     * @return array<string, mixed>|null
-     */
-    private function lockedFind(string $table, string $where, array $params): ?array
-    {
-        if (!in_array($table, ['number_counters', 'number_formats'], true)) {
-            throw new \InvalidArgumentException('Unknown table.');
-        }
-        return $this->db->one(
-            "SELECT * FROM `$table` WHERE company_id = ? AND ($where) LIMIT 1" . $this->db->forUpdate(),
-            [$this->ctx->id(), ...$params]
-        );
+        return $this->scopedAll($table, $where, $params, '', 1, 0, true)[0]
+            ?? throw ($caught ?? new \RuntimeException('Row vanished.'));
     }
 
     private static function isConstraintViolation(\PDOException $e): bool

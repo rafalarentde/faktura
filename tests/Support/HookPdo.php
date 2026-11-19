@@ -3,17 +3,23 @@ declare(strict_types=1);
 
 namespace Tests\Support;
 
-/** PDO whose prepare() first calls a hook with the SQL, to simulate concurrent writers or driver errors. */
+/**
+ * PDO whose prepare() first calls a hook with the SQL, to simulate concurrent writers or driver
+ * errors. The hook may return a replacement SQL string (e.g. to strip FOR UPDATE for SQLite).
+ */
 final class HookPdo extends \PDO
 {
-    /** @var (\Closure(string, self): void)|null */
+    /** @var (\Closure(string, self): (string|void))|null */
     public ?\Closure $onPrepare = null;
 
     #[\ReturnTypeWillChange]
     public function prepare(string $query, array $options = []): \PDOStatement|false
     {
         if ($this->onPrepare !== null) {
-            ($this->onPrepare)($query, $this);
+            $replacement = ($this->onPrepare)($query, $this);
+            if (is_string($replacement)) {
+                $query = $replacement;
+            }
         }
         return parent::prepare($query, $options);
     }

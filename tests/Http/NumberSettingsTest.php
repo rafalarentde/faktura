@@ -265,7 +265,11 @@ final class NumberSettingsTest extends HttpTestCase
         $this->post('/settings/numbers', $this->form([
             'company_id' => (string) $other, 'doc_type' => 'invoice', 'pattern_evil' => 'EVIL-{N}', 'pattern_invoice_x' => 'EVIL-{N}',
         ]) + ['id' => '1']);
-        $this->assertSame(0, (int) $this->db->one('SELECT COUNT(*) AS c FROM number_formats WHERE company_id = ?', [$other])['c']);
+        $this->assertSame(
+            ['RE-{YYYY}-{NNN}'],
+            array_column($this->db->all('SELECT pattern FROM number_formats WHERE company_id = ?', [$other]), 'pattern'),
+            'only the default row its own next() created; nothing from the request'
+        );
         $this->assertSame(1, (int) $this->db->one('SELECT last_value AS c FROM number_counters WHERE company_id = ?', [$other])['c']);
         foreach ($this->db->all('SELECT doc_type FROM number_formats') as $row) {
             $this->assertContains($row['doc_type'], ['invoice', 'offer', 'dunning', 'credit_note']);

@@ -415,7 +415,8 @@ final class NumberSequencesTest extends TestCase
 
     private function setReset(NumberSequences $s, bool $on, string $date, string $pattern = 'RE-{YYYY}-{NNN}'): void
     {
-        $s->configure('invoice', $pattern, $on, null, $this->d($date));
+        $r = $s->configure('invoice', $pattern, $on, null, $this->d($date));
+        $this->assertSame([], $r->notes, 'a toggle never skips numbers silently');
     }
 
     public function test_toggle_on_off_on(): void
@@ -462,10 +463,10 @@ final class NumberSequencesTest extends TestCase
         $s = $this->seq($this->company());
         $got = $this->issue($s, 2, '2026-05-01');
         $this->setReset($s, false, '2026-05-01');
-        $got = [...$got, ...$this->issue($s, 1, '2027-01-02')]; // RE-2027-003 from bucket 0
+        $got = [...$got, ...$this->issue($s, 1, '2027-01-02')]; // bucket 0 starts at the 2027 bucket (none): 001
         $this->setReset($s, true, '2027-01-02');
         $got = [...$got, ...$this->issue($s, 2, '2027-01-02')];
-        $this->assertSame(['RE-2026-001', 'RE-2026-002', 'RE-2027-003', 'RE-2027-004', 'RE-2027-005'], $got);
+        $this->assertSame(['RE-2026-001', 'RE-2026-002', 'RE-2027-001', 'RE-2027-002', 'RE-2027-003'], $got);
     }
 
     public function test_yearly_restart_is_kept_when_the_non_yearly_bucket_was_last_used_in_an_earlier_year(): void
@@ -498,7 +499,7 @@ final class NumberSequencesTest extends TestCase
     public function test_random_toggles_year_changes_and_issues_never_repeat(): void
     {
         mt_srand(20261118);
-        for ($round = 0; $round < 5; $round++) {
+        for ($round = 0; $round < 8; $round++) {
             $db = \TestDb::fresh();
             $userId = (new UserService($db))->create("r$round@example.com", 'correct horse battery', false);
             $db->exec('INSERT INTO companies (name) VALUES (?)', ['R']);
@@ -509,9 +510,9 @@ final class NumberSequencesTest extends TestCase
             $reset = true;
             $seen = [];
             $lastPerYear = [];
-            for ($i = 0; $i < 120; $i++) {
+            for ($i = 0; $i < 150; $i++) {
                 $date = $this->d("$year-06-15");
-                switch (mt_rand(0, 5)) {
+                switch (mt_rand(0, 7)) {
                     case 0:
                         $reset = !$reset;
                         $s->configure('invoice', 'RE-{YYYY}-{NNN}', $reset, null, $date);
@@ -521,6 +522,20 @@ final class NumberSequencesTest extends TestCase
                         break;
                     case 2:
                         $s->preview('invoice', $date);
+                        break;
+                    case 3:
+                    case 4:
+                        // backdated document in an earlier year (or the same), previewed first
+                        $y = mt_rand(2026, $year);
+                        $backdate = $this->d("$y-03-10");
+                        $preview = $s->preview('invoice', $backdate);
+                        $number = $s->next('invoice', $backdate);
+                        $this->assertSame($preview, $number, "preview mismatch (round $round, step $i)");
+                        $this->assertArrayNotHasKey($number, $seen, "repeated $number (round $round, step $i)");
+                        $seen[$number] = true;
+                        $counter = (int) substr($number, -3);
+                        $this->assertGreaterThan($lastPerYear[$y] ?? 0, $counter, "not increasing within $y");
+                        $lastPerYear[$y] = $counter;
                         break;
                     default:
                         $number = $s->next('invoice', $date);
@@ -666,5 +681,108 @@ final class NumberSequencesTest extends TestCase
             }
         }
         $this->assertSame(9_999_999_999, (int) $this->db->one('SELECT last_value AS v FROM number_counters')['v']);
+    }
+
+    public function test_switching_reset_off_does_not_skip_numbers_of_the_issue_year(): void
+    {
+        $s = $this->seq($this->company());
+        $s->configure('invoice', 'RE-{YYYY}-{NNN}', true, 501, $this->d('2026-05-01')); // 2026 at 500
+        $this->assertSame('RE-2026-501', $s->next('invoice', $this->d('2026-05-01')));
+        $this->issue($s, 3, '2027-02-01'); // 2027 at 3
+        $r = $s->configure('invoice', 'RE-{YYYY}-{NNN}', false, null, $this->d('2027-02-01'));
+        $this->assertSame([], $r->notes);
+        $this->assertSame('RE-2027-004', $s->preview('invoice', $this->d('2027-02-01')));
+        $this->assertSame('RE-2027-004', $s->next('invoice', $this->d('2027-02-01')), 'no gap in 2027');
+        $r = $s->configure('invoice', 'RE-{YYYY}-{NNN}', false, 5, $this->d('2027-02-01'));
+        $this->assertSame([], $r->notes, 'explicit next equal to the real next is accepted');
+        // backdated 2026 document: raised to the 2026 bucket (501), never reuses a 2026 number
+        $this->assertSame('RE-2026-502', $s->next('invoice', $this->d('2026-12-01')));
+    }
+
+    public function test_explicit_raise_produces_the_skip_note(): void
+    {
+        $s = $this->seq($this->company());
+        $r = $s->configure('invoice', 'RE-{YYYY}-{NNN}', true, 10, $this->d('2026-05-01'));
+        $this->assertSame([ConfigureResult::NOTE_SKIPS_NUMBERS], $r->notes);
+    }
+
+    public function test_a_toggle_by_another_instance_is_respected_on_the_very_next_call(): void
+    {
+        $c = $this->company();
+        $a = $this->seq($c);
+        $b = $this->seq($c);
+        $d = $this->d('2026-05-01');
+        $this->assertSame('RE-2026-001', $a->next('invoice', $d));
+        $b->configure('invoice', 'RE-{YYYY}-{NNN}', false, null, $d);
+        $this->assertSame('RE-2026-002', $a->next('invoice', $d));
+        $this->assertSame(1, (int) $this->db->one('SELECT COUNT(*) AS c FROM number_counters WHERE period = 0')['c'], 'issued from bucket 0');
+        $b->configure('invoice', 'RE-{YYYY}-{NNN}', true, null, $d);
+        $this->assertSame('RE-2026-003', $a->next('invoice', $d));
+    }
+
+    public function test_original_constraint_error_is_rethrown_when_no_winner_row_exists(): void
+    {
+        [$db, $pdo, $s] = $this->hooked();
+        $error = new \PDOException('UNIQUE constraint failed');
+        $error->errorInfo = ['23000', 19, 'UNIQUE constraint failed'];
+        $pdo->onPrepare = function (string $sql) use ($error): void {
+            if (str_starts_with($sql, 'INSERT INTO `number_counters`')) {
+                throw $error;
+            }
+        };
+        try {
+            $s->next('invoice', $this->d('2026-05-01'));
+            $this->fail('Expected the constraint error');
+        } catch (\PDOException $e) {
+            $this->assertSame($error, $e);
+        }
+    }
+
+    public function test_mysql_path_locks_the_format_row_first_and_lists_floor_rows_with_a_locking_read(): void
+    {
+        [$sqliteDb, $pdo, , $cid] = $this->hooked();
+        // same connection, but the Db reports 'mysql' so forUpdate() yields ' FOR UPDATE'; SQLite
+        // cannot run it, so the hook records the statement and strips the suffix.
+        $db = new Db($pdo, 'mysql');
+        $userId = (int) $db->one('SELECT id FROM users LIMIT 1')['id'];
+        $s = new NumberSequences($db, CompanyContext::forUser($db, $userId, $cid), fn (): int => 1_700_000_000);
+        $log = [];
+        $pdo->onPrepare = function (string $sql) use (&$log): string {
+            $locking = str_ends_with($sql, ' FOR UPDATE');
+            $log[] = [$sql, $locking];
+            return $locking ? substr($sql, 0, -strlen(' FOR UPDATE')) : $sql;
+        };
+        $s->next('invoice', $this->d('2026-05-01'));
+        $s->next('invoice', $this->d('2026-05-02')); // second call: rows exist
+
+        foreach ([[0, count($log)]] as [$from, $to]) {
+            $firstFormatLock = $firstCounterAny = null;
+            foreach ($log as $n => [$sql, $locking]) {
+                if ($firstFormatLock === null && $locking && str_contains($sql, '`number_formats`')) {
+                    $firstFormatLock = $n;
+                }
+                if ($firstCounterAny === null && str_contains($sql, '`number_counters`')) {
+                    $firstCounterAny = $n;
+                }
+            }
+            $this->assertNotNull($firstFormatLock, 'format row read with FOR UPDATE');
+            $this->assertLessThan($firstCounterAny, $firstFormatLock, 'format row locked before any bucket row');
+        }
+        $floorQueries = array_filter($log, fn (array $e): bool => str_contains($e[0], 'period` <> ?') || str_contains($e[0], 'period <> ?') || str_contains($e[0], '(doc_type = ? AND period <> ?)'));
+        $this->assertNotEmpty($floorQueries, 'floor sources are listed');
+        foreach ($floorQueries as [$sql, $locking]) {
+            $this->assertTrue($locking, 'floor source rows are listed with FOR UPDATE: ' . $sql);
+        }
+        // the format used for rendering comes from a locking read, never from a plain one only
+        foreach ($log as $n => [$sql, $locking]) {
+            if (str_contains($sql, 'FROM `number_formats`') && !$locking) {
+                $next = array_slice($log, $n + 1, 3);
+                $this->assertTrue(
+                    (bool) array_filter($next, fn (array $e): bool => $e[1] && str_contains($e[0], '`number_formats`')),
+                    'a plain format existence check is always followed by the locking read'
+                );
+            }
+        }
+        $this->assertSame($db->one('SELECT last_value AS v FROM number_counters')['v'], 2);
     }
 }
