@@ -8,9 +8,13 @@ use App\Auth\BackupCodes;
 use App\Auth\RateLimiter;
 use App\Auth\Totp;
 use App\Auth\UserService;
+use App\Domain\DocumentService;
+use App\Domain\NumberSequences;
 use App\Http\Middleware\RequireLogin;
 use App\Http\Shell;
 use App\I18n\Translator;
+use App\Repo\CustomerRepo;
+use App\Repo\DocumentRepo;
 use App\Tenant\AccessDenied;
 use App\Tenant\CompanyContext;
 use App\Vies\HttpViesClient;
@@ -58,6 +62,7 @@ final class App
     /** @var array<string, mixed>|false|null null = not loaded yet, false = nobody */
     private array|false|null $currentUser = null;
     private CompanyContext|false|null $context = null;
+    private ?DocumentService $documents = null;
     /** @var array<string, mixed>|null */
     private ?array $shell = null;
     private string $lang = Translator::FALLBACK;
@@ -258,7 +263,25 @@ final class App
     public function resetContext(): void
     {
         $this->context = null;
+        $this->documents = null;
         $this->shell = null;
+    }
+
+    /**
+     * Document service of the active company (cached per request, like context()).
+     *
+     * @throws \LogicException when no company is selected (use RequireCompany on the route)
+     */
+    public function documents(): DocumentService
+    {
+        if ($this->documents === null) {
+            $ctx = $this->context() ?? throw new \LogicException('No company selected.');
+            $this->documents = new DocumentService(
+                $this->db, $ctx, new NumberSequences($this->db, $ctx, $this->clock), new DocumentRepo($this->db, $ctx),
+                new CustomerRepo($this->db, $ctx), $this->clock
+            );
+        }
+        return $this->documents;
     }
 
     private function resolveContext(): ?CompanyContext
