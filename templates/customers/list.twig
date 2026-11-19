@@ -1,0 +1,45 @@
+{% extends 'layout.twig' %}
+{% import '_icons.twig' as icons %}
+{% block title %}{{ t('customer.title') }}{% endblock %}
+{% block subtitle %}{{ t('customer.subtitle') }}{% endblock %}
+{% block actions %}<a class="btn btn-primary" href="/customers#customer-form">{{ icons.icon('plus') }}{{ t('customer.new') }}</a>{% endblock %}
+{% block content %}
+    <div class="stack">
+        <section class="panel">
+            <div class="panel-head">
+                <form class="inline-form" method="get" action="/customers" role="search">
+                    <input type="search" name="q" value="{{ q }}" placeholder="{{ t('customer.search') }}" aria-label="{{ t('customer.search') }}" maxlength="100">
+                    <button class="btn btn-ghost btn-sm" type="submit">{{ t('customer.search_button') }}</button>
+                </form>
+            </div>
+            <div class="tbl-wrap">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>{{ t('customer.col_name') }}</th>
+                            <th>{{ t('customer.col_country') }}</th>
+                            <th>{{ t('customer.col_vat_id') }}</th>
+                            <th>{{ t('customer.col_lang_currency') }}</th>
+                            <th class="r"><span class="sr-only">{{ t('customer.col_open') }}</span></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for c in customers %}
+                        <tr>
+                            <td class="wrap"><a class="strong-link" href="/customers/{{ c.id }}">{{ c.name }}</a></td>
+                            <td>{{ c.country }}</td>
+                            <td class="num">{{ c.vat_id ?: '—' }}</td>
+                            <td>{{ c.default_lang|upper }} / {{ c.default_currency }}</td>
+                            <td class="r"><a class="btn btn-ghost btn-sm" href="/customers/{{ c.id }}#customer-form">{{ t('customer.edit_short') }}</a></td>
+                        </tr>
+                    {% else %}
+                        <tr><td colspan="5" class="empty-row">{{ q ? t('customer.no_results') : t('customer.empty') }}</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        {% include 'customers/form.twig' %}
+    </div>
+{% endblock %}

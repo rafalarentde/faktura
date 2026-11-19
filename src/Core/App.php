@@ -13,6 +13,8 @@ use App\Http\Shell;
 use App\I18n\Translator;
 use App\Tenant\AccessDenied;
 use App\Tenant\CompanyContext;
+use App\Vies\HttpViesClient;
+use App\Vies\ViesClient;
 use FastRoute\Dispatcher;
 use FastRoute\RouteCollector;
 use Twig\Environment;
@@ -47,6 +49,7 @@ final class App
     private ?BackupCodes $backupCodes = null;
     private ?AuthService $auth = null;
     private ?UserService $users = null;
+    private ?ViesClient $vies = null;
 
     // Per request.
     private ?Request $request = null;
@@ -199,6 +202,16 @@ final class App
         return $this->auth ??= new AuthService(
             $this->db, $this->rateLimiter(), $this->totp(), $this->backupCodes(), $this->crypto(), $this->clock
         );
+    }
+
+    /** VIES client; config `vies_client` may hold a ready ViesClient (tests), default is the HTTP client. */
+    public function vies(): ViesClient
+    {
+        if ($this->vies === null) {
+            $configured = $this->config('vies_client');
+            $this->vies = $configured instanceof ViesClient ? $configured : new HttpViesClient();
+        }
+        return $this->vies;
     }
 
     public function users(): UserService

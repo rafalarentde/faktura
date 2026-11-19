@@ -4,6 +4,7 @@ declare(strict_types=1);
 use App\Core\App;
 use App\Http\AdminController;
 use App\Http\AuthController;
+use App\Http\CustomerController;
 use App\Http\DashboardController;
 use App\Http\Middleware\RequireAdmin;
 use App\Http\Middleware\RequireCompany;
@@ -41,4 +42,12 @@ return function (App $app, RouteCollector $r): void {
     $r->addRoute('POST', '/admin/companies/{id:\d+}/access', $admin('access'));
     $r->addRoute('POST', '/admin/companies/{id:\d+}/users', $admin('addUser'));
     $r->addRoute('POST', '/admin/companies/{id:\d+}/users/{uid:\d+}/remove', $admin('removeUser'));
+
+    // Customers (no delete route in v1).
+    $customer = fn (string $method) => $app->protect([CustomerController::class, $method], [RequireCompany::class]);
+    $r->addRoute('GET', '/customers', $customer('index'));
+    $r->addRoute('GET', '/customers/{id:\d+}', $customer('show'));
+    $r->addRoute('POST', '/customers', $customer('create'));
+    $r->addRoute('POST', '/customers/{id:\d+}', $customer('update'));
+    $r->addRoute('POST', '/customers/{id:\d+}/vies', $customer('vies'));
 };
