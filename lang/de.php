@@ -45,6 +45,9 @@ return [
     'error.csrf' => 'Deine Sitzung ist abgelaufen oder das Formular ist veraltet. Bitte geh zurück, lade die Seite neu und versuche es erneut.',
     'error.server' => 'Etwas ist schiefgelaufen. Bitte versuche es später erneut.',
     'error.back_home' => 'Zur Startseite',
+
+    'company.none_title' => 'Keine Firma zugewiesen',
+    'company.none_text' => 'Deinem Konto ist noch keine Firma zugewiesen. Bitte wende dich an den Administrator.',
     'home.signed_in_as' => 'Angemeldet als {email}',
 
     'common.save' => 'Speichern',

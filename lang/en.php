@@ -45,6 +45,9 @@ return [
     'error.csrf' => 'Your session has expired or the form is out of date. Please go back, reload the page and try again.',
     'error.server' => 'Something went wrong. Please try again later.',
     'error.back_home' => 'Back to the start page',
+
+    'company.none_title' => 'No company assigned',
+    'company.none_text' => 'No company has been assigned to your account yet. Please contact the administrator.',
     'home.signed_in_as' => 'Signed in as {email}',
 
     'common.save' => 'Save',

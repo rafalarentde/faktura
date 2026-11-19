@@ -17,6 +17,7 @@ final class Session
     private const K_STAGE = '_stage';
     private const K_CREATED = '_created';
     private const K_LAST = '_last';
+    private const K_COMPANY = '_company';
 
     private \Closure $clock;
     private bool $started = false;
@@ -89,6 +90,7 @@ final class Session
         $this->store->regenerate();
         $this->store->set(self::K_USER, $userId);
         $this->store->set(self::K_STAGE, 'password_ok');
+        $this->store->remove(self::K_COMPANY);
         $this->store->set(self::K_CREATED, ($this->clock)());
     }
 
@@ -100,6 +102,24 @@ final class Session
         }
         $this->store->regenerate();
         $this->store->set(self::K_STAGE, 'full');
+        $this->store->remove(self::K_COMPANY);
+    }
+
+    /** Company selected for this login (only a candidate: App::context() re-checks membership). */
+    public function companyId(): ?int
+    {
+        $id = $this->store->get(self::K_COMPANY);
+        return is_int($id) ? $id : null;
+    }
+
+    public function setCompanyId(int $companyId): void
+    {
+        $this->store->set(self::K_COMPANY, $companyId);
+    }
+
+    public function clearCompanyId(): void
+    {
+        $this->store->remove(self::K_COMPANY);
     }
 
     public function logout(): void

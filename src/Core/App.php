@@ -10,6 +10,8 @@ use App\Auth\Totp;
 use App\Auth\UserService;
 use App\Http\Middleware\RequireLogin;
 use App\I18n\Translator;
+use App\Tenant\AccessDenied;
+use App\Tenant\CompanyContext;
 use FastRoute\Dispatcher;
 use FastRoute\RouteCollector;
 use Twig\Environment;
@@ -47,6 +49,7 @@ final class App
     private ?Csrf $csrf = null;
     /** @var array<string, mixed>|false|null null = not loaded yet, false = nobody */
     private array|false|null $currentUser = null;
+    private CompanyContext|false|null $context = null;
     private string $lang = Translator::FALLBACK;
 
     /**
@@ -72,6 +75,7 @@ final class App
         $this->session = null;
         $this->csrf = null;
         $this->currentUser = null;
+        $this->context = null;
         $this->lang = Translator::FALLBACK;
         try {
             $this->session()->start();
@@ -215,13 +219,43 @@ final class App
     }
 
     /**
-     * Active company of the request. Placeholder until the tenant layer exists.
-     *
-     * @return \App\Tenant\CompanyContext|null
+     * Active company of the request (cached per request like currentUser()), or null.
+     * Only for a fully logged-in user. The session's company id is used when the user is
+     * still a member of it; otherwise a user with exactly one company gets it selected (and
+     * stored); a user with several and no valid selection, or none, gets null. Company ids
+     * from the request are never consulted.
      */
-    public function context(): ?object
+    public function context(): ?CompanyContext
     {
-        return null;
+        if ($this->context === null) {
+            $this->context = $this->resolveContext() ?? false;
+        }
+        return $this->context === false ? null : $this->context;
+    }
+
+    private function resolveContext(): ?CompanyContext
+    {
+        $user = $this->currentUser();
+        if ($user === null) {
+            return null;
+        }
+        $userId = (int) $user['id'];
+        $session = $this->session();
+        $selected = $session->companyId();
+        if ($selected !== null) {
+            try {
+                return CompanyContext::forUser($this->db, $userId, $selected);
+            } catch (AccessDenied) {
+                $session->clearCompanyId(); // membership gone: do not trust the stored id
+            }
+        }
+        $rows = $this->db->all('SELECT company_id FROM company_users WHERE user_id = ? LIMIT 2', [$userId]);
+        if (count($rows) !== 1) {
+            return null;
+        }
+        $ctx = CompanyContext::forUser($this->db, $userId, (int) $rows[0]['company_id']);
+        $session->setCompanyId($ctx->id());
+        return $ctx;
     }
 
     public function twig(): Environment

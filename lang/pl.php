@@ -45,6 +45,9 @@ return [
     'error.csrf' => 'Sesja wygasła lub formularz jest nieaktualny. Wróć, odśwież stronę i spróbuj ponownie.',
     'error.server' => 'Coś poszło nie tak. Spróbuj ponownie później.',
     'error.back_home' => 'Wróć do strony głównej',
+
+    'company.none_title' => 'Brak przypisanej firmy',
+    'company.none_text' => 'Do Twojego konta nie przypisano jeszcze żadnej firmy. Skontaktuj się z administratorem.',
     'home.signed_in_as' => 'Zalogowano jako {email}',
 
     'common.save' => 'Zapisz',

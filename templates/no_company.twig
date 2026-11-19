@@ -1,0 +1,10 @@
+{% extends '_auth_base.twig' %}
+{% block title %}{{ t('company.none_title') }}{% endblock %}
+{% block content %}
+    <h1>{{ t('company.none_title') }}</h1>
+    <p>{{ t('company.none_text') }}</p>
+    <form method="post" action="/logout">
+        {{ csrf_field() }}
+        <button type="submit">{{ t('login.logout') }}</button>
+    </form>
+{% endblock %}
