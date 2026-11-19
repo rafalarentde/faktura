@@ -28,7 +28,9 @@ abstract class BaseRepo
     /**
      * $where MUST be a literal written in code; user values go only into ? params. It is
      * wrapped in parentheses and ANDed with the tenant filter, and rejected when it could
-     * break out of them (unbalanced parentheses, ;, --, /*, #, backslash, UNION).
+     * break out of them (unbalanced parentheses or quotes; any of ; # [ ] { } backslash NUL --
+     * /* ?<digit> UNION: [..] and {..} are SQLite/MySQL quoting and escape syntax the checker
+     * does not model).
      * $orderBy is a list like "name ASC, id DESC". $limit/$offset are integers.
      *
      * @param list<scalar|null> $params positional parameters for $where
@@ -59,7 +61,11 @@ abstract class BaseRepo
         return $this->db->all($sql, [$this->ctx->id(), ...array_values($params)]);
     }
 
-    /** Number of rows of the context company matching $where (same rules as scopedAll). */
+    /**
+     * Number of rows of the context company matching $where (same rules as scopedAll).
+     *
+     * @param list<scalar|null> $params positional parameters for $where
+     */
     protected function scopedCount(string $table, string $where = '1=1', array $params = []): int
     {
         $t = $this->ident($table);
@@ -120,7 +126,7 @@ abstract class BaseRepo
 
     private function checkWhere(string $where): void
     {
-        if (preg_match('/;|--|\/\*|#|\\\\|\bUNION\b/i', $where) === 1) {
+        if (preg_match('/[;#\\[\\]{}\\\\\\x00]|--|\/\*|\?\d|\bUNION\b/i', $where) === 1) {
             throw new \InvalidArgumentException('Forbidden token in WHERE.');
         }
         $depth = 0;

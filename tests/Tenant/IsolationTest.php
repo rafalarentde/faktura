@@ -186,7 +186,7 @@ final class IsolationTest extends TestCase
     public function test_where_cannot_break_out_of_parentheses(): void
     {
         foreach (['1=1) OR (1=1', '1=0) OR (company_id=' . $this->companyB, '1=0) OR company_id=' . $this->companyB . ' --',
-                  '1=0) UNION SELECT * FROM scoped_items WHERE (1=1', '1=1;', '1=1 /* x */', "name = 'a", '(1=1', '1=1 # x', "name = 'a\\' OR 1=1 --"] as $bad) {
+                  '1=0) UNION SELECT * FROM scoped_items WHERE (1=1', '1=1;', '1=1 /* x */', "name = 'a", '(1=1', '1=1 # x', 'CAST(1 AS [(])=1) OR (1=1 OR CAST(1 AS [)])=1', '1=1 OR {fn ABS(1)}=1', 'name = ?1', "name = 'a\0' OR 1=1", "name = 'a\\' OR 1=1 --"] as $bad) {
             try {
                 $rows = $this->repoA->all($bad);
                 $this->assertNotContains('b-item', array_column($rows, 'name'), $bad);
