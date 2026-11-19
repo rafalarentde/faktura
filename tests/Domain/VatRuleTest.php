@@ -71,6 +71,108 @@ final class VatRuleTest extends TestCase
         VatRule::decide(['country' => $country, 'is_company' => true, 'vat_id' => null, 'vies' => null]);
     }
 
+    /** @return iterable<string, array{array<string, mixed>}> */
+    public static function badBuyers(): iterable
+    {
+        $ok = ['country' => 'PL', 'is_company' => true, 'vat_id' => 'PL1', 'vies' => ViesStatus::Valid];
+        yield 'is_company int 1' => [['is_company' => 1] + $ok];
+        yield 'is_company string 1' => [['is_company' => '1'] + $ok];
+        yield 'is_company missing' => [array_diff_key($ok, ['is_company' => 1])];
+        yield 'is_company null' => [['is_company' => null] + $ok];
+        yield 'vies string' => [['vies' => 'valid'] + $ok];
+        yield 'vies int' => [['vies' => 1] + $ok];
+        yield 'vat_id array' => [['vat_id' => ['PL1']] + $ok];
+        yield 'vat_id int' => [['vat_id' => 123] + $ok];
+        yield 'country int' => [['country' => 1] + $ok];
+        yield 'country array' => [['country' => ['PL']] + $ok];
+        yield 'country null' => [['country' => null] + $ok];
+        yield 'country UK' => [['country' => 'UK'] + $ok];
+        yield 'country XI' => [['country' => 'XI'] + $ok];
+        yield 'country ZZ' => [['country' => 'ZZ'] + $ok];
+    }
+
+    /** @param array<string, mixed> $buyer */
+    #[DataProvider('badBuyers')]
+    public function testStrictInputRejected(array $buyer): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        VatRule::decide($buyer);
+    }
+
+    public function testMissingViesKeyMeansNeverChecked(): void
+    {
+        $d = VatRule::decide(['country' => 'PL', 'is_company' => true, 'vat_id' => 'PL1']);
+        self::assertSame('vies_not_confirmed', $d->reason);
+        $d = VatRule::decide(['country' => 'PL', 'is_company' => false]);
+        self::assertSame('private_customer', $d->reason);
+    }
+
+    public function testElMapsToGreece(): void
+    {
+        $d = VatRule::decide(['country' => ' el ', 'is_company' => true, 'vat_id' => 'EL1', 'vies' => ViesStatus::Valid]);
+        self::assertTrue($d->reverseCharge);
+    }
+
+    public function testValidNonEuCountriesStayValid(): void
+    {
+        foreach (['GB', 'CH', 'NO', 'US'] as $c) {
+            self::assertSame('non_eu', VatRule::decide(['country' => $c, 'is_company' => true])->reason);
+        }
+    }
+
+    /** @param array<string, mixed> $extra */
+    private static function row(array $extra): array
+    {
+        return $extra + ['country' => 'PL', 'is_company' => 1, 'vat_id' => 'PL1234567890', 'vies_status' => 'valid'];
+    }
+
+    public function testRowAdapterReverseCharge(): void
+    {
+        $d = VatRule::decide(VatRule::buyerFromCustomerRow(self::row([])));
+        self::assertTrue($d->reverseCharge);
+        $d = VatRule::decide(VatRule::buyerFromCustomerRow(self::row(['is_company' => '1'])));
+        self::assertTrue($d->reverseCharge);
+    }
+
+    public function testRowAdapterPrivateAndUnconfirmed(): void
+    {
+        self::assertSame('private_customer', VatRule::decide(VatRule::buyerFromCustomerRow(self::row(['is_company' => 0])))->reason);
+        self::assertSame('private_customer', VatRule::decide(VatRule::buyerFromCustomerRow(self::row(['is_company' => '0'])))->reason);
+        foreach (['unavailable', 'invalid', null] as $status) {
+            $d = VatRule::decide(VatRule::buyerFromCustomerRow(self::row(['vies_status' => $status])));
+            self::assertTrue($d->needsConfirmation);
+            self::assertFalse($d->reverseCharge);
+        }
+    }
+
+    /** @return iterable<string, array{array<string, mixed>}> */
+    public static function garbageRows(): iterable
+    {
+        yield 'is_company 2' => [self::row(['is_company' => 2])];
+        yield 'is_company yes' => [self::row(['is_company' => 'yes'])];
+        yield 'is_company null' => [self::row(['is_company' => null])];
+        yield 'is_company missing' => [array_diff_key(self::row([]), ['is_company' => 1])];
+        yield 'is_company float' => [self::row(['is_company' => 1.0])];
+        yield 'vies unknown' => [self::row(['vies_status' => 'maybe'])];
+        yield 'vies upper' => [self::row(['vies_status' => 'VALID'])];
+        yield 'vies int' => [self::row(['vies_status' => 1])];
+        yield 'vat_id int' => [self::row(['vat_id' => 5])];
+    }
+
+    /** @param array<string, mixed> $row */
+    #[DataProvider('garbageRows')]
+    public function testRowAdapterRejectsGarbage(array $row): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        VatRule::buyerFromCustomerRow($row);
+    }
+
+    public function testRowAdapterBadCountryRejectedByDecide(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        VatRule::decide(VatRule::buyerFromCustomerRow(self::row(['country' => ''])));
+    }
+
     public function testMissingCountryRejected(): void
     {
         $this->expectException(\InvalidArgumentException::class);

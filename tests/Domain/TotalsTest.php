@@ -138,29 +138,29 @@ final class TotalsTest extends TestCase
         Totals::compute([['qty' => 1]], false, 'EUR'); // @phpstan-ignore-line
     }
 
-    /** @return iterable<string, array{string, string, int, int}> currency, rate, vatMinor, expected eur */
+    /** @return iterable<string, array{string, int, int}> rate, vatMinor, expected eur */
     public static function eurCases(): iterable
     {
-        yield 'PLN 4.2650' => ['PLN', '4.2650', 100000, 23447];
-        yield 'PLN 4.265' => ['PLN', '4.265', 100000, 23447];
-        yield 'USD 1.0870 (919.96)' => ['USD', '1.0870', 1000, 920];
-        yield 'zero vat' => ['PLN', '4.2650', 0, 0];
-        yield 'huge rate' => ['PLN', '999999.999999', 100000, 0];
-        yield 'integer rate' => ['PLN', '4', 100000, 25000];
-        yield 'rate 1 for USD' => ['USD', '1', 12345, 12345];
-        yield 'half rounds up' => ['USD', '2', 5, 3];
-        yield 'rate 6 decimals' => ['PLN', '0.000001', 3, 3_000_000];
+        yield 'PLN 4.2650' => ['4.2650', 100000, 23447];
+        yield 'PLN 4.265' => ['4.265', 100000, 23447];
+        yield 'USD 1.0870 (919.96)' => ['1.0870', 1000, 920];
+        yield 'zero vat' => ['4.2650', 0, 0];
+        yield 'huge rate' => ['999999.999999', 100000, 0];
+        yield 'integer rate' => ['4', 100000, 25000];
+        yield 'rate 1 for USD' => ['1', 12345, 12345];
+        yield 'half rounds up' => ['2', 5, 3];
+        yield 'rate 6 decimals' => ['0.000001', 3, 3_000_000];
     }
 
     #[DataProvider('eurCases')]
-    public function testVatInEur(string $cur, string $rate, int $vatMinor, int $expected): void
+    public function testVatInEur(string $rate, int $vatMinor, int $expected): void
     {
         self::assertSame($expected, Totals::vatToEur($vatMinor, Totals::parseRate($rate)));
     }
 
     public function testVatEurWithDirectVatAmount(): void
     {
-        // 100000 minor of VAT: net 526315.79 not exact, so use 7%: net 1_428_571 -> vat 100000 (99999.97 -> 100000).
+        // 7% of net 1_428_571 = 99999.97, rounded to a VAT of exactly 100000 minor.
         $t = Totals::compute([self::l(1000, 1_428_571, 700)], false, 'PLN', '4.2650');
         self::assertSame(100000, $t->vatMinor);
         self::assertSame(23447, $t->vatEurMinor);
@@ -171,7 +171,7 @@ final class TotalsTest extends TestCase
 
     public function testUsdExample(): void
     {
-        // vat 1000: 0% + ... use 7% on 14286 -> 1000.02 -> 1000
+        // 7% of net 14286 = 1000.02, rounded to a VAT of 1000 minor.
         $t = Totals::compute([self::l(1000, 14286, 700)], false, 'USD', '1.0870');
         self::assertSame(1000, $t->vatMinor);
         self::assertSame(920, $t->vatEurMinor);
@@ -246,14 +246,30 @@ final class TotalsTest extends TestCase
         Totals::compute([self::l(1000, PHP_INT_MAX - 10, 1900)], false, 'EUR');
     }
 
+    public function testLeadingZeroRatesAreAccepted(): void
+    {
+        self::assertSame(1_000_000, Totals::parseRate('01'));
+        self::assertSame(1_500_000, Totals::parseRate('001.5'));
+        $t = Totals::compute([self::l(1000, 1000, 1900)], false, 'PLN', '04.0');
+        self::assertSame(48, $t->vatEurMinor); // 190 / 4 = 47.5
+    }
+
+    public function testEurInvoiceWithForeignRateAndUnitRateCases(): void
+    {
+        $t = Totals::compute([self::l(1000, 1000, 1900)], false, 'EUR', '1.000000');
+        self::assertSame(190, $t->vatEurMinor);
+        $t = Totals::compute([self::l(1000, 1000, 1900)], false, 'EUR', '01');
+        self::assertSame(190, $t->vatEurMinor);
+    }
+
     public function testPropertyStyleRandomLines(): void
     {
         $rates = [1900, 700, 0];
         for ($seed = 1; $seed <= 50; $seed++) {
-            mt_srand($seed);
+            $rnd = new \Random\Randomizer(new \Random\Engine\Mt19937($seed)); // local, global RNG untouched
             $lines = [];
-            for ($i = mt_rand(1, 12); $i > 0; $i--) {
-                $lines[] = new Line(mt_rand(1, 20000), mt_rand(0, 500000), mt_rand(0, 10000), $rates[mt_rand(0, 2)]);
+            for ($i = $rnd->getInt(1, 12); $i > 0; $i--) {
+                $lines[] = new Line($rnd->getInt(1, 20000), $rnd->getInt(0, 500000), $rnd->getInt(0, 10000), $rates[$rnd->getInt(0, 2)]);
             }
             $rc = $seed % 5 === 0;
             $t = Totals::compute($lines, $rc, 'EUR');
@@ -266,10 +282,7 @@ final class TotalsTest extends TestCase
                 self::assertSame([], $t->vat);
             }
 
-            $shuffled = $lines;
-            shuffle($shuffled);
-            $reversed = array_reverse($lines);
-            foreach ([$shuffled, $reversed] as $other) {
+            foreach ([$rnd->shuffleArray($lines), array_reverse($lines)] as $other) {
                 $o = Totals::compute($other, $rc, 'EUR');
                 self::assertEquals($t, $o, "seed $seed order independence");
                 self::assertSame(array_keys($t->vat), array_keys($o->vat));
