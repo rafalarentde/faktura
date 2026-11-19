@@ -36,6 +36,20 @@ final class AuthFlowTest extends HttpTestCase
         $this->assertStringContainsString('inputmode="numeric"', $page->body);
     }
 
+    public function test_current_user_is_null_until_full_login(): void
+    {
+        ['id' => $id, 'secret' => $secret] = $this->createUser();
+        $this->get('/login');
+        $this->assertNull($this->app->currentUser());
+        $this->loginPassword();
+        $this->get('/login/2fa');
+        $this->assertSame('password_ok', $this->app->session()->loginStage());
+        $this->assertNull($this->app->currentUser());
+        $this->post('/login/2fa', ['code' => $this->code($secret)]);
+        $this->get('/');
+        $this->assertSame($id, (int) $this->app->currentUser()['id']);
+    }
+
     public function test_valid_totp_completes_login(): void
     {
         ['id' => $id, 'secret' => $secret] = $this->createUser();

@@ -12,6 +12,7 @@ if (PHP_SAPI !== 'cli') {
     exit(1);
 }
 require __DIR__ . '/../vendor/autoload.php';
+\App\Core\ErrorHandling::install(true);
 
 $args = array_slice($argv, 1);
 $isAdmin = in_array('--admin', $args, true);

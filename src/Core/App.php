@@ -195,15 +195,16 @@ final class App
     }
 
     /**
-     * Logged-in user's row (id, email, totp_enabled, ui_lang, is_admin) or null.
-     * Set for any stage past "none"; RequireLogin guarantees a full login.
+     * Fully logged-in user's row (id, email, totp_enabled, ui_lang, is_admin) or null.
+     * Null at the password_ok stage: a non-null result always means password AND second
+     * factor passed (or, with totp_enabled = 0, a session that RequireLogin pins to /2fa/setup).
      *
      * @return array<string, mixed>|null
      */
     public function currentUser(): ?array
     {
         if ($this->currentUser === null) {
-            $id = $this->session()->loginStage() !== 'none' ? $this->session()->userId() : null;
+            $id = $this->session()->loginStage() === 'full' ? $this->session()->userId() : null;
             $row = $id === null ? null : $this->db->one(
                 'SELECT id, email, totp_enabled, ui_lang, is_admin FROM users WHERE id = ?',
                 [$id]
