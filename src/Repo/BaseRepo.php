@@ -95,19 +95,42 @@ abstract class BaseRepo
     /**
      * Atomically adds $by to an integer column of a row of the context company in ONE statement
      * (`SET col = col + ?`), so concurrent callers can never read-modify-write the same value.
-     * Returns affected rows (0 when the row is not the company's). The caller reads the new value
-     * back inside the same transaction.
+     * With $max the statement also requires `col + $by <= $max`, so a counter can never pass its
+     * limit (the check and the write are the same statement). Returns affected rows (0 when the
+     * row is not the company's or the limit would be passed). The caller reads the new value back
+     * inside the same transaction.
      */
-    protected function scopedIncrement(string $table, int $id, string $column, int $by = 1): int
+    protected function scopedIncrement(string $table, int $id, string $column, int $by = 1, ?int $max = null): int
     {
         $t = $this->ident($table);
         $c = $this->ident($column);
         if ($c === 'id' || $c === 'company_id') {
             throw new \InvalidArgumentException('Column cannot be incremented.');
         }
+        $sql = "UPDATE `$t` SET `$c` = `$c` + ? WHERE company_id = ? AND id = ?";
+        $params = [$by, $this->ctx->id(), $id];
+        if ($max !== null) {
+            $sql .= " AND `$c` <= ?";
+            $params[] = $max - $by;
+        }
+        return $this->db->exec($sql, $params);
+    }
+
+    /**
+     * Monotonic set: `SET col = $value WHERE ... AND col < $value`. The value can only go UP, and
+     * the comparison happens in the statement itself, so a concurrent raise or increment is never
+     * overwritten with a lower value. Returns affected rows (0 = the column was already >= $value).
+     */
+    protected function scopedRaise(string $table, int $id, string $column, int $value): int
+    {
+        $t = $this->ident($table);
+        $c = $this->ident($column);
+        if ($c === 'id' || $c === 'company_id') {
+            throw new \InvalidArgumentException('Column cannot be raised.');
+        }
         return $this->db->exec(
-            "UPDATE `$t` SET `$c` = `$c` + ? WHERE company_id = ? AND id = ?",
-            [$by, $this->ctx->id(), $id]
+            "UPDATE `$t` SET `$c` = ? WHERE company_id = ? AND id = ? AND `$c` < ?",
+            [$value, $this->ctx->id(), $id, $value]
         );
     }
 

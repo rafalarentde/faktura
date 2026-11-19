@@ -8,7 +8,7 @@ namespace App\Domain;
  *
  * Tokens: {YYYY} {YY} {MM} {DD} and exactly one counter {N}..{NNNNNNNNNN} (1-10 Ns; the number of
  * Ns is the minimum width, zero-padded; wider numbers are never truncated). Everything outside
- * braces is literal text (any character except control characters). Pattern length 1-60
+ * braces is literal text (any character except control/format characters). No leading or trailing whitespace. Pattern length 1-60
  * characters; the longest possible rendering (counter at 10 digits) must fit
  * MAX_RENDERED_LENGTH = the documents.number column.
  *
@@ -31,8 +31,12 @@ final class NumberFormat
     /** @throws InvalidNumberFormat */
     public static function parse(string $pattern): self
     {
-        if (!mb_check_encoding($pattern, 'UTF-8') || preg_match('/[\x00-\x1f\x7f]/', $pattern) === 1) {
+        // \p{C}: control, format (zero-width, bidi overrides), surrogate, private-use, unassigned.
+        if (!mb_check_encoding($pattern, 'UTF-8') || preg_match('/\p{C}/u', $pattern) === 1) {
             throw new InvalidNumberFormat(InvalidNumberFormat::INVALID_CHAR);
+        }
+        if (preg_match('/\A[\s\p{Z}]|[\s\p{Z}]\z/u', $pattern) === 1) {
+            throw new InvalidNumberFormat(InvalidNumberFormat::OUTER_SPACE);
         }
         $len = mb_strlen($pattern, 'UTF-8');
         if ($len < 1) {

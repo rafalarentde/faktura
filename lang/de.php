@@ -463,4 +463,5 @@ return [
     'settings.note_skips_numbers' => 'Hinweis: Die Nummern dazwischen werden übersprungen.',
     'settings.numbers_next_hint' => 'Du kannst die nächste Nummer nur erhöhen, nie senken.',
     'settings.numbers_legend' => 'Platzhalter: {YYYY} = Jahr (2026), {YY} = Jahr kurz (26), {MM} = Monat, {DD} = Tag, {N} / {NNN} = Zähler (so viele N, so viele Stellen, mindestens). Genau ein Zähler ist Pflicht. Alles andere ist frei wählbarer Text, höchstens 60 Zeichen.',
+    'settings.err_num_outer_space' => 'Das Format darf nicht mit einem Leerzeichen beginnen oder enden.',
 ];

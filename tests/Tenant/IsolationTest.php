@@ -20,6 +20,8 @@ final class ItemRepo extends BaseRepo
     public function count(string $where = '1=1', array $p = []): int { return $this->scopedCount('scoped_items', $where, $p); }
     public function page(int $limit, int $offset): array { return $this->scopedAll('scoped_items', '1=1', [], 'id', $limit, $offset); }
     public function bump(int $id, string $column = 'qty', int $by = 1): int { return $this->scopedIncrement('scoped_items', $id, $column, $by); }
+    public function raise(int $id, string $column, int $value): int { return $this->scopedRaise('scoped_items', $id, $column, $value); }
+    public function bumpMax(int $id, int $max): int { return $this->scopedIncrement('scoped_items', $id, 'qty', 1, $max); }
     public function onTable(string $table): ?array { return $this->scopedOne($table, 1); }
 }
 
@@ -272,5 +274,30 @@ final class IsolationTest extends TestCase
             }
         }
         $this->assertSame(0, (int) $this->repoA->one($this->itemA)['qty']);
+    }
+
+    public function test_scoped_raise_is_monotonic_and_scoped(): void
+    {
+        $this->assertSame(1, $this->repoA->raise($this->itemA, 'qty', 5));
+        $this->assertSame(0, $this->repoA->raise($this->itemA, 'qty', 3), 'never lowers');
+        $this->assertSame(0, $this->repoA->raise($this->itemA, 'qty', 5), 'equal is no change');
+        $this->assertSame(5, (int) $this->repoA->one($this->itemA)['qty']);
+        $this->assertSame(0, $this->repoA->raise($this->itemB, 'qty', 9), 'other company row untouched');
+        foreach (['id', 'company_id', 'qty; x'] as $col) {
+            try {
+                $this->repoA->raise($this->itemA, $col, 99);
+                $this->fail($col);
+            } catch (\InvalidArgumentException) {
+                $this->addToAssertionCount(1);
+            }
+        }
+    }
+
+    public function test_scoped_increment_respects_the_max(): void
+    {
+        $this->assertSame(1, $this->repoA->bumpMax($this->itemA, 2));
+        $this->assertSame(1, $this->repoA->bumpMax($this->itemA, 2));
+        $this->assertSame(0, $this->repoA->bumpMax($this->itemA, 2), 'would pass the limit');
+        $this->assertSame(2, (int) $this->repoA->one($this->itemA)['qty']);
     }
 }

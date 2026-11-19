@@ -12,6 +12,7 @@ use App\Domain\NumberSequences;
 use App\Domain\ValidationException;
 use App\Tenant\CompanyContext;
 use PHPUnit\Framework\TestCase;
+use Tests\Support\HookPdo;
 
 final class NumberSequencesTest extends TestCase
 {
@@ -398,5 +399,272 @@ final class NumberSequencesTest extends TestCase
         } catch (\RuntimeException) {
         }
         $this->assertSame(9_999_999_999, $s->lastCounter('invoice', $d));
+    }
+
+    // ---- reset_yearly toggles: no rendered number may ever repeat ----
+
+    /** @return list<string> */
+    private function issue(NumberSequences $s, int $n, string $date, string $type = 'invoice'): array
+    {
+        $out = [];
+        for ($i = 0; $i < $n; $i++) {
+            $out[] = $s->next($type, $this->d($date));
+        }
+        return $out;
+    }
+
+    private function setReset(NumberSequences $s, bool $on, string $date, string $pattern = 'RE-{YYYY}-{NNN}'): void
+    {
+        $s->configure('invoice', $pattern, $on, null, $this->d($date));
+    }
+
+    public function test_toggle_on_off_on(): void
+    {
+        $s = $this->seq($this->company());
+        $d = '2026-05-01';
+        $got = $this->issue($s, 2, $d);
+        $this->setReset($s, false, $d);
+        $this->assertSame('RE-2026-003', $s->preview('invoice', $this->d($d)));
+        $got = [...$got, ...$this->issue($s, 2, $d)];
+        $this->setReset($s, true, $d);
+        $this->assertSame('RE-2026-005', $s->preview('invoice', $this->d($d)), 'preview shows the true next number');
+        $got = [...$got, ...$this->issue($s, 1, $d)];
+        $this->assertSame(['RE-2026-001', 'RE-2026-002', 'RE-2026-003', 'RE-2026-004', 'RE-2026-005'], $got);
+    }
+
+    public function test_toggle_off_first_then_on(): void
+    {
+        $s = $this->seq($this->company());
+        $d = '2026-05-01';
+        $this->setReset($s, false, $d);
+        $got = $this->issue($s, 2, $d);
+        $this->setReset($s, true, $d);
+        $got = [...$got, ...$this->issue($s, 1, $d)];
+        $this->assertSame(['RE-2026-001', 'RE-2026-002', 'RE-2026-003'], $got);
+    }
+
+    public function test_toggle_on_off_on_off(): void
+    {
+        $s = $this->seq($this->company());
+        $d = '2026-05-01';
+        $got = $this->issue($s, 2, $d);
+        $this->setReset($s, false, $d);
+        $got = [...$got, ...$this->issue($s, 2, $d)];
+        $this->setReset($s, true, $d);
+        $got = [...$got, ...$this->issue($s, 1, $d)];
+        $this->setReset($s, false, $d);
+        $got = [...$got, ...$this->issue($s, 1, $d)];
+        $this->assertSame(['RE-2026-001', 'RE-2026-002', 'RE-2026-003', 'RE-2026-004', 'RE-2026-005', 'RE-2026-006'], $got);
+    }
+
+    public function test_toggle_on_after_a_year_change_without_reset(): void
+    {
+        $s = $this->seq($this->company());
+        $got = $this->issue($s, 2, '2026-05-01');
+        $this->setReset($s, false, '2026-05-01');
+        $got = [...$got, ...$this->issue($s, 1, '2027-01-02')]; // RE-2027-003 from bucket 0
+        $this->setReset($s, true, '2027-01-02');
+        $got = [...$got, ...$this->issue($s, 2, '2027-01-02')];
+        $this->assertSame(['RE-2026-001', 'RE-2026-002', 'RE-2027-003', 'RE-2027-004', 'RE-2027-005'], $got);
+    }
+
+    public function test_yearly_restart_is_kept_when_the_non_yearly_bucket_was_last_used_in_an_earlier_year(): void
+    {
+        $s = $this->seq($this->company());
+        $this->setReset($s, false, '2026-05-01');
+        $this->issue($s, 3, '2026-05-01');
+        $this->setReset($s, true, '2027-01-02');
+        $this->assertSame(['RE-2027-001', 'RE-2027-002'], $this->issue($s, 2, '2027-01-02'), 'a new year starts again at 1');
+    }
+
+    public function test_toggle_with_a_year_less_pattern_keeps_reset_off_and_uses_bucket_zero_only(): void
+    {
+        $s = $this->seq($this->company());
+        $this->setReset($s, true, '2026-05-01', 'INV-{NNN}'); // warning, forced off
+        $this->assertSame(['INV-001', 'INV-002'], $this->issue($s, 2, '2026-05-01'));
+        $this->setReset($s, true, '2027-03-01', 'INV-{NNN}');
+        $this->assertSame(['INV-003'], $this->issue($s, 1, '2027-03-01'));
+        $this->assertSame([0], array_map(fn (array $r): int => (int) $r['period'], $this->db->all("SELECT period FROM number_counters WHERE doc_type = 'invoice' ORDER BY period")));
+    }
+
+    public function test_year_less_pattern_after_yearly_use_continues_from_the_highest_counter(): void
+    {
+        $s = $this->seq($this->company());
+        $this->issue($s, 4, '2026-05-01');
+        $this->setReset($s, false, '2026-05-01', 'INV-{NNN}');
+        $this->assertSame('INV-005', $s->next('invoice', $this->d('2026-05-01')));
+    }
+
+    public function test_random_toggles_year_changes_and_issues_never_repeat(): void
+    {
+        mt_srand(20261118);
+        for ($round = 0; $round < 5; $round++) {
+            $db = \TestDb::fresh();
+            $userId = (new UserService($db))->create("r$round@example.com", 'correct horse battery', false);
+            $db->exec('INSERT INTO companies (name) VALUES (?)', ['R']);
+            $cid = $db->lastId();
+            $db->exec('INSERT INTO company_users (company_id, user_id, role) VALUES (?, ?, ?)', [$cid, $userId, 'owner']);
+            $s = new NumberSequences($db, CompanyContext::forUser($db, $userId, $cid), fn (): int => 1_700_000_000);
+            $year = 2026;
+            $reset = true;
+            $seen = [];
+            $lastPerYear = [];
+            for ($i = 0; $i < 120; $i++) {
+                $date = $this->d("$year-06-15");
+                switch (mt_rand(0, 5)) {
+                    case 0:
+                        $reset = !$reset;
+                        $s->configure('invoice', 'RE-{YYYY}-{NNN}', $reset, null, $date);
+                        break;
+                    case 1:
+                        $year++;
+                        break;
+                    case 2:
+                        $s->preview('invoice', $date);
+                        break;
+                    default:
+                        $number = $s->next('invoice', $date);
+                        $this->assertArrayNotHasKey($number, $seen, "repeated $number (round $round, step $i)");
+                        $seen[$number] = true;
+                        $counter = (int) substr($number, -3);
+                        $this->assertGreaterThan($lastPerYear[$year] ?? 0, $counter, "not increasing within $year");
+                        $lastPerYear[$year] = $counter;
+                }
+            }
+            $this->assertNotEmpty($seen);
+        }
+    }
+
+    // ---- race handling ----
+
+    /** @return array{0: Db, 1: HookPdo, 2: NumberSequences, 3: int} */
+    private function hooked(): array
+    {
+        $pdo = new HookPdo('sqlite::memory:');
+        $db = new Db($pdo, 'sqlite');
+        (new \App\Core\Migrator($db, __DIR__ . '/../../migrations'))->run();
+        $userId = (new UserService($db))->create('h@example.com', 'correct horse battery', false);
+        $db->exec('INSERT INTO companies (name) VALUES (?)', ['H']);
+        $cid = $db->lastId();
+        $db->exec('INSERT INTO company_users (company_id, user_id, role) VALUES (?, ?, ?)', [$cid, $userId, 'owner']);
+        return [$db, $pdo, new NumberSequences($db, CompanyContext::forUser($db, $userId, $cid), fn (): int => 1_700_000_000), $cid];
+    }
+
+    public function test_lost_bucket_creation_race_falls_back_to_the_winners_row(): void
+    {
+        [$db, $pdo, $s, $cid] = $this->hooked();
+        $fired = 0;
+        $pdo->onPrepare = function (string $sql, \PDO $pdo) use (&$fired, $cid): void {
+            // another request inserts the same bucket right before our INSERT runs
+            if ($fired === 0 && str_starts_with($sql, 'INSERT INTO `number_counters`')) {
+                $fired++;
+                $pdo->exec("INSERT INTO number_counters (company_id, doc_type, period, last_value, last_year) VALUES ($cid, 'invoice', 2026, 41, 2026)");
+            }
+        };
+        $this->assertSame('RE-2026-042', $s->next('invoice', $this->d('2026-05-01')), 'continues from the winner row, no failure');
+        $this->assertSame(1, $fired);
+        $this->assertSame(1, (int) $db->one('SELECT COUNT(*) AS c FROM number_counters')['c']);
+    }
+
+    public function test_lost_format_creation_race_falls_back_to_the_winners_row(): void
+    {
+        [$db, $pdo, $s, $cid] = $this->hooked();
+        $fired = 0;
+        $pdo->onPrepare = function (string $sql, \PDO $pdo) use (&$fired, $cid): void {
+            if ($fired === 0 && str_starts_with($sql, 'INSERT INTO `number_formats`')) {
+                $fired++;
+                $pdo->exec("INSERT INTO number_formats (company_id, doc_type, pattern, reset_yearly, updated_at) VALUES ($cid, 'invoice', 'OLD-{N}', 0, 1)");
+            }
+        };
+        $s->configure('invoice', 'NEW-{NNN}', false, null, $this->d('2026-05-01'));
+        $this->assertSame(1, $fired);
+        $this->assertSame('NEW-{NNN}', $s->format('invoice')['pattern']);
+        $this->assertSame(1, (int) $db->one('SELECT COUNT(*) AS c FROM number_formats')['c']);
+    }
+
+    public function test_non_constraint_errors_propagate_unchanged_and_consume_nothing(): void
+    {
+        [$db, $pdo, $s] = $this->hooked();
+        $error = new \PDOException('Deadlock found when trying to get lock');
+        $error->errorInfo = ['40001', 1213, 'Deadlock found when trying to get lock'];
+        $pdo->onPrepare = function (string $sql) use ($error): void {
+            if (str_starts_with($sql, 'INSERT INTO `number_counters`')) {
+                throw $error;
+            }
+        };
+        try {
+            $s->next('invoice', $this->d('2026-05-01'));
+            $this->fail('Expected the deadlock to propagate');
+        } catch (\PDOException $e) {
+            $this->assertSame($error, $e);
+        }
+        $pdo->onPrepare = null;
+        $this->assertSame(0, (int) $db->one('SELECT COUNT(*) AS c FROM number_counters')['c']);
+        $this->assertSame('RE-2026-001', $s->next('invoice', $this->d('2026-05-01')));
+    }
+
+    public function test_raising_the_next_number_loses_no_concurrent_issue(): void
+    {
+        [$db, $pdo, $s, $cid] = $this->hooked();
+        $d = $this->d('2026-05-01');
+        $this->issue($s, 5, '2026-05-01');
+        $fired = 0;
+        $pdo->onPrepare = function (string $sql, \PDO $pdo) use (&$fired, $cid): void {
+            // two issues commit (6 and 7) between configure's read and its write
+            if ($fired === 0 && str_starts_with($sql, 'UPDATE `number_counters` SET `last_value` = ? WHERE')) {
+                $fired++;
+                $pdo->exec("UPDATE number_counters SET last_value = 7 WHERE company_id = $cid AND doc_type = 'invoice'");
+            }
+        };
+        // the concurrent bump shares this connection, so keep it by catching inside an outer transaction
+        $db->transaction(function () use ($s, $d): void {
+            try {
+                $s->configure('invoice', 'RE-{YYYY}-{NNN}', true, 7, $d);
+                $this->fail('Expected ValidationException');
+            } catch (ValidationException $e) {
+                $this->assertSame(['next_value' => 'settings.err_next_low'], $e->errors);
+            }
+        });
+        $this->assertSame(1, $fired);
+        $this->assertSame(7, $s->lastCounter('invoice', $d), 'the counter was not lowered');
+        $this->assertSame('RE-2026-008', $s->next('invoice', $d));
+    }
+
+    // ---- Berlin business date ----
+
+    public function test_year_bucket_and_tokens_come_from_berlin_whatever_zone_is_passed(): void
+    {
+        $s = $this->seq($this->company());
+        $utc = new \DateTimeImmutable('2026-12-31 23:30:00', new \DateTimeZone('UTC')); // 2027-01-01 00:30 Berlin
+        $this->assertSame('RE-2027-001', $s->preview('invoice', $utc));
+        $this->assertSame('RE-2027-001', $s->next('invoice', $utc));
+        $this->assertSame('RE-2027-002', $s->next('invoice', $this->d('2027-01-01')));
+        $this->assertSame(2, $s->lastCounter('invoice', $utc));
+        $ny = new \DateTimeImmutable('2026-12-31 20:00:00', new \DateTimeZone('America/New_York')); // 2027-01-01 02:00 Berlin
+        $this->assertSame('RE-2027-003', $s->next('invoice', $ny));
+    }
+
+    public function test_leap_day(): void
+    {
+        $s = $this->seq($this->company());
+        $s->configure('invoice', '{YYYY}{MM}{DD}-{NN}', true, null, $this->d('2028-02-29'));
+        $this->assertSame('20280229-01', $s->next('invoice', new \DateTimeImmutable('2028-02-29 12:00:00', new \DateTimeZone('UTC'))));
+        $this->assertSame('20280301-02', $s->next('invoice', new \DateTimeImmutable('2028-02-29 23:30:00', new \DateTimeZone('UTC'))), '23:30 UTC is already March 1st in Berlin');
+    }
+
+    public function test_exhausted_range_never_moves_the_counter(): void
+    {
+        $s = $this->seq($this->company());
+        $d = $this->d('2026-11-18');
+        $s->configure('invoice', '{N}', false, 9_999_999_999, $d);
+        $s->next('invoice', $d);
+        for ($i = 0; $i < 3; $i++) {
+            try {
+                $s->next('invoice', $d);
+                $this->fail('Expected RuntimeException');
+            } catch (\RuntimeException) {
+            }
+        }
+        $this->assertSame(9_999_999_999, (int) $this->db->one('SELECT last_value AS v FROM number_counters')['v']);
     }
 }

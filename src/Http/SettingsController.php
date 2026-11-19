@@ -164,10 +164,10 @@ final class SettingsController
                     }
                 }
                 if ($errors !== []) {
-                    throw new \DomainException('rollback'); // nothing of this save may stay
+                    throw new NumbersRollback(); // nothing of this save may stay
                 }
             });
-        } catch (\DomainException) {
+        } catch (NumbersRollback) {
             $display = [];
             foreach ($form as $type => $row) {
                 $display[$type] = ['pattern' => $row['pattern'], 'reset' => $row['reset'], 'next' => $row['next'], 'next_shown' => $row['next_shown']];

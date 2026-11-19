@@ -12,19 +12,32 @@ use App\Tenant\CompanyContext;
  *
  * Storage (see migrations/005_numbering.sql): one number_formats row per document type (absent =
  * the default pattern, reset yearly) and one number_counters row per period bucket. The bucket is
- * the calendar year when the format resets yearly, otherwise 0. All access goes through the
- * BaseRepo scoped helpers, so company_id is bound to the context company in every statement; the
- * document type is validated against the fixed DocType list before it is used anywhere.
+ * the Europe/Berlin calendar year when the format resets yearly, otherwise 0. All access goes
+ * through the BaseRepo scoped helpers (plus one company_id-bound locking SELECT, lockedFind), so
+ * company_id is bound to the context company in every statement; the document type is validated
+ * against the fixed DocType list before it is used anywhere.
  *
  * next() is the only way a number is handed out. It is atomic: one `last_value = last_value + 1`
- * UPDATE inside Db::transaction, which JOINS an already open transaction. The issue flow (Task 15)
- * must call next() inside its own transaction, so that a failed issue rolls the counter back and
- * leaves no gap. The $d passed to next()/preview()/lastCounter() must be the Europe/Berlin
- * business date (year bucket and date tokens come from it).
+ * UPDATE (which also refuses to pass NumberFormat::MAX_COUNTER) inside Db::transaction, which
+ * JOINS an already open transaction. The issue flow (Task 15) must call next() inside its own
+ * transaction, so that a failed issue rolls the counter back and leaves no gap. The $d passed to
+ * next()/preview()/lastCounter() is converted to Europe/Berlin here; year bucket and date tokens
+ * always come from the Berlin date.
  *
- * Changing a pattern never resets a counter. When yearly reset is switched OFF, the single
- * non-yearly bucket (0) starts at the highest counter ever issued for the type, so a number that
- * already exists cannot be issued again.
+ * INVARIANT: for one company and document type no two issued documents ever get the same rendered
+ * number, however often reset_yearly is toggled. Strings can only collide between buckets that
+ * render the same year token: bucket 0 (no reset) and yearly bucket Y. Every bucket is therefore
+ * raised MONOTONICALLY (`UPDATE .. WHERE last_value < ?`, never lowered) to a floor before use:
+ *  - bucket 0 (reset off): floor = highest last_value of ANY yearly bucket of the type (this covers
+ *    the current year; older years too, so numbering simply continues);
+ *  - yearly bucket Y (reset on): floor = last_value of bucket 0 if bucket 0 has issued a number in
+ *    year Y or later (counter row column last_year >= Y, kept monotonic), else 0. A bucket 0 last
+ *    used in an earlier year cannot collide with year Y, so a normal yearly restart is untouched.
+ * Skipping numbers by this rule is possible (conservative, e.g. after a backdated document), repeating
+ * is not. preview()/lastCounter() apply the same floors read-only, so the page shows the true next
+ * number after a toggle. All raises run in the issuing transaction with locking reads.
+ *
+ * Changing a pattern never resets a counter.
  */
 final class NumberSequences extends BaseRepo
 {
@@ -54,8 +67,8 @@ final class NumberSequences extends BaseRepo
      * - Yearly reset requested without a year token in the pattern: the format IS saved with
      *   reset_yearly forced off and the result carries warning reset_without_year.
      * - $nextValue must be >= last issued counter of the current bucket + 1 (ValidationException
-     *   field next_value otherwise). Raising it skips numbers on purpose (note skips_numbers).
-     *   It is stored as last_value = $nextValue - 1.
+     *   field next_value otherwise, also when a concurrent issue overtook it). Raising it skips
+     *   numbers on purpose (note skips_numbers). It is stored as last_value = $nextValue - 1.
      * - Writes an audit row (settings.numbers_save: doc_type + changed field names) when
      *   something changed, in the same transaction.
      *
@@ -75,7 +88,7 @@ final class NumberSequences extends BaseRepo
             $resetYearly = false;
             $warnings[] = ConfigureResult::WARNING_RESET_WITHOUT_YEAR;
         }
-        $today ??= $this->berlinNow();
+        $today = $this->berlin($today ?? new \DateTimeImmutable('@' . ($this->clock)()));
         if ($nextValue !== null && ($nextValue < 1 || $nextValue > NumberFormat::MAX_COUNTER)) {
             throw new ValidationException(['next_value' => 'settings.err_next_range']);
         }
@@ -93,14 +106,16 @@ final class NumberSequences extends BaseRepo
 
             $notes = [];
             if ($nextValue !== null) {
-                $period = $this->period($resetYearly, $today);
-                $id = $this->ensureBucket($docType, $period);
-                $last = (int) $this->scopedOne('number_counters', $id)['last_value'];
+                $bucket = $this->activeBucket($docType, $resetYearly, (int) $today->format('Y'));
+                $last = (int) $bucket['last_value'];
                 if ($nextValue < $last + 1) {
                     throw new ValidationException(['next_value' => 'settings.err_next_low']);
                 }
                 if ($nextValue > $last + 1) {
-                    $this->scopedUpdate('number_counters', $id, ['last_value' => $nextValue - 1]);
+                    // Conditional write: if an issue overtook us since the read, 0 rows change.
+                    if ($this->scopedRaise('number_counters', (int) $bucket['id'], 'last_value', $nextValue - 1) !== 1) {
+                        throw new ValidationException(['next_value' => 'settings.err_next_low']);
+                    }
                     $notes[] = ConfigureResult::NOTE_SKIPS_NUMBERS;
                     $changed[] = 'next_number';
                 }
@@ -115,36 +130,36 @@ final class NumberSequences extends BaseRepo
     /** The number next() would hand out now, WITHOUT consuming it. */
     public function preview(string $docType, \DateTimeImmutable $d): string
     {
+        $d = $this->berlin($d);
         $fmt = $this->parsedFormat($docType);
-        return $fmt['parsed']->render($d, $this->peekLast($docType, $this->period($fmt['reset'], $d)) + 1);
+        return $fmt['parsed']->render($d, $this->effectiveLast($docType, $fmt['reset'], (int) $d->format('Y')) + 1);
     }
 
-    /** Last counter handed out in the bucket of $d (0 when none yet). */
+    /** Last counter handed out (or reserved by a floor) in the bucket of $d; 0 when none yet. */
     public function lastCounter(string $docType, \DateTimeImmutable $d): int
     {
-        $reset = $this->format($docType)['reset_yearly'];
-        return $this->peekLast($docType, $this->period($reset, $d));
+        $d = $this->berlin($d);
+        return $this->effectiveLast($docType, $this->format($docType)['reset_yearly'], (int) $d->format('Y'));
     }
 
     /**
      * Hands out the next number, atomically and without gaps (a rollback of the surrounding
      * transaction hands the same number out again). Never returns the same number twice for the
-     * same company, type and bucket.
+     * same company and type (see the class invariant).
      */
     public function next(string $docType, \DateTimeImmutable $d): string
     {
+        $d = $this->berlin($d);
         $fmt = $this->parsedFormat($docType);
-        $period = $this->period($fmt['reset'], $d);
-        return $this->db->transaction(function () use ($docType, $period, $fmt, $d): string {
-            $id = $this->ensureBucket($docType, $period);
-            if ($this->scopedIncrement('number_counters', $id, 'last_value') !== 1) {
-                throw new \RuntimeException('Counter row vanished.');
+        $year = (int) $d->format('Y');
+        return $this->db->transaction(function () use ($docType, $fmt, $d, $year): string {
+            $id = (int) $this->activeBucket($docType, $fmt['reset'], $year)['id'];
+            if ($this->scopedIncrement('number_counters', $id, 'last_value', 1, NumberFormat::MAX_COUNTER) !== 1) {
+                throw new \RuntimeException('Number range exhausted.'); // counter not moved
             }
+            $this->scopedRaise('number_counters', $id, 'last_year', $year);
             // Read back inside the same transaction: the row is locked by our own UPDATE.
             $value = (int) ($this->scopedOne('number_counters', $id)['last_value'] ?? 0);
-            if ($value > NumberFormat::MAX_COUNTER) {
-                throw new \RuntimeException('Number range exhausted.');
-            }
             return $fmt['parsed']->render($d, $value);
         });
     }
@@ -158,14 +173,10 @@ final class NumberSequences extends BaseRepo
         return ['parsed' => NumberFormat::parse($f['pattern']), 'reset' => $f['reset_yearly']];
     }
 
-    private function period(bool $resetYearly, \DateTimeImmutable $d): int
+    /** Business date: always Europe/Berlin, whatever zone the caller used. */
+    private function berlin(\DateTimeImmutable $d): \DateTimeImmutable
     {
-        return $resetYearly ? (int) $d->format('Y') : 0;
-    }
-
-    private function berlinNow(): \DateTimeImmutable
-    {
-        return (new \DateTimeImmutable('@' . ($this->clock)()))->setTimezone(new \DateTimeZone('Europe/Berlin'));
+        return $d->setTimezone(new \DateTimeZone('Europe/Berlin'));
     }
 
     /** @return array<string, mixed>|null */
@@ -174,64 +185,113 @@ final class NumberSequences extends BaseRepo
         return $this->scopedAll('number_formats', 'doc_type = ?', [$docType])[0] ?? null;
     }
 
-    /** Counter of a bucket without creating it (see class docblock for the non-yearly seed). */
-    private function peekLast(string $docType, int $period): int
+    /**
+     * Read-only twin of activeBucket(): the bucket's value with the floor applied, nothing written.
+     */
+    private function effectiveLast(string $docType, bool $reset, int $year): int
     {
-        $row = $this->bucketRow($docType, $period);
-        return $row !== null ? (int) $row['last_value'] : $this->initialValue($docType, $period);
+        $period = $reset ? $year : 0;
+        $own = $this->scopedAll('number_counters', 'doc_type = ? AND period = ?', [$docType, $period])[0] ?? null;
+        return max($own === null ? 0 : (int) $own['last_value'], $this->floor($docType, $period, $year, false));
     }
 
-    /** @return array<string, mixed>|null */
-    private function bucketRow(string $docType, int $period): ?array
+    /**
+     * Highest counter the bucket $period must not fall below (see class invariant).
+     * With $lock the source rows are read with a locking read (current data, not a snapshot).
+     */
+    private function floor(string $docType, int $period, int $year, bool $lock): int
     {
-        return $this->scopedAll('number_counters', 'doc_type = ? AND period = ?', [$docType, $period])[0] ?? null;
-    }
-
-    /** Start value of a new bucket: 0, except the non-yearly bucket continues from the highest issued counter. */
-    private function initialValue(string $docType, int $period): int
-    {
-        if ($period !== 0) {
-            return 0;
-        }
-        $max = 0;
-        foreach ($this->scopedAll('number_counters', 'doc_type = ?', [$docType]) as $row) {
-            $max = max($max, (int) $row['last_value']);
-        }
-        return $max;
-    }
-
-    /** Id of the bucket row, created on first use. Race-safe: the unique index decides. */
-    private function ensureBucket(string $docType, int $period): int
-    {
-        $row = $this->bucketRow($docType, $period);
-        if ($row === null) {
-            try {
-                return $this->scopedInsert('number_counters', [
-                    'doc_type' => $docType,
-                    'period' => $period,
-                    'last_value' => $this->initialValue($docType, $period),
-                ]);
-            } catch (\PDOException $e) {
-                // A concurrent request created the same bucket first: use its row.
-                $row = $this->bucketRow($docType, $period) ?? throw $e;
+        $floor = 0;
+        foreach ($this->scopedAll('number_counters', 'doc_type = ? AND period <> ?', [$docType, $period]) as $row) {
+            if ($lock) {
+                $row = $this->lockedFind('number_counters', 'id = ?', [(int) $row['id']]) ?? $row;
+            }
+            if ($period === 0 || ((int) $row['period'] === 0 && (int) $row['last_year'] >= $year)) {
+                $floor = max($floor, (int) $row['last_value']);
             }
         }
-        return (int) $row['id'];
+        return $floor;
+    }
+
+    /**
+     * The bucket row to issue from: created on first use, locked, and raised monotonically to its
+     * floor. Returns the row as it is after that.
+     *
+     * @return array<string, mixed>
+     */
+    private function activeBucket(string $docType, bool $reset, int $year): array
+    {
+        $period = $reset ? $year : 0;
+        $row = $this->insertOrFetch(
+            'number_counters',
+            'doc_type = ? AND period = ?',
+            [$docType, $period],
+            ['doc_type' => $docType, 'period' => $period, 'last_value' => 0, 'last_year' => 0],
+        );
+        $floor = $this->floor($docType, $period, $year, true);
+        if ($floor > (int) $row['last_value']) {
+            $this->scopedRaise('number_counters', (int) $row['id'], 'last_value', $floor);
+            $row['last_value'] = $floor;
+            // a concurrent raise may have gone even higher: re-read the locked row
+            $row = $this->lockedFind('number_counters', 'id = ?', [(int) $row['id']]) ?? $row;
+        }
+        return $row;
     }
 
     private function saveFormat(string $docType, string $pattern, bool $resetYearly): void
     {
         $values = ['pattern' => $pattern, 'reset_yearly' => $resetYearly ? 1 : 0, 'updated_at' => ($this->clock)()];
-        $row = $this->formatRow($docType);
-        if ($row === null) {
+        $row = $this->insertOrFetch('number_formats', 'doc_type = ?', [$docType], ['doc_type' => $docType] + $values);
+        $this->scopedUpdate('number_formats', (int) $row['id'], $values);
+    }
+
+    /**
+     * Returns the locked row matching $where, inserting $row first when there is none. Race-safe:
+     * if a concurrent request inserts the same unique key first, the INSERT fails with an
+     * integrity-constraint error (SQLSTATE class 23 only; deadlocks and everything else
+     * propagate, because the transaction is then already lost) and we use the winner's row via a
+     * LOCKING read (a plain SELECT would still show the old snapshot under REPEATABLE READ).
+     *
+     * @param list<scalar> $params
+     * @param array<string, scalar> $row
+     * @return array<string, mixed>
+     */
+    private function insertOrFetch(string $table, string $where, array $params, array $row): array
+    {
+        if (($this->scopedAll($table, $where, $params)[0] ?? null) === null) {
             try {
-                $this->scopedInsert('number_formats', ['doc_type' => $docType] + $values);
-                return;
+                $this->scopedInsert($table, $row);
             } catch (\PDOException $e) {
-                $row = $this->formatRow($docType) ?? throw $e;
+                if (!self::isConstraintViolation($e)) {
+                    throw $e;
+                }
             }
         }
-        $this->scopedUpdate('number_formats', (int) $row['id'], $values);
+        return $this->lockedFind($table, $where, $params) ?? throw new \RuntimeException('Row vanished.');
+    }
+
+    /**
+     * SELECT ... FOR UPDATE of one row of the context company. $table is only ever one of this
+     * class's own table literals and $where a literal with ? parameters; company_id is bound.
+     *
+     * @param list<scalar> $params
+     * @return array<string, mixed>|null
+     */
+    private function lockedFind(string $table, string $where, array $params): ?array
+    {
+        if (!in_array($table, ['number_counters', 'number_formats'], true)) {
+            throw new \InvalidArgumentException('Unknown table.');
+        }
+        return $this->db->one(
+            "SELECT * FROM `$table` WHERE company_id = ? AND ($where) LIMIT 1" . $this->db->forUpdate(),
+            [$this->ctx->id(), ...$params]
+        );
+    }
+
+    private static function isConstraintViolation(\PDOException $e): bool
+    {
+        $state = (string) ($e->errorInfo[0] ?? $e->getCode());
+        return str_starts_with($state, '23');
     }
 
     /** @param list<string> $fields */

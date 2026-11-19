@@ -16,6 +16,7 @@ final class InvalidNumberFormat extends \InvalidArgumentException
     public const TOO_SHORT = 'too_short';
     public const TOO_LONG = 'too_long';
     public const INVALID_CHAR = 'invalid_char';
+    public const OUTER_SPACE = 'outer_space';
     public const RENDERED_TOO_LONG = 'rendered_too_long';
 
     public function __construct(public readonly string $reason)

@@ -83,6 +83,12 @@ final class NumberFormatTest extends TestCase
             'too long' => [str_repeat('A', 55) . '{NNNNN}', InvalidNumberFormat::TOO_LONG],
             'control char' => ["RE\n-{NNN}", InvalidNumberFormat::INVALID_CHAR],
             'nul' => ["RE\0{NNN}", InvalidNumberFormat::INVALID_CHAR],
+            'bidi override' => ["RE-\u{202E}{NNN}", InvalidNumberFormat::INVALID_CHAR],
+            'zero width space' => ["RE-\u{200B}{NNN}", InvalidNumberFormat::INVALID_CHAR],
+            'C1 control' => ["RE-\u{0085}{NNN}", InvalidNumberFormat::INVALID_CHAR],
+            'leading space' => [' RE-{NNN}', InvalidNumberFormat::OUTER_SPACE],
+            'trailing space' => ['RE-{NNN} ', InvalidNumberFormat::OUTER_SPACE],
+            'trailing nbsp' => ["RE-{NNN}\u{00A0}", InvalidNumberFormat::OUTER_SPACE],
             'invalid utf8' => ["RE\xff{NNN}", InvalidNumberFormat::INVALID_CHAR],
             'rendered too long' => [str_repeat('A', 33) . '{N}', InvalidNumberFormat::RENDERED_TOO_LONG],
         ];

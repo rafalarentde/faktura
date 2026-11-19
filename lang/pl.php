@@ -463,4 +463,5 @@ return [
     'settings.note_skips_numbers' => 'Uwaga: numery pomiędzy zostaną pominięte.',
     'settings.numbers_next_hint' => 'Następny numer można tylko zwiększyć, nigdy zmniejszyć.',
     'settings.numbers_legend' => 'Znaczniki: {YYYY} = rok (2026), {YY} = rok skrócony (26), {MM} = miesiąc, {DD} = dzień, {N} / {NNN} = licznik (tyle N, ile minimalnie cyfr). Dokładnie jeden licznik jest wymagany. Reszta to dowolny tekst, najwyżej 60 znaków.',
+    'settings.err_num_outer_space' => 'Format nie może zaczynać się ani kończyć spacją.',
 ];
