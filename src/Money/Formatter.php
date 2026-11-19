@@ -44,6 +44,20 @@ final class Formatter
         return $out;
     }
 
+    /**
+     * Plain amount for an input field: always 2 decimals, the language's decimal separator, no
+     * currency symbol and no thousands separator. AmountParser::parse() reads it back unchanged.
+     */
+    public function decimalAmount(int $minor, string $lang): string
+    {
+        self::locale($lang);
+        if ($minor < 0) {
+            throw new \InvalidArgumentException('Negative amounts are not supported.');
+        }
+        $digits = str_pad((string) $minor, 3, '0', STR_PAD_LEFT);
+        return substr($digits, 0, -2) . ($lang === 'en' ? '.' : ',') . substr($digits, -2);
+    }
+
     private static function locale(string $lang): string
     {
         return self::LOCALES[$lang] ?? throw new \InvalidArgumentException("Unsupported language: {$lang}");

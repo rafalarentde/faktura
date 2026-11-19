@@ -6,6 +6,7 @@ use App\Http\AdminController;
 use App\Http\AuthController;
 use App\Http\CustomerController;
 use App\Http\DashboardController;
+use App\Http\ItemController;
 use App\Http\Middleware\RequireAdmin;
 use App\Http\Middleware\RequireCompany;
 use App\Http\SwitchController;
@@ -50,4 +51,12 @@ return function (App $app, RouteCollector $r): void {
     $r->addRoute('POST', '/customers', $customer('create'));
     $r->addRoute('POST', '/customers/{id:\d+}', $customer('update'));
     $r->addRoute('POST', '/customers/{id:\d+}/vies', $customer('vies'));
+
+    // Items and services (no delete route in v1; items are deactivated instead).
+    $item = fn (string $method) => $app->protect([ItemController::class, $method], [RequireCompany::class]);
+    $r->addRoute('GET', '/items', $item('index'));
+    $r->addRoute('GET', '/items/{id:\d+}', $item('show'));
+    $r->addRoute('POST', '/items', $item('create'));
+    $r->addRoute('POST', '/items/{id:\d+}', $item('update'));
+    $r->addRoute('POST', '/items/{id:\d+}/active', $item('active'));
 };

@@ -1,0 +1,56 @@
+{% extends 'layout.twig' %}
+{% import '_icons.twig' as icons %}
+{% block title %}{{ t('item.title') }}{% endblock %}
+{% block subtitle %}{{ t('item.subtitle') }}{% endblock %}
+{% block actions %}<a class="btn btn-primary" href="/items#item-form">{{ icons.icon('plus') }}{{ t('item.new') }}</a>{% endblock %}
+{% block content %}
+    <div class="stack">
+        <section class="panel">
+            <div class="panel-head">
+                <form class="inline-form" method="get" action="/items" role="search">
+                    <input type="search" name="q" value="{{ q }}" placeholder="{{ t('item.search') }}" aria-label="{{ t('item.search') }}" maxlength="100">
+                    <button class="btn btn-ghost btn-sm" type="submit">{{ t('item.search_button') }}</button>
+                </form>
+            </div>
+            <div class="tbl-wrap">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>{{ t('item.col_name') }}</th>
+                            <th>{{ t('item.col_type') }}</th>
+                            <th>{{ t('item.col_unit') }}</th>
+                            <th class="r">{{ t('item.col_price') }}</th>
+                            <th>{{ t('item.col_vat') }}</th>
+                            <th class="r"><span class="sr-only">{{ t('item.edit_short') }}</span></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for i in items %}
+                        <tr>
+                            <td class="wrap"><a class="strong-link" href="/items/{{ i.id }}">{{ i.name }}</a>{% if not i.active %} <span class="chip chip-draft">{{ t('item.inactive') }}</span>{% endif %}</td>
+                            <td>{{ t('item.type_' ~ i.type) }}</td>
+                            <td>{{ t('unit.' ~ i.unit) }}</td>
+                            <td class="r num">{{ i.price }}</td>
+                            <td class="num">{{ i.vat }}</td>
+                            <td class="r">
+                                <div class="row-actions">
+                                    <a class="btn btn-ghost btn-sm" href="/items/{{ i.id }}#item-form">{{ t('item.edit_short') }}</a>
+                                    <form class="inline-form" method="post" action="/items/{{ i.id }}/active">
+                                        {{ csrf_field() }}
+                                        <input type="hidden" name="active" value="{{ i.active ? '0' : '1' }}">
+                                        <button class="btn btn-ghost btn-sm" type="submit">{{ i.active ? t('item.deactivate') : t('item.activate') }}</button>
+                                    </form>
+                                </div>
+                            </td>
+                        </tr>
+                    {% else %}
+                        <tr><td colspan="6" class="empty-row">{{ q ? t('item.no_results') : t('item.empty') }}</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        {% include 'items/form.twig' %}
+    </div>
+{% endblock %}

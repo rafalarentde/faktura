@@ -21,7 +21,7 @@ return [
     ['key' => 'dunning', 'label' => 'nav.dunning', 'path' => '/dunning', 'icon' => 'alert', 'enabled' => false, 'admin_only' => false],
     ['separator' => true],
     ['key' => 'customers', 'label' => 'nav.customers', 'path' => '/customers', 'icon' => 'users', 'enabled' => true, 'admin_only' => false],
-    ['key' => 'items', 'label' => 'nav.items', 'path' => '/items', 'icon' => 'box', 'enabled' => false, 'admin_only' => false],
+    ['key' => 'items', 'label' => 'nav.items', 'path' => '/items', 'icon' => 'box', 'enabled' => true, 'admin_only' => false],
     ['key' => 'settings', 'label' => 'nav.settings', 'path' => '/settings', 'icon' => 'gear', 'enabled' => false, 'admin_only' => false],
     ['separator' => true],
     ['key' => 'admin', 'label' => 'nav.admin', 'path' => '/admin/companies', 'match' => '/admin', 'icon' => 'shield', 'enabled' => true, 'admin_only' => true],
