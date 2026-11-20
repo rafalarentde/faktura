@@ -690,5 +690,36 @@ img, svg { max-width: 100%; }
 @media print {
     .paper-col { position: static; }
 }
+/* ---- Dunning (Task 21) ----
+ * .sugg + .dot      level marker (coloured dot + bold label); colour by .dot-ok (reminder) /
+ *                   .dot-soon (1st) / .dot-late (2nd, final), like the mockup's suggestion column
+ * .hint-inline      muted text in a table cell
+ * .claim-list       breakdown <dl> (label left, amount right), .claim-total = Gesamtforderung
+ * .toggle.is-disabled  an unavailable extra (checkbox disabled, row dimmed)
+ * .letter-paper     the letter preview on .paper (.letter-text paragraphs, .letter-claim breakdown)
+ */
+.sugg { --c: var(--m); display: inline-flex; align-items: center; gap: 8px; font-weight: 700; white-space: nowrap; }
+.sugg .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--c); flex: none; }
+.dot-ok { --c: var(--ok); }
+.dot-soon { --c: var(--soon); }
+.dot-late { --c: var(--late); }
+.hint-inline { color: var(--m); font-size: 13.5px; }
+.dunning-intro { margin: 0 0 14px; }
+.claim-list { margin: 0; padding: 6px 18px 12px; }
+.claim-list div { display: flex; justify-content: space-between; gap: 16px; padding: 7px 0; border-bottom: 1px solid var(--line); }
+.claim-list dt { color: var(--m); }
+.claim-list dd { margin: 0; text-align: right; white-space: nowrap; }
+.claim-list .claim-total { border-bottom: 0; border-top: 2px solid var(--t); }
+.claim-list .claim-total dt, .claim-list .claim-total dd { color: var(--t); font-family: var(--head); font-size: 20px; font-weight: 800; }
+.issue-form { border-top: 1px solid var(--line); }
+.toggle.is-disabled { opacity: .6; }
+.toggle.is-disabled input { cursor: not-allowed; }
+.letter-text p { margin: 8px 0 0; }
+.letter-paper .paper-related { margin-top: 4px; }
+.letter-claim { width: min(100%, 340px); margin: 14px 0 0; }
+.letter-claim div { padding: 2px 0; }
+.letter-pay { margin-top: 12px; }
+.letter-sign { margin-top: 14px; }
+
 /* The hidden attribute always wins over display rules (totals rows, rate field). */
 [hidden] { display: none !important; }

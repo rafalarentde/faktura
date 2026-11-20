@@ -434,7 +434,7 @@ final class PdfRendererTest extends TestCase
         self::$f->renderer(self::$f->companyB)->render(self::$ids['domestic']);
     }
 
-    public function test_unknown_document_and_dunning_letters_are_not_found(): void
+    public function test_unknown_document_and_unsupported_types_are_not_found(): void
     {
         $r = self::$f->renderer(self::$f->companyA);
         try {
@@ -442,10 +442,11 @@ final class PdfRendererTest extends TestCase
             $this->fail('unknown id');
         } catch (DocumentNotFound) {
         }
-        self::$f->db->exec("INSERT INTO documents (company_id, type, status, number, lang, currency) VALUES (?, 'dunning', 'issued', 'MA-1', 'de', 'EUR')", [self::$f->companyA]);
-        $dunning = self::$f->db->lastId();
+        // a synthetic type stored directly (dunning letters have a template since Task 21)
+        self::$f->db->exec("INSERT INTO documents (company_id, type, status, number, lang, currency) VALUES (?, 'bogus_type', 'issued', 'X-1', 'de', 'EUR')", [self::$f->companyA]);
+        $unsupported = self::$f->db->lastId();
         $this->expectException(DocumentNotFound::class);
-        $r->html($dunning);
+        $r->html($unsupported);
     }
 
     public function test_pdf_is_built_from_snapshots(): void

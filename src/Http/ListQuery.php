@@ -20,11 +20,14 @@ final class ListQuery
     {
     }
 
-    /** @param list<string> $statuses the status values the list accepts */
-    public static function fromRequest(Request $request, array $statuses): self
+    /**
+     * @param list<string> $statuses the status values the list accepts
+     * @param string $pageParam query parameter of the page number (a second list on the same page uses its own)
+     */
+    public static function fromRequest(Request $request, array $statuses, string $pageParam = 'page'): self
     {
         $status = $request->queryParam('status');
-        $page = $request->queryParam('page');
+        $page = $request->queryParam($pageParam);
         return new self(
             mb_substr(trim($request->queryParam('q')), 0, self::Q_MAX),
             in_array($status, $statuses, true) ? $status : '',
@@ -49,12 +52,12 @@ final class ListQuery
      * @param array<string, string> $filters query parameters to keep (empty values are dropped)
      * @return array{page: int, pages: int, prev: ?string, next: ?string, filtered: bool}
      */
-    public function pager(string $path, array $filters, int $total): array
+    public function pager(string $path, array $filters, int $total, string $pageParam = 'page'): array
     {
         $page = $this->clampedPage($total);
         $pages = self::pages($total);
         $base = array_filter($filters, fn (string $v): bool => $v !== '');
-        $link = fn (int $p): string => $path . '?' . http_build_query($base + ['page' => $p]);
+        $link = fn (int $p): string => $path . '?' . http_build_query($base + [$pageParam => $p]);
         return [
             'page' => $page, 'pages' => $pages,
             'prev' => $page > 1 ? $link($page - 1) : null,

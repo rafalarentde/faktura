@@ -1,0 +1,19 @@
+Szanowni Państwo,
+
+w załączniku przesyłamy pismo „{{ level }}” ({{ number }}) dotyczące naszej faktury {{ invoice }}{% if invoice_date %} z dnia {{ invoice_date }}{% endif %} (PDF).
+
+Należność razem: {{ gross }}
+Prosimy o przelew tej kwoty do dnia {{ pay_by }}.
+
+{% if iban %}
+IBAN: {{ iban }}
+{% if bic %}
+BIC: {{ bic }}
+{% endif %}
+Tytuł przelewu: {{ invoice }}
+
+{% endif %}
+Jeżeli płatność została już dokonana, prosimy uznać tę wiadomość za nieaktualną.
+
+Z poważaniem
+{{ company }}

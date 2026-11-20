@@ -40,10 +40,12 @@ use Twig\Loader\FilesystemLoader;
  * Supported types are TYPES; for another type add `templates/mail/<type>.<lang>.twig` (de, pl, en),
  * the `mail.subject_<type>` keys and the type here (and PDF support in PdfRenderer). Offers: TYPES includes them; after a delivered mail
  * the optional $offerSent callback marks an open offer as sent (after the log rows, errors swallowed).
+ * Dunning letters (Task 21): mailed like any issued document (explicit POST only); sending changes
+ * nothing else (no status of the letter or the invoice).
  */
 final class DocumentMailer
 {
-    public const TYPES = [DocType::INVOICE, DocType::CREDIT_NOTE, DocType::OFFER];
+    public const TYPES = [DocType::INVOICE, DocType::CREDIT_NOTE, DocType::OFFER, DocType::DUNNING];
     public const LIMIT = 20;
     public const TEST_LIMIT = 3;
     public const WINDOW_SEC = 600;
@@ -99,22 +101,31 @@ final class DocumentMailer
         $type = (string) $doc['type'];
         $company = self::line((string) $vm['seller']['name']);
         $number = self::line((string) $doc['number']);
+        $dunning = $type === DocType::DUNNING;
+        $payment = $type === DocType::INVOICE || $dunning; // documents that ask for a transfer carry the bank data
+        $level = $dunning ? self::line((string) $vm['title']) : '';
+        $invoice = $dunning ? self::line((string) $vm['invoice_number']) : '';
         $body = $this->text->render($type . '.' . $lang . '.twig', [
             'buyer' => self::line((string) $vm['buyer']['name']),
             'number' => $number,
             'gross' => (string) $vm['gross'],
             'due' => $type === DocType::INVOICE ? (string) ($vm['due_date'] ?? '') : '',
-            'iban' => $type === DocType::INVOICE ? self::line((string) $vm['seller']['iban']) : '',
-            'bic' => $type === DocType::INVOICE ? self::line((string) $vm['seller']['bic']) : '',
+            'iban' => $payment ? self::line((string) $vm['seller']['iban']) : '',
+            'bic' => $payment ? self::line((string) $vm['seller']['bic']) : '',
             'related' => self::line((string) ($vm['related'] ?? '')),
             'valid_until' => $type === DocType::OFFER ? self::line((string) ($vm['valid_until'] ?? '')) : '',
             'company' => $company,
+            // dunning letters (Task 21): the level wording, the dunned invoice and the pay-by date
+            'level' => $level,
+            'invoice' => $invoice,
+            'invoice_date' => $dunning ? self::line((string) $vm['invoice_date']) : '',
+            'pay_by' => $dunning ? self::line((string) $vm['pay_by']) : '',
         ]);
         $body = trim((string) preg_replace("/\n{3,}/", "\n\n", str_replace("\r", '', $body))) . "\n";
         $buyerEmail = self::asciiDomain((string) (((array) ($doc['buyer'] ?? []))['email'] ?? ''));
         return [
             'to' => self::normalizeRecipient($buyerEmail) ?? '',
-            'subject' => mb_substr($this->translator->t('mail.subject_' . $type, $lang, ['number' => $number, 'company' => $company]), 0, self::SUBJECT_MAX),
+            'subject' => mb_substr($this->translator->t('mail.subject_' . $type, $lang, ['number' => $number, 'company' => $company, 'level' => $level, 'invoice' => $invoice]), 0, self::SUBJECT_MAX),
             'body' => $body,
             'attachment_name' => PdfRenderer::filename((string) $doc['number']),
             'lang' => $lang,

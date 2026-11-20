@@ -180,13 +180,16 @@ final class PdfRouteTest extends HttpTestCase
         $this->assertArrayNotHasKey('Content-Disposition', $r->headers);
     }
 
-    public function test_dunning_letters_are_404_for_now(): void
+    public function test_types_without_a_pdf_template_are_404(): void
     {
-        $this->db->exec("INSERT INTO documents (company_id, type, status, number, lang, currency) VALUES (?, 'dunning', 'issued', 'MA-1', 'de', 'EUR')",
+        // a synthetic type stored directly (every real type, dunning letters included, has a PDF now)
+        $this->db->exec("INSERT INTO documents (company_id, type, status, number, lang, currency) VALUES (?, 'bogus_type', 'issued', 'X-1', 'de', 'EUR')",
             [$this->companyA]);
-        $dunning = $this->db->lastId();
+        $unsupported = $this->db->lastId();
         $this->loginFully($this->secret);
-        $this->assertSame(404, $this->get("/documents/$dunning/pdf")->status);
+        $r = $this->get("/documents/$unsupported/pdf");
+        $this->assertSame(404, $r->status);
+        $this->assertSame(str_replace('/documents/999999/', "/documents/$unsupported/", $this->get('/documents/999999/pdf')->body), $r->body, 'identical to an unknown id');
     }
 
     public function test_unauthenticated_redirects_to_login_and_no_company_is_403(): void

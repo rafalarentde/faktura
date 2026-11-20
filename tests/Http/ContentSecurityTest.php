@@ -180,6 +180,49 @@ final class ContentSecurityTest extends HttpTestCase
         $this->assertArrayNotHasKey('Content-Security-Policy', $json->headers);
     }
 
+    public function test_dunning_pages_have_no_inline_markup(): void
+    {
+        $u = $this->createUser('dun@example.com');
+        $c = $this->createCompany('Dun GmbH');
+        $this->db->exec("UPDATE companies SET address = 'Firmenweg 1', vat_id = 'DE987654321', iban = 'DE89370400440532013000', access_status = 'active' WHERE id = ?", [$c]);
+        $this->addMember($u['id'], $c);
+        $this->db->exec("INSERT INTO customers (company_id, name, address, country, is_company, payment_days) VALUES (?, 'Nordlicht', 'Hafen 3', 'DE', 1, 14)", [$c]);
+        $customer = $this->db->lastId();
+        $this->now = (new \DateTimeImmutable('2026-11-18 10:00', new \DateTimeZone('Europe/Berlin')))->getTimestamp();
+        $ctx = \App\Tenant\CompanyContext::forUser($this->db, $u['id'], $c);
+        $clock = fn (): int => $this->now;
+        $svc = new \App\Domain\DocumentService($this->db, $ctx, new \App\Domain\NumberSequences($this->db, $ctx, $clock), new \App\Repo\DocumentRepo($this->db, $ctx),
+            new \App\Repo\CustomerRepo($this->db, $ctx), $clock);
+        $invoice = $svc->createDraft('invoice', ['customer_id' => $customer, 'issue_date' => '2026-10-14', 'due_date' => '2026-10-28',
+            'lines' => [['name' => 'x', 'unit' => 'flat', 'qty_milli' => 1000, 'unit_minor' => 120000, 'discount_bp' => 0, 'vat_bp' => 1900]]]);
+        $svc->issue($invoice, new \DateTimeImmutable('@' . $this->now));
+        $this->loginFully($u['secret'], 'dun@example.com');
+        $q = fn (array $query): \App\Core\Response => $this->app->handle(new \App\Core\Request('GET', '/dunning/new', query: $query, server: ['REMOTE_ADDR' => self::IP]));
+
+        $pages = [];
+        $pages['dunning_list'] = $this->get('/dunning');
+        $pages['dunning_preview'] = $q(['invoice' => (string) $invoice]);
+        $pages['dunning_preview_flat'] = $q(['invoice' => (string) $invoice, 'flat_fee' => '1']);
+        $pages['dunning_preview_no_base_rate'] = $q(['invoice' => (string) $invoice, 'interest' => '1']); // 422: no base rate in this company
+        $pages['dunning_422'] = $this->post('/dunning', ['invoice' => (string) $invoice, 'level' => 'x']);
+        $created = $this->post('/dunning', ['invoice' => (string) $invoice, 'level' => '1', 'flat_fee' => '1']);
+        $id = (int) substr($created->headers['Location'] ?? '', strlen('/dunning/'));
+        $pages['dunning_view'] = $this->get("/dunning/$id");
+        $pages['dunning_list_issued'] = $this->get('/dunning');
+        $pages['dunning_send'] = $this->get("/documents/$id/send");
+        $pages['dunning_404'] = $this->get('/dunning/999999');
+        foreach ($pages as $name => $r) {
+            $this->assertStringContainsString('<html', $r->body, $name);
+            $this->assertSame(self::CSP, $r->headers['Content-Security-Policy'] ?? null, $name);
+            $this->assertNoInlineMarkup($name, $r->body);
+        }
+        foreach (['dunning_list', 'dunning_preview', 'dunning_preview_flat', 'dunning_view', 'dunning_list_issued', 'dunning_send'] as $name) {
+            $this->assertSame(200, $pages[$name]->status, $name);
+        }
+        $this->assertSame(422, $pages['dunning_preview_no_base_rate']->status);
+        $this->assertStringContainsString('src="/assets/dunning.js', $pages['dunning_preview']->body);
+    }
+
     private function assertNoInlineMarkup(string $name, string $html): void
     {
         $this->assertDoesNotMatchRegularExpression('/\sstyle\s*=/i', $html, "$name: style attribute");

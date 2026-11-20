@@ -6,6 +6,7 @@ use App\Http\AdminController;
 use App\Http\AuthController;
 use App\Http\CustomerController;
 use App\Http\DashboardController;
+use App\Http\DunningController;
 use App\Http\InvoiceController;
 use App\Http\ItemController;
 use App\Http\MailController;
@@ -94,10 +95,18 @@ return function (App $app, RouteCollector $r): void {
     $r->addRoute('POST', '/offers/{id:\d+}/status', $offer('status'));
     $r->addRoute('POST', '/offers/{id:\d+}/convert', $offer('convert'));
 
-    // PDF of an issued invoice, credit note or offer (Tasks 17, 19); ?download=1 for an attachment.
+    // Dunning letters (Task 21): overdue list + issued letters, the on-the-fly preview (GET form,
+    // nothing stored), creation (= issue with a number; nothing is sent) and the issued letter.
+    $dunning = fn (string $method) => $app->protect([DunningController::class, $method], [RequireCompany::class]);
+    $r->addRoute('GET', '/dunning', $dunning('index'));
+    $r->addRoute('GET', '/dunning/new', $dunning('preview'));
+    $r->addRoute('POST', '/dunning', $dunning('store'));
+    $r->addRoute('GET', '/dunning/{id:\d+}', $dunning('show'));
+
+    // PDF of an issued invoice, credit note, offer or dunning letter (Tasks 17, 19, 21); ?download=1 for an attachment.
     $r->addRoute('GET', '/documents/{id:\d+}/pdf', $app->protect([PdfController::class, 'show'], [RequireCompany::class]));
 
-    // Send an issued invoice, credit note or offer by email (Task 18, 19). GET shows the editable preview
+    // Send an issued invoice, credit note, offer or dunning letter by email (Tasks 18, 19, 21). GET shows the editable preview
     // without side effects; only the POST (an explicit click, CSRF-checked) sends.
     $mail = fn (string $method) => $app->protect([MailController::class, $method], [RequireCompany::class]);
     $r->addRoute('GET', '/documents/{id:\d+}/send', $mail('form'));

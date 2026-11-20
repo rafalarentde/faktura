@@ -1,0 +1,103 @@
+{#
+  Preview of a new dunning letter (Task 21). Computed on the fly by DocumentService::dunningQuote and
+  never stored: the GET form ("Update preview") recalculates it without JavaScript (dunning.js only
+  re-submits it on change). The POST form issues EXACTLY the shown state (hidden copies of level and
+  toggles); the server recomputes and re-checks everything. Toggles are off unless chosen.
+#}
+{% extends 'layout.twig' %}
+{% import 'invoices/_macros.twig' as m %}
+{% block title %}{{ t('dunning.new_title') }}{% endblock %}
+{% block subtitle %}{{ invoice.number }} · {{ invoice.buyer }}{% endblock %}
+{% block actions %}<a class="btn btn-ghost" href="/dunning">{{ t('dunning.back_to_list') }}</a>{% endblock %}
+{% block scripts %}<script src="{{ asset('/assets/dunning.js') }}" defer></script>{% endblock %}
+{% block content %}
+{% if flash %}<p class="{{ flash.kind == 'warn' ? 'warn-box' : 'notice' }}" role="status">{{ flash.text }}</p>{% endif %}
+{% if errors.document is defined %}<p class="warn-box" role="alert">{{ errors.document }}</p>{% endif %}
+{% if errors.invoice is defined %}<p class="warn-box" role="alert">{{ errors.invoice }}</p>{% endif %}
+<p class="hint dunning-intro">{{ t('dunning.new_subtitle') }}</p>
+
+<section class="panel doc-head">
+    <dl class="doc-meta">
+        <div><dt>{{ t('dunning.invoice_panel') }}</dt><dd><a class="strong-link mono" href="/invoices/{{ invoice.id }}">{{ invoice.number }}</a></dd></div>
+        <div><dt>{{ t('dunning.col_due') }}</dt><dd>{{ invoice.due_date }}</dd></div>
+        <div><dt>{{ t('dunning.days_overdue') }}</dt><dd class="num" data-days>{{ invoice.days }}</dd></div>
+        <div><dt>{{ t('dunning.outstanding') }}</dt><dd class="num" data-outstanding>{{ invoice.outstanding }}</dd></div>
+        <div><dt>{{ t('dunning.last_sent') }}</dt><dd>{% if invoice.last %}{{ invoice.last.label }} · {{ invoice.last.date }}{% else %}{{ t('dunning.none_sent') }}{% endif %}</dd></div>
+        <div><dt>{{ t('dunning.suggested') }}</dt><dd>{% if invoice.suggested %}<span class="sugg {{ invoice.suggested.dot }}"><span class="dot" aria-hidden="true"></span>{{ invoice.suggested.label }}</span>{% else %}{{ t('dunning.no_suggestion') }}{% endif %}</dd></div>
+    </dl>
+</section>
+
+<div class="inv-layout">
+    <div class="stack">
+        <section class="panel">
+            <div class="panel-head"><h2>{{ t('dunning.preview_of', {level: level_label}) }}</h2></div>
+            <form class="form-grid" method="get" action="/dunning/new" data-autopreview>
+                <input type="hidden" name="invoice" value="{{ invoice.id }}">
+                <div class="field">
+                    <label for="d-level">{{ t('dunning.level') }}</label>
+                    <select id="d-level" name="level"{{ m.invalid('d-level', errors.level ?? null) }}>
+                        {% for l in levels %}<option value="{{ l.value }}"{{ l.value == level ? ' selected' : '' }}>{{ l.label }}{% if l.suggested %} · {{ t('dunning.suggested') }}{% endif %}</option>{% endfor %}
+                    </select>
+                    {{ m.err('d-level', errors.level ?? null) }}
+                </div>
+
+                <label class="toggle{{ interest.available ? '' : ' is-disabled' }}">
+                    <input type="checkbox" name="interest" value="1"{{ toggles.interest and interest.available ? ' checked' : '' }}{{ interest.available ? '' : ' disabled' }}{{ m.invalid('d-interest', errors.interest ?? null) }}>
+                    <span><b>{{ t('dunning.charge_interest') }}</b><span>{{ interest.available ? interest.hint : t('dunning.no_base_rate') }}</span></span>
+                </label>
+                {{ m.err('d-interest', errors.interest ?? null) }}
+                {% if warnings.no_base_rate %}
+                    <p class="warn-soft" role="note" data-warning="no_base_rate">{{ t('dunning.no_base_rate') }}
+                        {% if is_owner %}<a href="/settings/dunning">{{ t('dunning.set_base_rate') }}</a>{% else %}{{ t('dunning.ask_owner') }}{% endif %}</p>
+                {% endif %}
+
+                <label class="toggle{{ flat_fee.available ? '' : ' is-disabled' }}">
+                    <input type="checkbox" name="flat_fee" value="1"{{ toggles.flat_fee and flat_fee.available ? ' checked' : '' }}{{ flat_fee.available ? '' : ' disabled' }}{{ m.invalid('d-flat', errors.flat_fee ?? null) }}>
+                    <span><b>{{ t('dunning.flat_fee_option', {amount: flat_fee.amount}) }}</b><span>{{ t('dunning.flat_fee_hint') }}</span></span>
+                </label>
+                {{ m.err('d-flat', errors.flat_fee ?? null) }}
+                {% if warnings.consumer %}<p class="hint" data-warning="consumer">{{ t('dunning.consumer_no_flat') }}</p>{% endif %}
+
+                {% if fee.shown %}
+                    <label class="toggle{{ fee.available ? '' : ' is-disabled' }}">
+                        <input type="checkbox" name="fee" value="1"{{ toggles.fee and fee.available ? ' checked' : '' }}{{ fee.available ? '' : ' disabled' }}{{ m.invalid('d-fee', errors.fee ?? null) }}>
+                        <span><b>{{ t('dunning.fee_option', {amount: fee.amount}) }}</b><span>{{ t('dunning.fee_hint') }}</span></span>
+                    </label>
+                {% endif %}
+                {{ m.err('d-fee', errors.fee ?? null) }}
+                {% if warnings.non_eur %}<p class="hint" data-warning="non_eur">{{ t('dunning.non_eur_no_fees', {currency: warnings.non_eur}) }}</p>{% endif %}
+
+                <div class="form-actions"><button class="btn btn-ghost" type="submit">{{ t('dunning.update_preview') }}</button></div>
+            </form>
+        </section>
+
+        <section class="panel" data-block="breakdown">
+            <div class="panel-head"><h2>{{ t('dunning.breakdown') }}</h2></div>
+            {% if breakdown %}
+                <dl class="claim-list">
+                    {% for row in breakdown.rows %}<div data-row="{{ row.key }}"><dt>{{ row.label }}</dt><dd class="num">{{ row.amount }}</dd></div>{% endfor %}
+                    <div class="claim-total"><dt>{{ breakdown.total_label }}</dt><dd class="num" data-total>{{ breakdown.total }}</dd></div>
+                    <div><dt>{{ t('dunning.pay_by') }}</dt><dd data-pay-by>{{ breakdown.pay_by }}</dd></div>
+                </dl>
+                <form class="form-grid issue-form" method="post" action="/dunning">
+                    {{ csrf_field() }}
+                    <input type="hidden" name="invoice" value="{{ invoice.id }}">
+                    <input type="hidden" name="level" value="{{ level }}">
+                    {% if toggles.interest and interest.available %}<input type="hidden" name="interest" value="1">{% endif %}
+                    {% if toggles.flat_fee and flat_fee.available %}<input type="hidden" name="flat_fee" value="1">{% endif %}
+                    {% if toggles.fee and fee.available %}<input type="hidden" name="fee" value="1">{% endif %}
+                    {% if not can_issue %}<p class="warn-box" role="alert">{{ t('invoice.suspended') }}</p>{% endif %}
+                    <p class="hint">{{ t('dunning.issue_hint') }}</p>
+                    <div class="form-actions"><button class="btn btn-primary" type="submit"{{ can_issue ? '' : ' disabled' }}>{{ t('dunning.issue') }}</button></div>
+                </form>
+            {% else %}
+                <p class="panel-body hint">{{ t('dunning.err_level_not_higher') }}</p>
+            {% endif %}
+        </section>
+    </div>
+    <aside class="paper-col">
+        <p class="hint">{{ t('dunning.message_preview', {lang: letter_lang}) }}</p>
+        {% if letter %}{% include 'dunning/_letter.twig' %}{% else %}<p class="paper-empty">{{ t('invoice.preview_empty') }}</p>{% endif %}
+    </aside>
+</div>
+{% endblock %}

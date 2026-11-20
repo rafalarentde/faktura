@@ -461,8 +461,8 @@ final class DocumentMailerTest extends TestCase
     public function test_foreign_unknown_and_unsupported_documents_are_refused_identically(): void
     {
         $other = $this->fx->issued($this->fx->companyB, $this->fx->customer($this->fx->companyB));
-        // dunning letters have no mail support yet (Task 21); offers do (Task 19)
-        $this->fx->db->exec("INSERT INTO documents (company_id, type, status, number, lang, currency) VALUES (?, 'dunning', 'issued', 'MA-1', 'de', 'EUR')", [$this->fx->companyA]);
+        // a type without mail support (synthetic value stored directly; offers and dunning letters are supported)
+        $this->fx->db->exec("INSERT INTO documents (company_id, type, status, number, lang, currency) VALUES (?, 'bogus_type', 'issued', 'X-1', 'de', 'EUR')", [$this->fx->companyA]);
         $offer = $this->fx->db->lastId();
         foreach ([$other, 987654, $offer] as $id) {
             try {

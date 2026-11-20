@@ -87,7 +87,11 @@ abstract class AbstractDocumentController
     /** Where a document's page lives (also used by the mail page). */
     public static function pathFor(string $type, int $id): string
     {
-        return ($type === DocType::OFFER ? '/offers/' : '/invoices/') . $id;
+        return match ($type) {
+            DocType::OFFER => '/offers/',
+            DocType::DUNNING => '/dunning/',
+            default => '/invoices/',
+        } . $id;
     }
 
     // ---- create mode ----

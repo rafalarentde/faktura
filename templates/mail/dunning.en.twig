@@ -1,0 +1,19 @@
+Dear Sir or Madam,
+
+please find attached our letter "{{ level }}" ({{ number }}) regarding our invoice {{ invoice }}{% if invoice_date %} of {{ invoice_date }}{% endif %} as a PDF.
+
+Total claim: {{ gross }}
+Please transfer this amount by {{ pay_by }}.
+
+{% if iban %}
+IBAN: {{ iban }}
+{% if bic %}
+BIC: {{ bic }}
+{% endif %}
+Payment reference: {{ invoice }}
+
+{% endif %}
+If you have already made the payment, please disregard this message.
+
+Kind regards
+{{ company }}

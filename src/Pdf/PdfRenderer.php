@@ -17,15 +17,15 @@ use Dompdf\Options;
 use Twig\Environment;
 
 /**
- * Server-side PDF of ISSUED invoices, credit notes and offers of the active company (Tasks 17, 19).
+ * Server-side PDF of ISSUED invoices, credit notes, offers and dunning letters of the active company
+ * (Tasks 17, 19, 21).
  *
  * Data: only the document's stored snapshots, lines and totals through DocumentPresenter::issued()
  * (document language for every label and number). The one live asset is the company's current
  * logo, re-encoded by LogoStore::process() and embedded as a data: URI (no file access by Dompdf).
  *
  * Access: render()/html() throw DocumentNotFound for unknown ids, other companies' documents and
- * types without a PDF yet (dunning letters come with Task 21), and PdfNotAvailable
- * for drafts.
+ * types without a template (TEMPLATES), and PdfNotAvailable for drafts.
  *
  * Dompdf is locked down: no remote resources, no PHP, no JavaScript, only the data:// and file://
  * protocols, chroot = the resources directory (fonts). All user strings are escaped by Twig
@@ -55,7 +55,8 @@ final class PdfRenderer
     ];
     public const BODY_FONT = 'sourcesans3';
 
-    private const TEMPLATES = [DocType::INVOICE => 'pdf/invoice.twig', DocType::CREDIT_NOTE => 'pdf/invoice.twig', DocType::OFFER => 'pdf/offer.twig'];
+    private const TEMPLATES = [DocType::INVOICE => 'pdf/invoice.twig', DocType::CREDIT_NOTE => 'pdf/invoice.twig', DocType::OFFER => 'pdf/offer.twig',
+        DocType::DUNNING => 'pdf/dunning.twig'];
     private const MM = 72 / 25.4;
     // Page number position (points from the top-left corner of an A4 page): right margin, below the footer.
     private const PAGE_NO_RIGHT = 595.28 - 18 * self::MM;
@@ -78,7 +79,7 @@ final class PdfRenderer
     }
 
     /**
-     * PDF bytes of an issued invoice, credit note or offer of the active company.
+     * PDF bytes of an issued invoice, credit note, offer or dunning letter of the active company.
      *
      * @throws DocumentNotFound unknown id, another company's document, a type without PDF
      * @throws PdfNotAvailable the document is a draft

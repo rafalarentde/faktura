@@ -18,7 +18,7 @@ return [
     ['key' => 'dashboard', 'label' => 'nav.dashboard', 'path' => '/', 'icon' => 'home', 'enabled' => true, 'admin_only' => false],
     ['key' => 'new_invoice', 'label' => 'nav.invoices', 'path' => '/invoices', 'match' => '/invoices', 'icon' => 'invoice', 'enabled' => true, 'admin_only' => false],
     ['key' => 'offers', 'label' => 'nav.offers', 'path' => '/offers', 'match' => '/offers', 'icon' => 'offers', 'enabled' => true, 'admin_only' => false],
-    ['key' => 'dunning', 'label' => 'nav.dunning', 'path' => '/dunning', 'icon' => 'alert', 'enabled' => false, 'admin_only' => false],
+    ['key' => 'dunning', 'label' => 'nav.dunning', 'path' => '/dunning', 'match' => '/dunning', 'icon' => 'alert', 'enabled' => true, 'admin_only' => false],
     ['separator' => true],
     ['key' => 'customers', 'label' => 'nav.customers', 'path' => '/customers', 'icon' => 'users', 'enabled' => true, 'admin_only' => false],
     ['key' => 'items', 'label' => 'nav.items', 'path' => '/items', 'icon' => 'box', 'enabled' => true, 'admin_only' => false],

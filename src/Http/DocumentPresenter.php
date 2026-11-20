@@ -49,6 +49,10 @@ final class DocumentPresenter
         if (($doc['status'] ?? null) !== 'issued') {
             throw new \LogicException('Only issued documents have an issued view model.');
         }
+        if ($doc['type'] === DocType::DUNNING) {
+            $invoice = $doc['related_document_id'] === null ? null : $this->docs->row((int) $doc['related_document_id']);
+            return $this->dunning($doc, (array) ($doc['seller'] ?? []), (array) ($doc['buyer'] ?? []), $invoice);
+        }
         return $this->present($doc, (array) ($doc['seller'] ?? []), (array) ($doc['buyer'] ?? []), self::totalsOf($doc));
     }
 
@@ -170,6 +174,109 @@ final class DocumentPresenter
             'note' => ($doc['vat_note_key'] ?? null) !== null && $doc['vat_note_key'] !== '' ? $tr((string) $doc['vat_note_key']) : null,
             'related' => $related,
         ];
+    }
+
+    /**
+     * View model of a dunning letter (Task 21) in the DOCUMENT language: an issued row (from its
+     * snapshots and stored dunning_* columns, via issued()) or the preview's pseudo row (the same
+     * keys from DocumentService::dunningQuote, number null, live seller row). The letter is: title
+     * per level, the reference line to the invoice, a formal text per level, the breakdown (only
+     * the charged extras), the total claim, the pay-by date and the bank details.
+     *
+     * @param array<string, mixed> $doc keys type, lang, currency, number (?string), issue_date, dunning_level,
+     *        dunning_outstanding_minor, dunning_interest_minor/_days/_rate_bp, dunning_flat_fee_minor,
+     *        dunning_fee_minor, dunning_claim_minor, dunning_pay_by
+     * @param array<string, mixed> $seller seller snapshot (or the live companies row in the preview)
+     * @param array<string, mixed> $buyer buyer snapshot (copied from the invoice)
+     * @param array<string, mixed>|null $invoice the dunned invoice row (number, issue_date, due_date)
+     * @return array<string, mixed>
+     */
+    public function dunning(array $doc, array $seller, array $buyer, ?array $invoice): array
+    {
+        $lang = in_array($doc['lang'] ?? null, DocumentService::LANGS, true) ? (string) $doc['lang'] : 'de';
+        $tr = fn (string $key, array $vars = []): string => $this->translator->t($key, $lang, $vars);
+        $fmt = new Formatter();
+        $date = fn (mixed $d): string => $d === null || $d === '' ? '' : $fmt->date(new \DateTimeImmutable((string) $d), $lang);
+        $level = max(0, min(3, (int) ($doc['dunning_level'] ?? 0)));
+        $title = $tr('pdf.dunning_title_' . $level);
+        $number = $doc['number'] ?? $tr('invoice.draft_number');
+        $payBy = $date($doc['dunning_pay_by'] ?? null);
+        $breakdown = $this->dunningRows($doc, $lang);
+        $country = strtoupper((string) ($buyer['country'] ?? ''));
+        $reference = $invoice === null || ($invoice['number'] ?? null) === null ? null : $tr('pdf.dunning_reference', [
+            'number' => (string) $invoice['number'], 'date' => $date($invoice['issue_date'] ?? null), 'due' => $date($invoice['due_date'] ?? null),
+        ]);
+        return [
+            'lang' => $lang,
+            'kind' => DocType::DUNNING,
+            'level' => $level,
+            'title' => $title,
+            'number' => $number,
+            'doc_title' => $title . ' ' . $number,
+            'currency' => (string) $doc['currency'],
+            'labels' => [
+                'bill_to' => $tr('pdf.dunning_to'), 'number' => $tr('pdf.number'), 'issue_date' => $tr('pdf.dunning_date'),
+                'pay_by' => $tr('pdf.dunning_pay_by_label'), 'vat_id' => $tr('invoice.vat_id'), 'tax_number' => $tr('invoice.tax_number'),
+                'bank_details' => $tr('pdf.bank_details'), 'page' => $tr('pdf.page'), 'amount' => $tr('invoice.amount'),
+                'position' => $tr('invoice.description'),
+            ],
+            'issue_date' => $date($doc['issue_date'] ?? null),
+            'pay_by' => $payBy,
+            'due_date' => null,
+            'valid_until' => null,
+            'reference' => $reference,
+            'related' => $reference,
+            'invoice_number' => $invoice === null ? '' : (string) ($invoice['number'] ?? ''),
+            'invoice_date' => $invoice === null ? '' : $date($invoice['issue_date'] ?? null),
+            'greeting' => $tr('pdf.dunning_greeting'),
+            'text' => [$tr('pdf.dunning_text_' . $level, ['date' => $payBy]), $tr('pdf.dunning_already_paid')],
+            'rows' => $breakdown['rows'],
+            'total_label' => $breakdown['total_label'],
+            'gross' => $breakdown['total'],
+            'payment' => $tr('pdf.dunning_pay_by', ['date' => $payBy]),
+            'purpose' => $invoice === null || ($invoice['number'] ?? null) === null ? null : $tr('pdf.dunning_purpose', ['number' => (string) $invoice['number']]),
+            'closing' => $tr('pdf.dunning_closing'),
+            'seller' => [
+                'name' => (string) ($seller['name'] ?? ''), 'address' => self::lines($seller['address'] ?? ''),
+                'vat_id' => (string) ($seller['vat_id'] ?? ''), 'tax_number' => (string) ($seller['tax_number'] ?? ''),
+                'iban' => (string) ($seller['iban'] ?? ''), 'bic' => (string) ($seller['bic'] ?? ''),
+                'bank' => (string) ($seller['bank'] ?? ''), 'footer' => self::lines($seller['footer_text'] ?? ''),
+            ],
+            'buyer' => [
+                'name' => (string) ($buyer['name'] ?? ''), 'address' => self::lines($buyer['address'] ?? ''),
+                'country' => Countries::isValid($country) ? (string) \Locale::getDisplayRegion('-' . $country, $lang) : '',
+                'vat_id' => (string) ($buyer['vat_id'] ?? ''),
+            ],
+        ];
+    }
+
+    /**
+     * The breakdown of a dunning letter in $lang (document language for the letter, UI language on
+     * the pages): the outstanding amount, then ONLY the charged extras (a NULL column is "not
+     * charged"), and the total claim. Amounts come from the stored/quoted columns, never recomputed.
+     *
+     * @param array<string, mixed> $doc see dunning()
+     * @return array{rows: list<array{key: string, label: string, amount: string}>, total_label: string, total: string}
+     */
+    public function dunningRows(array $doc, string $lang): array
+    {
+        $tr = fn (string $key, array $vars = []): string => $this->translator->t($key, $lang, $vars);
+        $fmt = new Formatter();
+        $currency = (string) $doc['currency'];
+        $money = fn (int $minor): string => $fmt->money(Money::of($minor, $currency), $lang);
+        $rows = [['key' => 'outstanding', 'label' => $tr('pdf.dunning_outstanding'), 'amount' => $money((int) $doc['dunning_outstanding_minor'])]];
+        if (($doc['dunning_interest_minor'] ?? null) !== null) {
+            $rows[] = ['key' => 'interest', 'label' => $tr('pdf.dunning_interest', [
+                'rate' => Percent::format((int) $doc['dunning_interest_rate_bp'], $lang), 'days' => (string) (int) $doc['dunning_interest_days'],
+            ]), 'amount' => $money((int) $doc['dunning_interest_minor'])];
+        }
+        if (($doc['dunning_flat_fee_minor'] ?? null) !== null) {
+            $rows[] = ['key' => 'flat_fee', 'label' => $tr('pdf.dunning_flat_fee'), 'amount' => $money((int) $doc['dunning_flat_fee_minor'])];
+        }
+        if (($doc['dunning_fee_minor'] ?? null) !== null) {
+            $rows[] = ['key' => 'fee', 'label' => $tr('pdf.dunning_fee'), 'amount' => $money((int) $doc['dunning_fee_minor'])];
+        }
+        return ['rows' => $rows, 'total_label' => $tr('pdf.dunning_total'), 'total' => $money((int) $doc['dunning_claim_minor'])];
     }
 
     /**
