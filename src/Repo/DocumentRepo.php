@@ -104,10 +104,14 @@ final class DocumentRepo extends BaseRepo
         );
     }
 
-    /** Is (type, number) already used by a document of this company? Locking read. */
+    /**
+     * Is (type, number) already used by a document of this company? PLAIN read on purpose (no row
+     * lock, so no lock cycle with transactions holding other documents): a number committed after
+     * the reader's snapshot is caught by the UNIQUE index, which the issuer handles by retrying.
+     */
     public function numberTaken(string $type, string $number): bool
     {
-        return $this->scopedAll(self::DOCS, 'type = ? AND number = ?', [$type, $number], '', 1, 0, true) !== [];
+        return $this->scopedAll(self::DOCS, 'type = ? AND number = ?', [$type, $number], '', 1) !== [];
     }
 
     /**

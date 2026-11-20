@@ -23,22 +23,34 @@ use App\Tenant\CompanyContext;
  * - Every id comes from the caller but every read/write is company-scoped; an id of another
  *   company behaves exactly like an unknown id (DocumentNotFound).
  *
- * LOCK ORDER (InnoDB locking reads; SQLite serializes writers anyway). Every transaction that
- * locks several rows takes them in this order, so two of them can never wait for each other in
- * a cycle:
- *  1. the invoice row: for a credit note its RELATED invoice, taken FIRST (issue() reads the
- *     credit note's related_document_id with a plain read, locks the invoice, then locks the
- *     credit note and re-checks that the link is unchanged); addPayment and createCorrection
- *     lock only the invoice;
+ * LOCK ORDER (InnoDB locking reads; SQLite serializes writers anyway). Paths that lock several
+ * rows take them in this order:
+ *  1. the invoice row: for a credit note its RELATED invoice, taken FIRST; addPayment and
+ *     createCorrection lock only the invoice;
  *  2. the document's own row (lockedDraft);
  *  3. scans under the invoice lock: issued credit notes / payments of that invoice (locking
- *     reads; they may touch draft credit-note rows of the same invoice, whose writers all take
- *     the invoice lock first, so they are never held by a transaction waiting for us);
- *  4. the number_formats row, then the counter rows (NumberSequences::next(), see its docblock),
- *     then the numberTaken() check of the drawn number.
- * Step 3 deliberately runs BEFORE step 4: the per-type number_formats row is the most contended
- * lock of the company, so it is never held while waiting for per-invoice scan locks.
- * updateDraft/deleteDraft lock only the draft's own row; createDraft locks nothing existing.
+ *     reads, so they see current data);
+ *  4. the number_formats row, then the counter rows (NumberSequences::next(), see its docblock).
+ *     The numberTaken() check of the drawn number is a PLAIN read: it takes no lock, a number
+ *     committed after our snapshot is caught by the UNIQUE index (company_id, type, number) and
+ *     the SQLSTATE-23 retry draws the next counter value.
+ * Step 3 runs BEFORE step 4 so the per-type number_formats row (the most contended lock of the
+ * company) is never held while waiting for per-invoice rows; while holding it a transaction only
+ * locks counter rows and writes its own (already locked) document row.
+ * updateDraft/deleteDraft lock only the draft's own row (also for a draft credit note: harmless,
+ * because a transaction holding only that row never waits for anything else); createDraft locks
+ * nothing existing.
+ * Residual risk: the step-3 scans take next-key locks, which on InnoDB can reach the first index
+ * record of a NEIGHBOURING invoice's range; two credit-note issues for two different invoices
+ * whose ranges are adjacent could then block each other in a rare cycle. InnoDB rolls one back
+ * (1213); nothing is written and no number is consumed.
+ *
+ * SNAPSHOTS: under REPEATABLE READ the first plain SELECT of a transaction fixes its read view.
+ * issue() therefore does its plain pre-read (type, related_document_id) BEFORE opening its
+ * transaction, and every plain read inside the transaction (lines, customer, company) comes
+ * after the row locks, so it sees every commit that preceded them. Callers must not read the
+ * document in their own surrounding transaction before calling issue() (issue() joins an outer
+ * transaction and cannot control what ran before).
  */
 final class DocumentService
 {
@@ -166,9 +178,12 @@ final class DocumentService
      */
     public function issue(int $id, \DateTimeImmutable $at, bool $confirmUnverifiedVat = false): string
     {
-        return $this->db->transaction(function () use ($id, $at, $confirmUnverifiedVat): string {
+        // Plain pre-read OUTSIDE the transaction (see SNAPSHOTS in the class docblock): it only
+        // tells the type and, for a credit note, the invoice to lock first (never changes).
+        $pre = $this->docs->row($id) ?? throw new DocumentNotFound();
+        return $this->db->transaction(function () use ($id, $at, $confirmUnverifiedVat, $pre): string {
             // Lock order (class docblock): a credit note's invoice BEFORE the credit note itself.
-            $pre = $this->docs->row($id) ?? throw new DocumentNotFound();
+            // No plain SELECT may run in this transaction before the first lock.
             $invoice = null;
             if ($pre['type'] === DocType::CREDIT_NOTE) {
                 $invoice = $this->docs->lockedFind((int) $pre['related_document_id']);
@@ -309,7 +324,7 @@ final class DocumentService
                 $errors['paid_on'] = 'document.err_paid_on';
             }
             $note = $note === null ? '' : trim(str_replace(["\r", "\n"], ' ', $note));
-            if (mb_strlen($note, 'UTF-8') > self::NOTE_MAX) {
+            if (!mb_check_encoding($note, 'UTF-8') || mb_strlen($note, 'UTF-8') > self::NOTE_MAX) {
                 $errors['note'] = 'document.err_note';
             }
             if ($errors !== []) {
@@ -507,7 +522,8 @@ final class DocumentService
         } elseif ($dates['issue_date'] !== null && $dates['valid_until'] !== null && $dates['valid_until'] < $dates['issue_date']) {
             $e['valid_until'] = 'document.err_valid_until_before_issue';
         }
-        if ($customer !== null && !self::validUtf8(self::buyerSnapshot($customer))) {
+        // A credit note takes its buyer from the invoice snapshot, not from the customer row.
+        if ($type !== DocType::CREDIT_NOTE && $customer !== null && !self::validUtf8(self::buyerSnapshot($customer))) {
             $e['customer_id'] = 'document.err_encoding';
         }
         $texts = [];

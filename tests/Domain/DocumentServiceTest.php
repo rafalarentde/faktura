@@ -1038,11 +1038,15 @@ final class DocumentServiceTest extends TestCase
         $ownLock = $this->lockAt($locks, '(id = ?)', $cn);
         $scan = $this->lockAt($locks, 'related_document_id = ?');
         $format = $this->lockAt($locks, 'FROM `number_formats`');
-        $taken = $this->lockAt($locks, 'number = ?');
         $this->assertLessThan($ownLock, $invoiceLock);
         $this->assertLessThan($scan, $ownLock);
         $this->assertLessThan($format, $scan);
-        $this->assertLessThan($taken, $format);
+        // numberTaken() is a plain read (no FOR UPDATE), but it does run
+        $taken = array_values(array_filter(RecordingStatement::$log, fn (array $e): bool => str_contains($e[0], 'number = ?')));
+        $this->assertNotSame([], $taken);
+        foreach ($taken as [$sql]) {
+            $this->assertStringNotContainsString('FOR UPDATE', $sql);
+        }
 
         RecordingStatement::$log = [];
         $svc->addPayment($inv, 100, $this->day('2026-11-25'));
@@ -1129,5 +1133,112 @@ final class DocumentServiceTest extends TestCase
         $this->assertSame(0, $this->counter('invoice'));
         $this->db->exec('UPDATE companies SET bank = ? WHERE id = ?', ['Sparkasse', $this->companyA]);
         $this->assertSame('RE-2026-001', $this->svc->issue($id, $this->at()));
+    }
+    // ---- Fix round 2: snapshot after locks, plain numberTaken, minors ----
+
+    /** Statements recorded since the issue's BEGIN (marker), as [sql, params]. */
+    private function statementsAfterBegin(): array
+    {
+        $i = array_search('BEGIN', array_column(RecordingStatement::$log, 0), true);
+        $this->assertNotFalse($i, 'no transaction begun');
+        return array_slice(RecordingStatement::$log, $i + 1);
+    }
+
+    public function test_mysql_issue_locks_before_any_plain_read_in_its_transaction(): void
+    {
+        $inv = $this->draft();
+        $cn = null;
+        $svc = $this->mysqlSvc();
+        $this->pdo->onBegin = function (): void {
+            RecordingStatement::$log[] = ['BEGIN', []];
+        };
+        foreach (['invoice', 'credit note'] as $case) {
+            RecordingStatement::$log = [];
+            $target = $case === 'invoice' ? $inv : $cn;
+            $svc->issue($target, $this->at());
+            $first = null;
+            foreach ($this->statementsAfterBegin() as [$sql, $params]) {
+                if (str_starts_with($sql, 'SELECT')) {
+                    $first = [$sql, $params];
+                    break;
+                }
+            }
+            $this->assertNotNull($first, $case);
+            $this->assertStringContainsString('FROM `documents`', $first[0], $case);
+            $this->assertStringContainsString('FOR UPDATE', $first[0], "$case: the first read in the transaction is a locking read");
+            $this->assertSame($inv, $first[1][1], "$case: invoice row first");
+            // the plain pre-read happened before BEGIN
+            $before = array_slice(RecordingStatement::$log, 0, (int) array_search('BEGIN', array_column(RecordingStatement::$log, 0), true));
+            $this->assertCount(1, $before, $case);
+            $this->assertStringNotContainsString('FOR UPDATE', $before[0][0]);
+            $cn ??= $this->svc->createCorrection($inv);
+        }
+        $this->pdo->onBegin = null;
+    }
+
+    public function test_issue_sees_lines_committed_while_it_waited_for_the_lock(): void
+    {
+        // Two real connections, WAL (snapshot reads like InnoDB). Another request's updateDraft
+        // commits new lines/currency after issue()'s pre-read, right before its row lock.
+        $file = (string) tempnam(sys_get_temp_dir(), 'faktura_doc_');
+        try {
+            $this->boot('sqlite:' . $file);
+            $this->pdo->exec('PRAGMA journal_mode=WAL');
+            $id = $this->draft();
+            $pl = $this->customer($this->companyA, ['name' => 'Polska', 'country' => 'PL', 'is_company' => '0']);
+            $pdo2 = new \PDO('sqlite:' . $file, null, null, [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION, \PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC, \PDO::ATTR_TIMEOUT => 5]);
+            $db2 = new Db($pdo2, 'sqlite');
+            $ctx2 = CompanyContext::forUser($db2, $this->userId, $this->companyA);
+            $other = new DocumentService($db2, $ctx2, new NumberSequences($db2, $ctx2), new DocumentRepo($db2, $ctx2), new CustomerRepo($db2, $ctx2));
+            $armed = true;
+            $this->pdo->onPrepare = function (string $sql) use (&$armed, $other, $id, $pl): void {
+                if ($armed && str_contains($sql, 'FROM `documents`') && str_contains($sql, '(id = ?)')) {
+                    $armed = false;
+                    $other->updateDraft($id, ['customer_id' => $pl, 'currency' => 'PLN', 'eur_rate' => '4.0000',
+                        'lines' => [$this->line(['qty_milli' => 3000])]]);
+                }
+            };
+            $this->assertSame('RE-2026-001', $this->svc->issue($id, $this->at()));
+            $this->assertFalse($armed);
+            $this->pdo->onPrepare = null;
+            $doc = $this->doc($id);
+            $this->assertSame('PLN', $doc['currency']);
+            $this->assertSame(3000, $doc['lines'][0]['qty_milli']);
+            $this->assertSame(30000, $doc['net_minor'], 'totals from the NEW lines');
+            $this->assertSame(35700, $doc['gross_minor']);
+            $this->assertSame(1425, $doc['vat_eur_minor']);
+            $this->assertSame('Polska', $doc['buyer']['name']);
+            $this->assertConsistent($doc);
+        } finally {
+            unset($other, $ctx2, $db2, $pdo2);
+            $this->pdo->onPrepare = null;
+            $this->boot('sqlite::memory:');
+            @unlink($file);
+            @unlink($file . '-wal');
+            @unlink($file . '-shm');
+        }
+    }
+
+    public function test_payment_note_must_be_valid_utf8(): void
+    {
+        $id = $this->draft();
+        $this->svc->issue($id, $this->at());
+        $this->assertSame(['note' => 'document.err_note'], $this->errors(fn () => $this->svc->addPayment($id, 100, $this->day('2026-11-25'), "Zahlung \xff")));
+        $this->svc->addPayment($id, 100, $this->day('2026-11-25'), str_repeat('ü', 190));
+        $this->assertSame(str_repeat('ü', 190), $this->db->one('SELECT note FROM payments')['note']);
+    }
+
+    public function test_corrupted_customer_does_not_block_editing_a_credit_note(): void
+    {
+        $inv = $this->draft();
+        $this->svc->issue($inv, $this->at());
+        $cn = $this->svc->createCorrection($inv);
+        $this->db->exec('UPDATE customers SET address = ? WHERE id = ?', ["Stra\xdfe 1", $this->customer]);
+        $this->svc->updateDraft($cn, ['notes' => 'Storno', 'lines' => [$this->line(['qty_milli' => 500])]]);
+        $this->assertSame('Storno', $this->doc($cn)['notes']);
+        $this->svc->issue($cn, $this->at());
+        $this->assertSame('Kunde GmbH', $this->doc($cn)['buyer']['name']);
+        // invoices for that customer still get the clean 422
+        $this->assertSame(['customer_id' => 'document.err_encoding'], $this->errors(fn () => $this->draft()));
     }
 }
