@@ -10,11 +10,14 @@ use App\Auth\Totp;
 use App\Auth\UserService;
 use App\Domain\DocumentService;
 use App\Domain\NumberSequences;
+use App\Http\DocumentPresenter;
 use App\Http\Middleware\RequireLogin;
 use App\Http\Shell;
 use App\I18n\Translator;
+use App\Pdf\PdfRenderer;
 use App\Repo\CustomerRepo;
 use App\Repo\DocumentRepo;
+use App\Storage\LogoStore;
 use App\Tenant\AccessDenied;
 use App\Tenant\CompanyContext;
 use App\Vies\HttpViesClient;
@@ -63,6 +66,7 @@ final class App
     private array|false|null $currentUser = null;
     private CompanyContext|false|null $context = null;
     private ?DocumentService $documents = null;
+    private ?PdfRenderer $pdf = null;
     /** @var array<string, mixed>|null */
     private ?array $shell = null;
     private string $lang = Translator::FALLBACK;
@@ -264,6 +268,7 @@ final class App
     {
         $this->context = null;
         $this->documents = null;
+        $this->pdf = null;
         $this->shell = null;
     }
 
@@ -282,6 +287,26 @@ final class App
             );
         }
         return $this->documents;
+    }
+
+    /**
+     * PDF renderer of the active company (cached per request, like documents()). Font metrics and
+     * Dompdf temp files go to <storage_path>/pdf-cache (created on first use; must be writable).
+     *
+     * @throws \LogicException when no company is selected (use RequireCompany on the route)
+     */
+    public function pdf(): PdfRenderer
+    {
+        if ($this->pdf === null) {
+            $ctx = $this->context() ?? throw new \LogicException('No company selected.');
+            $repo = new DocumentRepo($this->db, $ctx);
+            $storage = rtrim((string) $this->config('storage_path', $this->root . '/storage'), '/');
+            $this->pdf = new PdfRenderer(
+                $this->twig(), new DocumentPresenter($this->translator(), $repo), $repo, new LogoStore($storage), $ctx,
+                $this->root . '/resources', $storage . '/pdf-cache'
+            );
+        }
+        return $this->pdf;
     }
 
     private function resolveContext(): ?CompanyContext

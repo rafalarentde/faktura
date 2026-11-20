@@ -603,4 +603,13 @@ return [
     'invoice.no_credit_notes' => 'Keine Rechnungskorrekturen.',
     'invoice.create_correction' => 'Rechnungskorrektur erstellen',
     'invoice.correction_hint' => 'Legt einen Entwurf mit allen Positionen an; für eine Teilkorrektur entfernst oder änderst du Positionen.',
+
+    // Task 17: PDF
+    'pdf.number' => 'Nummer',
+    'pdf.bank_details' => 'Bankverbindung',
+    'pdf.page' => 'Seite {page} von {pages}',
+    'pdf.payment_due' => 'Zahlbar bis {date} ohne Abzug.',
+    'pdf.download' => 'PDF herunterladen',
+    'pdf.open_label' => 'PDF von {number} öffnen',
+    'pdf.err_draft' => 'Für Entwürfe gibt es noch kein PDF. Stell den Beleg zuerst aus.',
 ];

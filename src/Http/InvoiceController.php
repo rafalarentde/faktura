@@ -11,10 +11,8 @@ use App\Domain\DocType;
 use App\Domain\DocumentLocked;
 use App\Domain\DocumentNotFound;
 use App\Domain\DocumentService;
-use App\Domain\Line;
 use App\Domain\NumberSequences;
 use App\Domain\Percent;
-use App\Domain\Totals;
 use App\Domain\Units;
 use App\Domain\ValidationException;
 use App\Domain\VatNeedsConfirmation;
@@ -343,7 +341,7 @@ final class InvoiceController
                 'errors' => $messages, 'formatted' => ['lines' => $lineNets]], 422);
         }
         $sign = $creditNote ? -1 : 1;
-        $view = $this->totalsView($totals, $sign, $currency, $rc, $this->app->lang());
+        $view = $this->presenter()->totalsPanel($totals, $sign, $currency, $rc, $this->app->lang());
         $vat = [];
         foreach ($totals->vat as $bp => $amount) {
             $vat[] = ['rate' => $bp, 'amount' => $sign * $amount, 'formatted' => $this->money($sign * $amount, $currency)];
@@ -529,13 +527,13 @@ final class InvoiceController
             try {
                 $t = InvoiceForm::totals($parsed['data']['lines'], $rc, $currency,
                     $creditNote ? ($doc['eur_rate'] === null ? null : (string) $doc['eur_rate']) : $form->rate());
-                $totals = $this->totalsView($t, $sign, $currency, $rc, $lang);
+                $totals = $this->presenter()->totalsPanel($t, $sign, $currency, $rc, $lang);
             } catch (ValidationException) {
                 $totals = null;
             }
         }
         if ($totals === null && $doc !== null && $doc['lines'] !== []) {
-            $totals = $this->totalsView($this->service()->totalsFor($doc), $sign, (string) $doc['currency'], (int) $doc['reverse_charge'] === 1, $lang);
+            $totals = $this->presenter()->totalsPanel($this->service()->totalsFor($doc), $sign, (string) $doc['currency'], (int) $doc['reverse_charge'] === 1, $lang);
         }
 
         $now = $this->now();
@@ -672,7 +670,6 @@ final class InvoiceController
             $inv = $this->docs()->row((int) $doc['related_document_id']);
             $related = $inv === null ? null : ['id' => (int) $inv['id'], 'number' => (string) $inv['number'], 'date' => $this->date($inv['issue_date'])];
         }
-        $totals = $this->service()->totalsFor($doc);
         return $this->app->render('invoices/show.twig', [
             'doc' => [
                 'id' => $id, 'type' => (string) $doc['type'], 'number' => (string) $doc['number'],
@@ -689,7 +686,7 @@ final class InvoiceController
             'payments' => $payments,
             'credit_notes' => $creditNotes,
             'related' => $related,
-            'paper' => $this->paper($doc, $doc['seller'] ?? [], $doc['buyer'] ?? [], $totals),
+            'paper' => $this->presenter()->issued($doc),
             'can_pay' => $isInvoice && $summary['balance_minor'] > 0 && $summary['status'] !== 'credited',
             'can_correct' => $this->canCorrect($doc, $summary),
             'payment' => $payment ?? ['amount' => '', 'paid_on' => $now->format('Y-m-d'), 'note' => ''],
@@ -734,7 +731,7 @@ final class InvoiceController
             } elseif ($doc['customer_id'] !== null) {
                 $buyer = $this->customers()->find((int) $doc['customer_id']) ?? [];
             }
-            return $this->paper($doc, $company, $buyer, $this->service()->totalsFor($doc));
+            return $this->presenter()->present($doc, $company, $buyer, $this->service()->totalsFor($doc));
         }
         if ($parsed['errors'] !== [] || $customer === null) {
             return null;
@@ -756,113 +753,7 @@ final class InvoiceController
             'service_date' => self::realDate($form->fields['service_date']), 'due_date' => self::realDate($form->fields['due_date']),
             'intro_text' => $form->fields['intro_text'], 'outro_text' => $form->fields['outro_text'], 'lines' => $lines,
             'related_document_id' => null];
-        return $this->paper($pseudo, $company, $customer, $totals);
-    }
-
-    /**
-     * View model of the paper partial, in the DOCUMENT language. All values are plain strings;
-     * the template escapes them (addresses are split into lines, never raw HTML).
-     *
-     * @param array<string, mixed> $doc document row with lines (or the create-mode pseudo row)
-     * @param array<string, mixed> $seller companies row or seller snapshot
-     * @param array<string, mixed> $buyer customers row or buyer snapshot
-     * @return array<string, mixed>
-     */
-    private function paper(array $doc, array $seller, array $buyer, Totals $totals): array
-    {
-        $lang = in_array($doc['lang'], DocumentService::LANGS, true) ? (string) $doc['lang'] : 'de';
-        $tr = fn (string $key, array $vars = []): string => $this->app->translator()->t($key, $lang, $vars);
-        $fmt = new Formatter();
-        $currency = (string) $doc['currency'];
-        $rc = (int) $doc['reverse_charge'] === 1;
-        $creditNote = $doc['type'] === DocType::CREDIT_NOTE;
-        $sign = $creditNote ? -1 : 1;
-        $money = fn (int $minor): string => $fmt->money(Money::of($minor, $currency), $lang);
-        $date = fn (?string $d): ?string => $d === null || $d === '' ? null : $fmt->date(new \DateTimeImmutable($d), $lang);
-        $rows = [];
-        foreach ($doc['lines'] as $i => $l) {
-            $net = $l['net_minor'] ?? Totals::lineNet(new Line((int) $l['qty_milli'], (int) $l['unit_minor'], (int) $l['discount_bp'], (int) $l['vat_bp']));
-            $rows[] = [
-                'pos' => $i + 1, 'name' => (string) $l['name'], 'description' => (string) ($l['description'] ?? ''),
-                'qty' => $fmt->quantity((int) $l['qty_milli'], $lang), 'unit' => $tr('unit.' . $l['unit']),
-                'price' => $money((int) $l['unit_minor']),
-                'discount' => (int) $l['discount_bp'] === 0 ? '' : Percent::format((int) $l['discount_bp'], $lang) . ' %',
-                'vat' => ($rc ? '0' : Percent::format((int) $l['vat_bp'], $lang)) . ' %',
-                'net' => $money((int) $net),
-            ];
-        }
-        $vat = [];
-        foreach ($totals->vat as $bp => $amount) {
-            $vat[] = ['label' => $tr('invoice.vat') . ' ' . Percent::format($bp, $lang) . ' %', 'amount' => $money($sign * $amount)];
-        }
-        if ($rc) {
-            $vat[] = ['label' => $tr('invoice.vat') . ' 0 %', 'amount' => $money(0)];
-        }
-        $related = null;
-        if ($creditNote && $doc['related_document_id'] !== null) {
-            $inv = $this->docs()->row((int) $doc['related_document_id']);
-            if ($inv !== null) {
-                $related = $tr('invoice.corrects', ['number' => (string) $inv['number'], 'date' => (string) $date($inv['issue_date'])]);
-            }
-        }
-        $lines = fn (mixed $text): array => array_values(array_filter(
-            array_map('trim', explode("\n", str_replace(["\r\n", "\r"], "\n", (string) $text))),
-            fn (string $l): bool => $l !== ''
-        ));
-        return [
-            'lang' => $lang,
-            'title' => $tr($creditNote ? 'invoice.type_credit_note' : 'invoice.title'),
-            'number' => $doc['number'] ?? $tr('invoice.draft_number'),
-            'labels' => [
-                'bill_to' => $tr('invoice.bill_to'), 'position' => $tr('invoice.position'), 'description' => $tr('invoice.description'),
-                'quantity' => $tr('invoice.quantity'), 'unit_price' => $tr('invoice.unit_price'), 'discount' => $tr('invoice.discount'),
-                'vat' => $tr('invoice.vat'), 'amount' => $tr('invoice.amount'), 'net' => $tr('invoice.net'), 'total' => $tr('invoice.total'),
-                'issue_date' => $tr('invoice.date'), 'service_date' => $tr('invoice.service_date'), 'due_date' => $tr('invoice.due_date'),
-                'vat_id' => $tr('invoice.vat_id'), 'tax_number' => $tr('invoice.tax_number'), 'vat_in_eur' => $tr('invoice.vat_in_eur'),
-                'exchange_rate' => $tr('invoice.exchange_rate'),
-            ],
-            'issue_date' => $date($doc['issue_date']),
-            'service_date' => $date($doc['service_date']),
-            'due_date' => $creditNote ? null : $date($doc['due_date']),
-            'seller' => ['name' => (string) ($seller['name'] ?? ''), 'address' => $lines($seller['address'] ?? ''),
-                'vat_id' => (string) ($seller['vat_id'] ?? ''), 'tax_number' => (string) ($seller['tax_number'] ?? ''),
-                'iban' => (string) ($seller['iban'] ?? ''), 'bic' => (string) ($seller['bic'] ?? '')],
-            'buyer' => ['name' => (string) ($buyer['name'] ?? ''), 'address' => $lines($buyer['address'] ?? ''),
-                'vat_id' => (string) ($buyer['vat_id'] ?? '')],
-            'intro' => $lines($doc['intro_text'] ?? ''),
-            'outro' => $lines($doc['outro_text'] ?? ''),
-            'rows' => $rows,
-            'net' => $money($sign * $totals->netMinor),
-            'vat' => $vat,
-            'gross' => $money($sign * $totals->grossMinor),
-            'vat_eur' => $currency !== 'EUR' && !$rc && $totals->vatEurMinor !== null
-                ? $fmt->money(Money::of($sign * $totals->vatEurMinor, 'EUR'), $lang) : null,
-            'rate' => $currency !== 'EUR' && $doc['eur_rate'] !== null && $doc['eur_rate'] !== '' ? '1 EUR = ' . $doc['eur_rate'] . ' ' . $currency : null,
-            'note' => $doc['vat_note_key'] !== null && $doc['vat_note_key'] !== '' ? $tr((string) $doc['vat_note_key']) : null,
-            'related' => $related,
-        ];
-    }
-
-    /**
-     * Totals block view model (UI language), signed for credit notes.
-     *
-     * @return array{net: string, vat: list<array{label: string, amount: string}>, gross: string, vat_eur: ?string}
-     */
-    private function totalsView(Totals $t, int $sign, string $currency, bool $rc, string $lang): array
-    {
-        $vat = [];
-        foreach ($t->vat as $bp => $amount) {
-            $vat[] = ['label' => $this->app->t('invoice.vat') . ' ' . Percent::format($bp, $lang) . ' %', 'amount' => $this->money($sign * $amount, $currency)];
-        }
-        if ($rc) {
-            $vat[] = ['label' => $this->app->t('invoice.vat') . ' 0 % · ' . $this->app->t('invoice.reverse_charge'), 'amount' => $this->money(0, $currency)];
-        }
-        return [
-            'net' => $this->money($sign * $t->netMinor, $currency),
-            'vat' => $vat,
-            'gross' => $this->money($sign * $t->grossMinor, $currency),
-            'vat_eur' => $currency !== 'EUR' && !$rc && $t->vatEurMinor !== null ? $this->money($sign * $t->vatEurMinor, 'EUR') : null,
-        ];
+        return $this->presenter()->present($pseudo, $company, $customer, $totals);
     }
 
     // ---- helpers ----
@@ -969,6 +860,11 @@ final class InvoiceController
     private function customers(): CustomerRepo
     {
         return new CustomerRepo($this->app->db(), $this->ctx());
+    }
+
+    private function presenter(): DocumentPresenter
+    {
+        return new DocumentPresenter($this->app->translator(), $this->docs());
     }
 
     private function items(): ItemRepo

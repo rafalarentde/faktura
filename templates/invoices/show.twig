@@ -1,7 +1,7 @@
 {#
   Read-only view of an ISSUED invoice or credit note, built only from the stored snapshots, lines
-  and totals. There are no edit or delete controls. Block `document_actions` is the place for the
-  PDF and mail buttons (Tasks 17/18).
+  and totals. There are no edit or delete controls. Block `document_actions` holds the PDF links
+  (Task 17; GET /documents/{id}/pdf, inline and ?download=1); the mail button (Task 18) goes there too.
 #}
 {% extends 'layout.twig' %}
 {% block title %}{{ t('invoice.type_' ~ doc.type) }} {{ doc.number }}{% endblock %}
@@ -23,7 +23,10 @@
         {% if doc.type == 'invoice' %}<div><dt>{{ t('invoice.due_date') }}</dt><dd>{{ doc.due_date ?? '—' }}</dd></div>{% endif %}
         <div><dt>{{ t('invoice.currency') }}</dt><dd>{{ doc.currency }}</dd></div>
     </dl>
-    <div class="doc-actions" data-block="document_actions">{% block document_actions %}{% endblock %}</div>
+    <div class="doc-actions" data-block="document_actions">{% block document_actions %}
+        <a class="btn btn-sm" href="/documents/{{ doc.id }}/pdf" target="_blank" rel="noopener" aria-label="{{ t('pdf.open_label', {number: doc.number}) }}">{{ t('invoice.pdf') }}</a>
+        <a class="btn btn-sm btn-ghost" href="/documents/{{ doc.id }}/pdf?download=1">{{ t('pdf.download') }}</a>
+    {% endblock %}</div>
 </section>
 
 <div class="inv-layout">

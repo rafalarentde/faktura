@@ -1,0 +1,80 @@
+{#
+  Base of every PDF document (rendered by App\Pdf\PdfRenderer with Dompdf; never served to browsers,
+  so the web CSP does not apply and the styles are inline). Input:
+    doc  - the DocumentPresenter view model (document language; plain strings, escaped here)
+    logo - {src (data: URI), width, height (mm)} or null (then the company name is shown as a block)
+  Blocks for documents that extend it (invoice/credit note now; offers and dunning letters later):
+    head_meta (dates under the title), content (everything between the parties and the end).
+  The page number ("Seite x von y") is drawn by PdfRenderer on every page, right of the footer.
+#}
+<!DOCTYPE html>
+<html lang="{{ doc.lang }}">
+<head>
+<meta charset="utf-8">
+<title>{{ doc.doc_title }}</title>
+<meta name="author" content="{{ doc.seller.name }}">
+<style>
+{% include 'pdf/_styles.twig' %}
+</style>
+</head>
+<body>
+<footer class="page-foot">
+    <table class="foot-cols">
+        <tr>
+            <td class="f-company">
+                <b>{{ doc.seller.name }}</b>
+                {%- for l in doc.seller.address %}<br>{{ l }}{% endfor %}
+            </td>
+            <td class="f-tax">
+                {%- if doc.seller.vat_id %}{{ doc.labels.vat_id }}: {{ doc.seller.vat_id }}<br>{% endif %}
+                {%- if doc.seller.tax_number %}{{ doc.labels.tax_number }}: {{ doc.seller.tax_number }}<br>{% endif %}
+                {%- for l in doc.seller.footer %}{{ l }}<br>{% endfor %}
+            </td>
+            <td class="f-bank">
+                {%- if doc.seller.bank %}{{ doc.seller.bank }}<br>{% endif %}
+                {%- if doc.seller.iban %}IBAN {{ doc.seller.iban }}<br>{% endif %}
+                {%- if doc.seller.bic %}BIC {{ doc.seller.bic }}{% endif %}
+            </td>
+        </tr>
+    </table>
+</footer>
+
+<table class="head">
+    <tr>
+        <td class="head-logo">
+            {%- if logo %}<img class="logo" src="{{ logo.src }}" style="width: {{ logo.width }}mm; height: {{ logo.height }}mm" alt="">
+            {%- else %}<div class="logo-text">{{ doc.seller.name }}</div>{% endif -%}
+        </td>
+        <td class="head-title">
+            <h1>{{ doc.title|upper }}</h1>
+            <table class="meta">
+                <tr><th>{{ doc.labels.number }}</th><td class="strong">{{ doc.number }}</td></tr>
+                {% block head_meta %}{% endblock %}
+            </table>
+        </td>
+    </tr>
+</table>
+<div class="rule"></div>
+
+<table class="parties">
+    <tr>
+        <td class="recipient">
+            <div class="sender-line">{{ ([doc.seller.name]|merge(doc.seller.address))|join(' · ') }}</div>
+            <div class="label">{{ doc.labels.bill_to }}</div>
+            <div class="buyer-name">{{ doc.buyer.name }}</div>
+            {%- for l in doc.buyer.address %}<div>{{ l }}</div>{% endfor %}
+            {%- if doc.buyer.country %}<div>{{ doc.buyer.country }}</div>{% endif %}
+            {%- if doc.buyer.vat_id %}<div class="vat">{{ doc.labels.vat_id }}: {{ doc.buyer.vat_id }}</div>{% endif %}
+        </td>
+        <td class="seller">
+            <div class="seller-name">{{ doc.seller.name }}</div>
+            {%- for l in doc.seller.address %}<div>{{ l }}</div>{% endfor %}
+            {%- if doc.seller.vat_id %}<div>{{ doc.labels.vat_id }}: {{ doc.seller.vat_id }}</div>{% endif %}
+            {%- if doc.seller.tax_number %}<div>{{ doc.labels.tax_number }}: {{ doc.seller.tax_number }}</div>{% endif %}
+        </td>
+    </tr>
+</table>
+
+{% block content %}{% endblock %}
+</body>
+</html>

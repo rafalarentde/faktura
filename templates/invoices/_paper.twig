@@ -1,6 +1,6 @@
 {#
   Paper preview of a document (server-rendered HTML, document language). Input: `paper`, the view
-  model built by InvoiceController::paper() — plain strings only, escaped here; addresses come as
+  model built by App\Http\DocumentPresenter (present/issued) — plain strings only, escaped here; addresses come as
   lists of lines (never raw HTML). Reusable wherever a document is shown on screen.
 #}
 <article class="paper" lang="{{ paper.lang }}" aria-label="{{ t('invoice.preview') }}">

@@ -603,4 +603,13 @@ return [
     'invoice.no_credit_notes' => 'No credit notes.',
     'invoice.create_correction' => 'Create credit note',
     'invoice.correction_hint' => 'Creates a draft with all lines; for a partial correction remove or change lines.',
+
+    // Task 17: PDF
+    'pdf.number' => 'Number',
+    'pdf.bank_details' => 'Bank details',
+    'pdf.page' => 'Page {page} of {pages}',
+    'pdf.payment_due' => 'Payable by {date} without deduction.',
+    'pdf.download' => 'Download PDF',
+    'pdf.open_label' => 'Open the PDF of {number}',
+    'pdf.err_draft' => 'Drafts have no PDF yet. Issue the document first.',
 ];

@@ -1,0 +1,81 @@
+/* PDF look (Dompdf CSS 2.1 subset): A4, ~20 mm margins, yellow rule #F5C400 under the header,
+   black logo block, Barlow Condensed uppercase title, Source Sans 3 body. Fonts are registered by
+   PdfRenderer: sourcesans3 (400/700), barlowcondensed (700), barlowcondensedxb (800). */
+@page { margin: 16mm 18mm 30mm 18mm; }
+* { box-sizing: border-box; }
+/* No margin rules on html: Dompdf takes the page margins from @page via the root element. */
+body { margin: 0; padding: 0; }
+body { font-family: sourcesans3; font-size: 9.5pt; line-height: 1.35; color: #1b1b1b; }
+b, strong, th, .strong { font-weight: bold; }
+p { margin: 0; }
+table { border-collapse: collapse; width: 100%; }
+td, th { vertical-align: top; padding: 0; text-align: left; }
+.r { text-align: right; }
+/* Long words (names, addresses, line texts) may break anywhere instead of overflowing the page. */
+.c-desc, .recipient, .seller, .foot-cols td, .logo-text, .text, .box, .related, .payment, .sender-line { overflow-wrap: anywhere; }
+
+/* Footer on every page (inside the bottom margin); the page number is drawn at its right edge. */
+.page-foot { position: fixed; left: 0; right: 0; bottom: -22mm; height: 16mm; border-top: 0.6pt solid #cfcfcf;
+    padding-top: 2.2mm; font-size: 7.3pt; line-height: 1.3; color: #555; }
+.foot-cols td { padding-right: 4mm; }
+.foot-cols .f-company { width: 30%; }
+.foot-cols .f-tax { width: 40%; }
+.foot-cols .f-bank { width: 30%; padding-right: 0; }
+
+/* Header */
+.head td { vertical-align: top; }
+.head-logo { width: 50%; }
+.logo { display: block; }
+.logo-text { display: inline-block; background: #0f0f0f; color: #F5C400; font-family: barlowcondensedxb; font-size: 17pt;
+    line-height: 1.1; text-transform: uppercase; padding: 2.2mm 3.5mm; max-width: 80mm; border-radius: 1.2mm; }
+.head-title { width: 50%; text-align: right; }
+h1 { margin: 0 0 2mm 0; font-family: barlowcondensedxb; font-weight: normal; font-size: 24pt; line-height: 1; letter-spacing: 0.3pt; }
+.meta { width: auto; margin-left: auto; margin-right: 0; font-size: 9pt; }
+.meta th { font-weight: normal; color: #555; text-align: right; padding: 0.3mm 3mm 0.3mm 0; white-space: nowrap; }
+.meta td { text-align: right; padding: 0.3mm 0; white-space: nowrap; }
+.rule { height: 0; border-top: 2.4pt solid #F5C400; margin: 4.5mm 0 6mm 0; }
+
+/* Parties */
+.parties td { vertical-align: top; }
+.recipient { width: 58%; padding-right: 8mm; }
+.seller { width: 42%; text-align: right; color: #555; font-size: 8.8pt; }
+.seller-name { color: #1b1b1b; font-weight: bold; }
+.sender-line { font-size: 7pt; color: #777; border-bottom: 0.5pt solid #cfcfcf; padding-bottom: 0.8mm; margin-bottom: 2mm; }
+.label { font-size: 7.5pt; text-transform: uppercase; letter-spacing: 0.4pt; color: #777; margin-bottom: 0.8mm; }
+.buyer-name { font-weight: bold; font-size: 10.5pt; }
+.vat { margin-top: 0.8mm; }
+
+.related { margin-top: 6mm; font-weight: bold; }
+.text { margin-top: 6mm; }
+
+/* Lines: the header row repeats on every page, rows are never split. */
+.lines { margin-top: 7mm; font-size: 9pt; }
+.lines thead { display: table-header-group; }
+.lines tr { page-break-inside: avoid; }
+.lines th { font-family: barlowcondensed; font-weight: bold; text-transform: uppercase; letter-spacing: 0.4pt; font-size: 8pt;
+    color: #555; padding: 1.6mm 1.5mm; border-bottom: 0.8pt solid #1b1b1b; }
+.lines td { padding: 1.8mm 1.5mm; border-bottom: 0.5pt solid #e2e2e2; }
+.lines .c-pos { width: 5%; padding-left: 0; }
+.lines .c-desc { width: 50%; }
+.lines .c-qty { width: 12%; }
+.lines .c-price { width: 13%; }
+.lines .c-vat { width: 7%; }
+.lines .c-net { width: 13%; padding-right: 0; }
+.lines.has-discount .c-desc { width: 41%; }
+.lines .c-disc { width: 9%; }
+.lines th { white-space: nowrap; }
+.lines td.r { white-space: nowrap; }
+.line-name { font-weight: bold; }
+.line-desc { color: #555; font-size: 8.5pt; margin-top: 0.5mm; }
+
+/* Totals, notes, payment */
+.after-lines { page-break-inside: avoid; }
+.totals { width: 52%; margin: 4mm 0 0 auto; font-size: 9.5pt; }
+.totals td { padding: 0.9mm 0; }
+.totals td.r { white-space: nowrap; padding-left: 4mm; }
+.totals .gross td { font-family: barlowcondensedxb; font-size: 14pt; border-top: 1pt solid #1b1b1b; padding-top: 1.8mm; }
+.box { margin-top: 5mm; padding: 2.5mm 3.5mm; font-size: 8.8pt; page-break-inside: avoid; }
+.box-note { background: #fff7d1; border-left: 2.4pt solid #F5C400; }
+.box-fx { background: #eef3ff; border-left: 2.4pt solid #2563eb; }
+.payment { margin-top: 6mm; page-break-inside: avoid; }
+.payment div { margin-top: 1mm; }

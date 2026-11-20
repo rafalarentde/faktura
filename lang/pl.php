@@ -603,4 +603,13 @@ return [
     'invoice.no_credit_notes' => 'Brak faktur korygujących.',
     'invoice.create_correction' => 'Wystaw fakturę korygującą',
     'invoice.correction_hint' => 'Tworzy szkic ze wszystkimi pozycjami; przy częściowej korekcie usuń lub zmień pozycje.',
+
+    // Task 17: PDF
+    'pdf.number' => 'Numer',
+    'pdf.bank_details' => 'Dane do przelewu',
+    'pdf.page' => 'Strona {page} z {pages}',
+    'pdf.payment_due' => 'Płatne do {date} bez potrąceń.',
+    'pdf.download' => 'Pobierz PDF',
+    'pdf.open_label' => 'Otwórz PDF dokumentu {number}',
+    'pdf.err_draft' => 'Dla szkiców nie ma jeszcze PDF. Najpierw wystaw dokument.',
 ];

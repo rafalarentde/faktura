@@ -41,6 +41,7 @@
                         <th>{{ t('table.due') }}</th>
                         <th class="r">{{ t('table.amount') }}</th>
                         <th>{{ t('table.status') }}</th>
+                        <th>{{ t('invoice.pdf') }}</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -53,9 +54,10 @@
                         <td>{{ r.due_date ?? '—' }}</td>
                         <td class="r num">{{ r.amount }}</td>
                         <td><span class="chip {{ r.chip }}">{{ t('invoice.status_' ~ r.status) }}</span></td>
+                        <td>{% if r.status != 'draft' %}<a class="btn btn-sm btn-ghost" href="/documents/{{ r.id }}/pdf" target="_blank" rel="noopener" aria-label="{{ t('pdf.open_label', {number: r.number}) }}">{{ t('invoice.pdf') }}</a>{% endif %}</td>
                     </tr>
                 {% else %}
-                    <tr><td colspan="7" class="empty-row">{{ t('invoice.list_no_results') }}</td></tr>
+                    <tr><td colspan="8" class="empty-row">{{ t('invoice.list_no_results') }}</td></tr>
                 {% endfor %}
                 </tbody>
             </table>

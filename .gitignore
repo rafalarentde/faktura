@@ -4,3 +4,5 @@
 /.phpunit.result.cache
 /storage/logos/*
 !/storage/logos/.gitkeep
+/storage/pdf-cache/*
+!/storage/pdf-cache/.gitkeep

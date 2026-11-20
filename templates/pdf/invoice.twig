@@ -1,0 +1,72 @@
+{#
+  PDF of an issued invoice or credit note (doc.kind = invoice | credit_note). See pdf/_base.twig
+  for the inputs. Credit notes: no due date / payment request, a reference to the original invoice,
+  sums with a leading minus (lines stay positive). Optional values never print an empty label.
+#}
+{% extends 'pdf/_base.twig' %}
+
+{% block head_meta %}
+    {%- if doc.issue_date %}<tr><th>{{ doc.labels.issue_date }}</th><td>{{ doc.issue_date }}</td></tr>{% endif %}
+    {%- if doc.service_date %}<tr><th>{{ doc.labels.service_date }}</th><td>{{ doc.service_date }}</td></tr>{% endif %}
+    {%- if doc.due_date %}<tr><th>{{ doc.labels.due_date }}</th><td>{{ doc.due_date }}</td></tr>{% endif %}
+{% endblock %}
+
+{% block content %}
+{% if doc.related %}<p class="related">{{ doc.related }}</p>{% endif %}
+{% if doc.intro %}<p class="text">{{ doc.intro|join("\n")|nl2br }}</p>{% endif %}
+
+<table class="lines{{ doc.has_discount ? ' has-discount' }}">
+    <thead>
+        <tr>
+            <th class="c-pos">{{ doc.labels.position }}</th>
+            <th class="c-desc">{{ doc.labels.description }}</th>
+            <th class="c-qty r">{{ doc.labels.quantity }}</th>
+            <th class="c-price r">{{ doc.labels.unit_price }}</th>
+            {% if doc.has_discount %}<th class="c-disc r">{{ doc.labels.discount }}</th>{% endif %}
+            <th class="c-vat r">{{ doc.labels.vat }}</th>
+            <th class="c-net r">{{ doc.labels.amount }}</th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for r in doc.rows %}
+        <tr>
+            <td class="c-pos">{{ r.pos }}</td>
+            <td class="c-desc"><div class="line-name">{{ r.name }}</div>{% if r.description %}<div class="line-desc">{{ r.description|nl2br }}</div>{% endif %}</td>
+            <td class="c-qty r">{{ r.qty }} {{ r.unit }}</td>
+            <td class="c-price r">{{ r.price }}</td>
+            {% if doc.has_discount %}<td class="c-disc r">{{ r.discount }}</td>{% endif %}
+            <td class="c-vat r">{{ r.vat }}</td>
+            <td class="c-net r">{{ r.net }}</td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+
+<div class="after-lines">
+    <table class="totals">
+        <tr><td>{{ doc.labels.net }}</td><td class="r">{{ doc.net }}</td></tr>
+        {% for v in doc.vat %}<tr><td>{{ v.label }}</td><td class="r">{{ v.amount }}</td></tr>{% endfor %}
+        <tr class="gross"><td>{{ doc.labels.total }}</td><td class="r">{{ doc.gross }}</td></tr>
+    </table>
+
+    {% if doc.note %}<div class="box box-note">{{ doc.note }}</div>{% endif %}
+    {% if doc.vat_eur or doc.rate %}
+        <div class="box box-fx">
+            {%- if doc.vat_eur %}<div>{{ doc.labels.vat_in_eur }}: {{ doc.vat_eur }}</div>{% endif %}
+            {%- if doc.rate %}<div>{{ doc.labels.exchange_rate }}: {{ doc.rate }}</div>{% endif %}
+        </div>
+    {% endif %}
+</div>
+
+{% if doc.outro %}<p class="text">{{ doc.outro|join("\n")|nl2br }}</p>{% endif %}
+
+{% if doc.payment or doc.seller.iban %}
+    <div class="payment">
+        {%- if doc.payment %}<div class="strong">{{ doc.payment }}</div>{% endif %}
+        {%- if doc.seller.iban %}
+            <div>{{ doc.labels.bank_details }}:
+                {% if doc.seller.bank %}{{ doc.seller.bank }} · {% endif %}IBAN {{ doc.seller.iban }}{% if doc.seller.bic %} · BIC {{ doc.seller.bic }}{% endif %}</div>
+        {%- endif %}
+    </div>
+{% endif %}
+{% endblock %}

@@ -10,6 +10,7 @@ use App\Http\InvoiceController;
 use App\Http\ItemController;
 use App\Http\Middleware\RequireAdmin;
 use App\Http\Middleware\RequireCompany;
+use App\Http\PdfController;
 use App\Http\SettingsController;
 use App\Http\SwitchController;
 use FastRoute\RouteCollector;
@@ -76,6 +77,9 @@ return function (App $app, RouteCollector $r): void {
     $r->addRoute('POST', '/invoices/{id:\d+}/delete', $invoice('delete'));
     $r->addRoute('POST', '/invoices/{id:\d+}/payments', $invoice('payments'));
     $r->addRoute('POST', '/invoices/{id:\d+}/correct', $invoice('correct'));
+
+    // PDF of an issued invoice or credit note (Task 17); ?download=1 for an attachment.
+    $r->addRoute('GET', '/documents/{id:\d+}/pdf', $app->protect([PdfController::class, 'show'], [RequireCompany::class]));
 
     // Settings: company/dunning/mail/logo are owner-only (checked in the controller, 403 for
     // role 'user'); the security tab is personal. The logo is served only for the context company.

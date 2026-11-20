@@ -81,7 +81,8 @@ final class LayoutTest extends HttpTestCase
         foreach (['barlow-condensed-700-latin-ext.woff2', 'barlow-condensed-800-latin-ext.woff2', 'source-sans-3-400-latin-ext.woff2'] as $f) {
             $this->assertContains($f, $names);
         }
-        foreach (['SourceSans3.ttf', 'BarlowCondensed-Bold.ttf', 'BarlowCondensed-ExtraBold.ttf'] as $f) {
+        // Static TTF faces for the PDF (Task 17 replaced the variable SourceSans3.ttf, which Dompdf cannot use).
+        foreach (['SourceSans3-Regular.ttf', 'SourceSans3-Bold.ttf', 'BarlowCondensed-Bold.ttf', 'BarlowCondensed-ExtraBold.ttf'] as $f) {
             $this->assertFileExists(self::ROOT . '/resources/fonts/' . $f);
         }
     }
