@@ -71,6 +71,33 @@ final class CompanySettingsRepo
     }
 
     /**
+     * The SMTP settings with the password DECRYPTED, for the mailer only (call it right before
+     * sending; never render, log or store the result). Null when the settings are incomplete or
+     * the stored password cannot be decrypted.
+     *
+     * @return array{host: string, port: int, user: string, pass: string, from_addr: string, from_name: string}|null
+     */
+    public function smtpCredentials(): ?array
+    {
+        if (!$this->mailConfigured() || $this->crypto === null) {
+            return null;
+        }
+        $row = $this->row();
+        try {
+            $pass = $this->crypto->decrypt((string) $row['smtp_pass_enc']);
+        } catch (\Throwable) {
+            return null;
+        }
+        if ($pass === '') {
+            return null;
+        }
+        return [
+            'host' => (string) $row['smtp_host'], 'port' => (int) $row['smtp_port'], 'user' => (string) $row['smtp_user'],
+            'pass' => $pass, 'from_addr' => (string) $row['smtp_from_addr'], 'from_name' => (string) ($row['smtp_from_name'] ?? ''),
+        ];
+    }
+
+    /**
      * @param array<string, string> $in name, address, tax_number, vat_id, iban, bic, bank,
      *        default_lang, default_currency, default_payment_days, intro_text, outro_text, footer_text
      * @throws ValidationException

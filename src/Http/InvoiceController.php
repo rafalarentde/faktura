@@ -22,6 +22,7 @@ use App\Money\Formatter;
 use App\Money\Money;
 use App\Repo\CustomerRepo;
 use App\Repo\DocumentRepo;
+use App\Repo\EmailLogRepo;
 use App\Repo\ItemRepo;
 use App\Tenant\CompanyContext;
 
@@ -52,7 +53,8 @@ final class InvoiceController
     private const STATUS_FILTERS = ['draft', 'open', 'partial', 'overdue', 'paid', 'credited', 'issued'];
     private const CHIPS = ['draft' => 'chip-draft', 'open' => 'chip-sent', 'partial' => 'chip-soon', 'overdue' => 'chip-late',
         'paid' => 'chip-ok', 'credited' => 'chip-draft', 'issued' => 'chip-sent'];
-    private const FLASH = 'invoice_flash';
+    /** Session key of the one-shot flash message (also set by MailController). */
+    public const FLASH = 'invoice_flash';
     private const Q_MAX = 100;
 
     public function __construct(private App $app)
@@ -169,7 +171,7 @@ final class InvoiceController
         } catch (ValidationException $e) {
             return $this->editor(null, $form, InvoiceForm::remapErrors($e->errors, $parsed['rows']), 422);
         }
-        if ($request->input('intent') === 'issue') {
+        if ($request->input('intent') === 'issue' || $request->input('then') === 'send') {
             return $this->issueSaved($id, $request, $form);
         }
         $this->flash('invoice.saved');
@@ -412,7 +414,8 @@ final class InvoiceController
             return $this->notFound();
         }
         $this->flash('invoice.issued_as', ['number' => $number]);
-        return Response::redirect('/invoices/' . $id, 303);
+        // "Issue and prepare email": the same issue as above, then straight to the send page (nothing is sent there yet).
+        return Response::redirect($request->input('then') === 'send' ? '/documents/' . $id . '/send' : '/invoices/' . $id, 303);
     }
 
     /** @param array<string, string> $errors */
@@ -694,7 +697,10 @@ final class InvoiceController
             $inv = $this->docs()->row((int) $doc['related_document_id']);
             $related = $inv === null ? null : ['id' => (int) $inv['id'], 'number' => (string) $inv['number'], 'date' => $this->date($inv['issue_date'])];
         }
+        $mailLog = new EmailLogRepo($this->app->db(), $this->ctx());
         return $this->app->render('invoices/show.twig', [
+            'mail_log' => MailController::logRows($mailLog->forDocument($id), $lang),
+            'mail_sent' => $mailLog->hasSent($id),
             'doc' => [
                 'id' => $id, 'type' => (string) $doc['type'], 'number' => (string) $doc['number'],
                 'issue_date' => $this->date($doc['issue_date']), 'service_date' => $this->date($doc['service_date']),

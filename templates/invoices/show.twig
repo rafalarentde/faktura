@@ -1,7 +1,7 @@
 {#
   Read-only view of an ISSUED invoice or credit note, built only from the stored snapshots, lines
   and totals. There are no edit or delete controls. Block `document_actions` holds the PDF links
-  (Task 17; GET /documents/{id}/pdf, inline and ?download=1); the mail button (Task 18) goes there too.
+  (Task 17; GET /documents/{id}/pdf, inline and ?download=1) and the "send by email" link (Task 18, GET /documents/{id}/send).
 #}
 {% extends 'layout.twig' %}
 {% block title %}{{ t('invoice.type_' ~ doc.type) }} {{ doc.number }}{% endblock %}
@@ -26,6 +26,7 @@
     <div class="doc-actions" data-block="document_actions">{% block document_actions %}
         <a class="btn btn-sm" href="/documents/{{ doc.id }}/pdf" target="_blank" rel="noopener" aria-label="{{ t('pdf.open_label', {number: doc.number}) }}">{{ t('invoice.pdf') }}</a>
         <a class="btn btn-sm btn-ghost" href="/documents/{{ doc.id }}/pdf?download=1">{{ t('pdf.download') }}</a>
+        <a class="btn btn-sm" href="/documents/{{ doc.id }}/send">{{ t(mail_sent ? 'mail.send_again' : 'mail.send_button') }}</a>
     {% endblock %}</div>
 </section>
 
@@ -104,6 +105,11 @@
                     {% endif %}
                 {% endif %}
             </div>
+        </section>
+
+        <section class="panel" data-block="email_log">
+            <div class="panel-head"><h2>{{ t('mail.history') }}</h2></div>
+            {% include 'documents/_mail_log.twig' %}
         </section>
 
         {% if doc.notes %}

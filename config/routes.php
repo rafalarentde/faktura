@@ -8,6 +8,7 @@ use App\Http\CustomerController;
 use App\Http\DashboardController;
 use App\Http\InvoiceController;
 use App\Http\ItemController;
+use App\Http\MailController;
 use App\Http\Middleware\RequireAdmin;
 use App\Http\Middleware\RequireCompany;
 use App\Http\PdfController;
@@ -81,6 +82,12 @@ return function (App $app, RouteCollector $r): void {
     // PDF of an issued invoice or credit note (Task 17); ?download=1 for an attachment.
     $r->addRoute('GET', '/documents/{id:\d+}/pdf', $app->protect([PdfController::class, 'show'], [RequireCompany::class]));
 
+    // Send an issued invoice or credit note by email (Task 18). GET shows the editable preview
+    // without side effects; only the POST (an explicit click, CSRF-checked) sends.
+    $mail = fn (string $method) => $app->protect([MailController::class, $method], [RequireCompany::class]);
+    $r->addRoute('GET', '/documents/{id:\d+}/send', $mail('form'));
+    $r->addRoute('POST', '/documents/{id:\d+}/send', $mail('send'));
+
     // Settings: company/dunning/mail/logo are owner-only (checked in the controller, 403 for
     // role 'user'); the security tab is personal. The logo is served only for the context company.
     $settings = fn (string $method) => $app->protect([SettingsController::class, $method], [RequireCompany::class]);
@@ -96,6 +103,7 @@ return function (App $app, RouteCollector $r): void {
     $r->addRoute('POST', '/settings/dunning', $settings('saveDunning'));
     $r->addRoute('GET', '/settings/mail', $settings('mail'));
     $r->addRoute('POST', '/settings/mail', $settings('saveMail'));
+    $r->addRoute('POST', '/settings/mail/test', $settings('mailTest'));
     $r->addRoute('GET', '/settings/security', $settings('security'));
     $r->addRoute('POST', '/settings/security/backup-codes', $settings('regenerateCodes'));
     $r->addRoute('POST', '/settings/security/password', $settings('changePassword'));

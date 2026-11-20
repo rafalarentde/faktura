@@ -329,9 +329,10 @@ final class SettingsTest extends HttpTestCase
         $this->assertStringNotContainsString('chip-ok', $page);
         $this->assertStringContainsString('STARTTLS', $page);
         $this->assertStringContainsString('465', $page);
-        $this->assertStringNotContainsString('Testmail', $page, 'no test-mail button before Task 18');
+        $this->assertStringNotContainsString('>Testmail senden</button>', $page, 'the test-mail button needs a complete configuration (Task 18)');
         $this->post('/settings/mail', $this->mailForm());
         $page = $this->get('/settings/mail')->body;
+        $this->assertStringContainsString('>Testmail senden</button>', $page);
         $this->assertStringContainsString('chip-ok', $page);
         $this->assertStringContainsString('(gespeichert)', $page);
         $this->post('/settings/mail', $this->mailForm(['smtp_host' => '', 'smtp_pass' => '']));

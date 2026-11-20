@@ -13,6 +13,9 @@ use App\Domain\NumberSequences;
 use App\Http\DocumentPresenter;
 use App\Http\Middleware\RequireLogin;
 use App\Http\Shell;
+use App\Mail\DocumentMailer;
+use App\Mail\MailTransport;
+use App\Mail\SmtpTransport;
 use App\I18n\Translator;
 use App\Pdf\PdfRenderer;
 use App\Repo\CustomerRepo;
@@ -67,6 +70,7 @@ final class App
     private CompanyContext|false|null $context = null;
     private ?DocumentService $documents = null;
     private ?PdfRenderer $pdf = null;
+    private ?DocumentMailer $mailer = null;
     /** @var array<string, mixed>|null */
     private ?array $shell = null;
     private string $lang = Translator::FALLBACK;
@@ -269,6 +273,7 @@ final class App
         $this->context = null;
         $this->documents = null;
         $this->pdf = null;
+        $this->mailer = null;
         $this->shell = null;
     }
 
@@ -307,6 +312,28 @@ final class App
             );
         }
         return $this->pdf;
+    }
+
+    /**
+     * Document mailer of the active company (cached per request, like pdf()). The transport is
+     * SmtpTransport unless the config key `mail_transport` holds a MailTransport (tests: a fake,
+     * so nothing ever touches the network).
+     *
+     * @throws \LogicException when no company is selected (use RequireCompany on the route)
+     */
+    public function mailer(): DocumentMailer
+    {
+        if ($this->mailer === null) {
+            $ctx = $this->context() ?? throw new \LogicException('No company selected.');
+            $repo = new DocumentRepo($this->db, $ctx);
+            $configured = $this->config('mail_transport');
+            $this->mailer = new DocumentMailer(
+                $this->db, $ctx, $repo, new DocumentPresenter($this->translator(), $repo), $this->pdf(),
+                $configured instanceof MailTransport ? $configured : new SmtpTransport(),
+                $this->crypto(), $this->translator(), $this->clock, $this->root . '/templates/mail'
+            );
+        }
+        return $this->mailer;
     }
 
     private function resolveContext(): ?CompanyContext

@@ -13,6 +13,8 @@ use App\Domain\NumberFormat;
 use App\Domain\NumberSequences;
 use App\Domain\Percent;
 use App\Domain\ValidationException;
+use App\Mail\MailNotConfigured;
+use App\Mail\MailSendFailed;
 use App\Money\Formatter;
 use App\Repo\CompanySettingsRepo;
 use App\Auth\UserService;
@@ -232,6 +234,34 @@ final class SettingsController
             return $this->mailPage($in, $e->errors, 422);
         }
         return Response::redirect('/settings/mail?saved=1');
+    }
+
+    /**
+     * Sends a test message to the CURRENT user's own login address (never to an address from the
+     * form) with the saved settings. Owner only; 3 per 10 minutes per company. The result is shown
+     * on the mail tab; failures show the mapped, secret-free text only.
+     *
+     * @param array<string, string> $params
+     */
+    public function mailTest(Request $request, array $params): Response
+    {
+        if ($denied = $this->gate()) {
+            return $denied;
+        }
+        $to = (string) ($this->app->currentUser()['email'] ?? '');
+        try {
+            $this->app->mailer()->sendTest($to, $this->app->lang());
+            $result = ['ok' => true, 'text' => $this->app->t('settings.mail_test_ok', ['to' => $to])];
+            $status = 200;
+        } catch (MailNotConfigured) {
+            [$result, $status] = [['ok' => false, 'text' => $this->app->t('settings.mail_test_needs_config')], 409];
+        } catch (ValidationException $e) {
+            $rate = isset($e->errors['rate']);
+            [$result, $status] = [['ok' => false, 'text' => $this->app->t($rate ? 'mail.err_rate' : 'mail.err_to')], $rate ? 429 : 422];
+        } catch (MailSendFailed $e) {
+            [$result, $status] = [['ok' => false, 'text' => $this->app->t($e->translationKey())], 502];
+        }
+        return $this->mailPage($this->mailForm($this->repo()->get()), [], $status, false, $result);
     }
 
     // ---- security (personal) ----
@@ -543,7 +573,7 @@ final class SettingsController
     }
 
     /** @param array<string, string> $form @param array<string, string> $errors */
-    private function mailPage(array $form, array $errors, int $status = 200, bool $saved = false): Response
+    private function mailPage(array $form, array $errors, int $status = 200, bool $saved = false, ?array $test = null): Response
     {
         $repo = $this->repo();
         return $this->page('settings/mail.twig', 'mail', [
@@ -552,6 +582,7 @@ final class SettingsController
             'saved' => $saved,
             'pass_set' => $repo->get()['smtp_pass_set'],
             'configured' => $repo->mailConfigured(),
+            'test' => $test,
         ], $status);
     }
 

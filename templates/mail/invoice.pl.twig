@@ -1,0 +1,20 @@
+Dzień dobry, {{ buyer }},
+
+w załączniku przesyłamy fakturę {{ number }} na kwotę {{ gross }} (PDF).
+
+{% if due %}
+Prosimy o przelew do dnia {{ due }}.
+
+{% endif %}
+{% if iban %}
+IBAN: {{ iban }}
+{% if bic %}
+BIC: {{ bic }}
+{% endif %}
+Tytuł przelewu: {{ number }}
+
+{% endif %}
+W razie pytań prosimy o kontakt.
+
+Z poważaniem
+{{ company }}
