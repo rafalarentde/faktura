@@ -438,7 +438,7 @@ final class DunningControllerTest extends HttpTestCase
             $this->assertStringContainsString($needle, $text, $needle);
         }
         $this->assertMatchesRegularExpression('#data-overdue-row="' . $thirtyEight . '".*?1\. Mahnung<small class="cell-sub">18\.11\.2026</small>#s', $page);
-        $this->assertMatchesRegularExpression('#data-overdue-row="' . $twentyOne . '">.*?>21</td>#s', $page);
+        $this->assertMatchesRegularExpression('#data-overdue-row="' . $twentyOne . '">.*?<span class="num" data-days>21</span><small class="cell-sub">fällig am 28\.10\.2026</small>#s', $page);
         $this->assertStringContainsString('href="/dunning/new?invoice=' . $twentyOne . '"', $page);
         // issued letters
         $this->assertMatchesRegularExpression('#data-dunning-row="\d+".*?MA-2611-001.*?RE-2026-003.*?1\. Mahnung#s', $page);

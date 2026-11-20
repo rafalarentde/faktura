@@ -791,4 +791,8 @@ return [
     'pdf.dunning_purpose' => 'Tytuł przelewu: {number}',
     'pdf.dunning_closing' => 'Z poważaniem',
     'mail.subject_dunning' => '{level} {number} do faktury {invoice} – {company}',
+    'dunning.due_on' => 'termin {date}',
+    'dunning.send_short' => 'E-mail',
+    'dunning.send_label' => 'Wyślij {number} e-mailem',
+    'dunning.type_label' => 'Wezwanie',
 ];

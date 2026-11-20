@@ -704,6 +704,7 @@ img, svg { max-width: 100%; }
 .dot-soon { --c: var(--soon); }
 .dot-late { --c: var(--late); }
 .hint-inline { color: var(--m); font-size: 13.5px; }
+.table td.wrap .sugg { white-space: normal; align-items: baseline; }
 .dunning-intro { margin: 0 0 14px; }
 .claim-list { margin: 0; padding: 6px 18px 12px; }
 .claim-list div { display: flex; justify-content: space-between; gap: 16px; padding: 7px 0; border-bottom: 1px solid var(--line); }

@@ -11,7 +11,7 @@
 {% if flash %}<p class="{{ flash.kind == 'warn' ? 'warn-box' : 'notice' }}" role="status">{{ flash.text }}</p>{% endif %}
 <section class="panel doc-head">
     <div class="doc-chips">
-        <span class="chip chip-outline">{{ t('nav.dunning') }}</span>
+        <span class="chip chip-outline">{{ t('dunning.type_label') }}</span>
         <span class="sugg {{ dot }}"><span class="dot" aria-hidden="true"></span>{{ level_label }}</span>
     </div>
     <dl class="doc-meta">

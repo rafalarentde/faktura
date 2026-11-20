@@ -791,4 +791,8 @@ return [
     'pdf.dunning_purpose' => 'Payment reference: {number}',
     'pdf.dunning_closing' => 'Kind regards',
     'mail.subject_dunning' => '{level} {number} for invoice {invoice} – {company}',
+    'dunning.due_on' => 'due {date}',
+    'dunning.send_short' => 'Email',
+    'dunning.send_label' => 'Send {number} by email',
+    'dunning.type_label' => 'Reminder',
 ];

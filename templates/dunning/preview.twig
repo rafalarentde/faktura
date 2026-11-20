@@ -43,7 +43,7 @@
 
                 <label class="toggle{{ interest.available ? '' : ' is-disabled' }}">
                     <input type="checkbox" name="interest" value="1"{{ toggles.interest and interest.available ? ' checked' : '' }}{{ interest.available ? '' : ' disabled' }}{{ m.invalid('d-interest', errors.interest ?? null) }}>
-                    <span><b>{{ t('dunning.charge_interest') }}</b><span>{{ interest.available ? interest.hint : t('dunning.no_base_rate') }}</span></span>
+                    <span><b>{{ t('dunning.charge_interest') }}</b><span>{{ interest.available ? interest.hint : t('dunning.charge_interest_hint') }}</span></span>
                 </label>
                 {{ m.err('d-interest', errors.interest ?? null) }}
                 {% if warnings.no_base_rate %}

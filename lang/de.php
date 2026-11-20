@@ -791,4 +791,8 @@ return [
     'pdf.dunning_purpose' => 'Verwendungszweck: {number}',
     'pdf.dunning_closing' => 'Mit freundlichen Grüßen',
     'mail.subject_dunning' => '{level} {number} zu Rechnung {invoice} – {company}',
+    'dunning.due_on' => 'fällig am {date}',
+    'dunning.send_short' => 'E-Mail',
+    'dunning.send_label' => '{number} per E-Mail senden',
+    'dunning.type_label' => 'Mahnschreiben',
 ];
