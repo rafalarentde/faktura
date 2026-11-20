@@ -6,7 +6,7 @@
 {% extends 'layout.twig' %}
 {% block title %}{{ t('mail.send_title') }} · {{ doc.number }}{% endblock %}
 {% block subtitle %}{{ doc.buyer }}{% endblock %}
-{% block actions %}<a class="btn btn-ghost" href="/invoices/{{ doc.id }}">{{ t('mail.back') }}</a>{% endblock %}
+{% block actions %}<a class="btn btn-ghost" href="{{ doc.path }}">{{ t('mail.back') }}</a>{% endblock %}
 {% block content %}
 {% if flash %}<p class="{{ flash.kind == 'warn' ? 'warn-box' : 'notice' }}" role="status">{{ flash.text }}</p>{% endif %}
 {% if problem %}<p class="warn-box" role="alert">{{ problem }}</p>{% endif %}
@@ -43,7 +43,7 @@
         <p class="mail-attachment"><strong>{{ t('mail.attachment') }}:</strong> <span class="mono">{{ attachment_name }}</span> · <a class="strong-link" href="/documents/{{ doc.id }}/pdf" target="_blank" rel="noopener">{{ t('mail.attachment_open') }}</a></p>
         <p class="hint">{{ t('mail.manual_hint') }}</p>
         <div class="form-actions">
-            <a class="btn btn-ghost" href="/invoices/{{ doc.id }}">{{ t('mail.back') }}</a>
+            <a class="btn btn-ghost" href="{{ doc.path }}">{{ t('mail.back') }}</a>
             <button class="btn btn-primary" type="submit"{% if not configured %} disabled{% endif %}>{{ t('mail.submit') }}</button>
         </div>
     </form>

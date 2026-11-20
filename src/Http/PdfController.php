@@ -10,10 +10,10 @@ use App\Domain\DocumentNotFound;
 use App\Pdf\PdfNotAvailable;
 
 /**
- * GET /documents/{id}/pdf (Task 17): the PDF of an issued invoice or credit note of the active
+ * GET /documents/{id}/pdf (Task 17): the PDF of an issued invoice, credit note or offer of the active
  * company, inline (default) or as a download (?download=1).
  *
- * - Unknown ids, other companies' documents and types without a PDF yet (offers, dunning letters)
+ * - Unknown ids, other companies' documents and types without a PDF yet (dunning letters)
  *   give the same 404 page; a draft gives a 409 page. No PDF bytes in either case.
  * - The file name is the document number reduced to [A-Za-z0-9._-] (PdfRenderer::filename), so
  *   no quote, CR/LF or path separator from a number format can reach the header.

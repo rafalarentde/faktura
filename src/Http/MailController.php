@@ -71,8 +71,10 @@ final class MailController
             return $this->page($id, $preview, $typed, [], $e->translationKey(), 502);
         }
         $to = DocumentMailer::normalizeRecipient($typed['to']) ?? '';
-        $this->app->session()->set(InvoiceController::FLASH, ['text' => $this->app->t('mail.sent_to', ['to' => $to]), 'kind' => 'notice']);
-        return Response::redirect('/invoices/' . $id, 303);
+        $this->app->session()->set(AbstractDocumentController::FLASH, ['text' => $this->app->t('mail.sent_to', ['to' => $to]), 'kind' => 'notice']);
+        $ctx = $this->app->context() ?? throw new \LogicException('RequireCompany must run first.');
+        $type = (string) ((new DocumentRepo($this->app->db(), $ctx))->row($id)['type'] ?? 'invoice');
+        return Response::redirect(AbstractDocumentController::pathFor($type, $id), 303);
     }
 
     /**
@@ -107,7 +109,7 @@ final class MailController
         $doc = (new DocumentRepo($this->app->db(), $ctx))->find($id) ?? throw new DocumentNotFound();
         $log = new EmailLogRepo($this->app->db(), $ctx);
         return $this->app->render('documents/send.twig', [
-            'doc' => ['id' => $id, 'number' => (string) $doc['number'], 'type' => (string) $doc['type'], 'buyer' => (string) ($doc['buyer_name'] ?? '')],
+            'doc' => ['id' => $id, 'number' => (string) $doc['number'], 'type' => (string) $doc['type'], 'path' => AbstractDocumentController::pathFor((string) $doc['type'], $id), 'buyer' => (string) ($doc['buyer_name'] ?? '')],
             'form' => $form,
             'errors' => array_map(fn (string $k): string => $this->app->t($k), $errors),
             'problem' => $problem === null ? null : $this->app->t($problem),
@@ -123,8 +125,8 @@ final class MailController
     /** @return array{text: string, kind: string}|null shown once (the issue flash of "Issue and prepare email") */
     private function takeFlash(): ?array
     {
-        $f = $this->app->session()->get(InvoiceController::FLASH);
-        $this->app->session()->remove(InvoiceController::FLASH);
+        $f = $this->app->session()->get(AbstractDocumentController::FLASH);
+        $this->app->session()->remove(AbstractDocumentController::FLASH);
         return is_array($f) && is_string($f['text'] ?? null) && in_array($f['kind'] ?? null, ['notice', 'warn'], true) ? $f : null;
     }
 

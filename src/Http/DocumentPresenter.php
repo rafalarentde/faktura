@@ -26,6 +26,8 @@ use App\Repo\DocumentRepo;
  *   lines and the stored totals; per-rate VAT comes from the stored lines (the same Totals::compute
  *   that wrote the stored sums at issue). Live company/customer rows are never read here.
  * - VAT rows name their net base ("USt 19 % auf 960,00 €"); none under reverse charge.
+ * - Offers: title "Angebot", "valid until" instead of the due date, no payment line and no bank
+ *   details (blanked here, so the screen and the PDF agree); otherwise the same lines and totals.
  * - Credit notes: lines stay positive, sums carry a leading minus; `related` names the original
  *   invoice (looked up with the company-scoped repo; null when it cannot be found).
  */
@@ -68,6 +70,7 @@ final class DocumentPresenter
         $currency = (string) $doc['currency'];
         $rc = (int) $doc['reverse_charge'] === 1;
         $creditNote = $doc['type'] === DocType::CREDIT_NOTE;
+        $offer = $doc['type'] === DocType::OFFER;
         $sign = $creditNote ? -1 : 1;
         $money = fn (int $minor): string => $fmt->money(Money::of($minor, $currency), $lang);
         $date = fn (mixed $d): ?string => $d === null || $d === '' ? null : $fmt->date(new \DateTimeImmutable((string) $d), $lang);
@@ -114,24 +117,25 @@ final class DocumentPresenter
                 $related = $tr('invoice.corrects', ['number' => (string) $inv['number'], 'date' => (string) $date($inv['issue_date'])]);
             }
         }
-        $title = $tr($creditNote ? 'invoice.type_credit_note' : 'invoice.title');
+        $title = $tr($creditNote ? 'invoice.type_credit_note' : ($offer ? 'offer.doc_title' : 'invoice.title'));
         $number = $doc['number'] ?? $tr('invoice.draft_number');
-        $dueDate = $creditNote ? null : $date($doc['due_date']);
+        // Credit notes and offers have no due date (offers: "valid until" instead, no payment terms).
+        $dueDate = $creditNote || $offer ? null : $date($doc['due_date']);
         $rate = $doc['eur_rate'] ?? null;
         $country = strtoupper((string) ($buyer['country'] ?? ''));
 
         return [
             'lang' => $lang,
-            'kind' => $creditNote ? DocType::CREDIT_NOTE : DocType::INVOICE,
+            'kind' => $creditNote ? DocType::CREDIT_NOTE : ($offer ? DocType::OFFER : DocType::INVOICE),
             'title' => $title,
             'number' => $number,
             'doc_title' => $title . ' ' . $number,
             'currency' => $currency,
             'labels' => [
-                'bill_to' => $tr('invoice.bill_to'), 'position' => $tr('invoice.position'), 'description' => $tr('invoice.description'),
+                'bill_to' => $tr($offer ? 'offer.bill_to' : 'invoice.bill_to'), 'position' => $tr('invoice.position'), 'description' => $tr('invoice.description'),
                 'quantity' => $tr('invoice.quantity'), 'unit_price' => $tr('invoice.unit_price'), 'discount' => $tr('invoice.discount'),
                 'vat' => $tr('invoice.vat'), 'amount' => $tr('invoice.amount'), 'net' => $tr('invoice.net'), 'total' => $tr('invoice.total'),
-                'issue_date' => $tr('invoice.date'), 'service_date' => $tr('invoice.service_date'), 'due_date' => $tr('invoice.due_date'),
+                'issue_date' => $tr($offer ? 'offer.date' : 'invoice.date'), 'valid_until' => $tr('offer.valid_until'), 'service_date' => $tr('invoice.service_date'), 'due_date' => $tr('invoice.due_date'),
                 'vat_id' => $tr('invoice.vat_id'), 'tax_number' => $tr('invoice.tax_number'), 'vat_in_eur' => $tr('invoice.vat_in_eur'),
                 'exchange_rate' => $tr('invoice.exchange_rate'), 'number' => $tr('pdf.number'), 'bank_details' => $tr('pdf.bank_details'),
                 'page' => $tr('pdf.page'),
@@ -139,12 +143,14 @@ final class DocumentPresenter
             'issue_date' => $date($doc['issue_date']),
             'service_date' => $date($doc['service_date']),
             'due_date' => $dueDate,
+            'valid_until' => $offer ? $date($doc['valid_until'] ?? null) : null,
             'payment' => $dueDate === null ? null : $tr('pdf.payment_due', ['date' => $dueDate]),
             'seller' => [
                 'name' => (string) ($seller['name'] ?? ''), 'address' => self::lines($seller['address'] ?? ''),
                 'vat_id' => (string) ($seller['vat_id'] ?? ''), 'tax_number' => (string) ($seller['tax_number'] ?? ''),
-                'iban' => (string) ($seller['iban'] ?? ''), 'bic' => (string) ($seller['bic'] ?? ''),
-                'bank' => (string) ($seller['bank'] ?? ''), 'footer' => self::lines($seller['footer_text'] ?? ''),
+                // An offer is no payment request: it carries no bank details.
+                'iban' => $offer ? '' : (string) ($seller['iban'] ?? ''), 'bic' => $offer ? '' : (string) ($seller['bic'] ?? ''),
+                'bank' => $offer ? '' : (string) ($seller['bank'] ?? ''), 'footer' => self::lines($seller['footer_text'] ?? ''),
             ],
             'buyer' => [
                 'name' => (string) ($buyer['name'] ?? ''), 'address' => self::lines($buyer['address'] ?? ''),

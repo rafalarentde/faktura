@@ -180,14 +180,12 @@ final class PdfRouteTest extends HttpTestCase
         $this->assertArrayNotHasKey('Content-Disposition', $r->headers);
     }
 
-    public function test_offers_and_other_types_are_404_for_now(): void
+    public function test_dunning_letters_are_404_for_now(): void
     {
-        $offer = $this->issued($this->companyA, $this->customer, 'offer');
         $this->db->exec("INSERT INTO documents (company_id, type, status, number, lang, currency) VALUES (?, 'dunning', 'issued', 'MA-1', 'de', 'EUR')",
             [$this->companyA]);
         $dunning = $this->db->lastId();
         $this->loginFully($this->secret);
-        $this->assertSame(404, $this->get("/documents/$offer/pdf")->status);
         $this->assertSame(404, $this->get("/documents/$dunning/pdf")->status);
     }
 

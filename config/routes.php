@@ -11,6 +11,7 @@ use App\Http\ItemController;
 use App\Http\MailController;
 use App\Http\Middleware\RequireAdmin;
 use App\Http\Middleware\RequireCompany;
+use App\Http\OfferController;
 use App\Http\PdfController;
 use App\Http\SettingsController;
 use App\Http\SwitchController;
@@ -79,10 +80,24 @@ return function (App $app, RouteCollector $r): void {
     $r->addRoute('POST', '/invoices/{id:\d+}/payments', $invoice('payments'));
     $r->addRoute('POST', '/invoices/{id:\d+}/correct', $invoice('correct'));
 
-    // PDF of an issued invoice or credit note (Task 17); ?download=1 for an attachment.
+    // Offers (Task 19): the same editor as invoices (shared AbstractDocumentController), plus the
+    // decision status and the conversion of an accepted offer into a draft invoice.
+    $offer = fn (string $method) => $app->protect([OfferController::class, $method], [RequireCompany::class]);
+    $r->addRoute('GET', '/offers', $offer('index'));
+    $r->addRoute('GET', '/offers/new', $offer('newForm'));
+    $r->addRoute('POST', '/offers', $offer('create'));
+    $r->addRoute('POST', '/offers/recalc', $offer('recalc'));
+    $r->addRoute('GET', '/offers/{id:\d+}', $offer('show'));
+    $r->addRoute('POST', '/offers/{id:\d+}/save', $offer('save'));
+    $r->addRoute('POST', '/offers/{id:\d+}/issue', $offer('issue'));
+    $r->addRoute('POST', '/offers/{id:\d+}/delete', $offer('delete'));
+    $r->addRoute('POST', '/offers/{id:\d+}/status', $offer('status'));
+    $r->addRoute('POST', '/offers/{id:\d+}/convert', $offer('convert'));
+
+    // PDF of an issued invoice, credit note or offer (Tasks 17, 19); ?download=1 for an attachment.
     $r->addRoute('GET', '/documents/{id:\d+}/pdf', $app->protect([PdfController::class, 'show'], [RequireCompany::class]));
 
-    // Send an issued invoice or credit note by email (Task 18). GET shows the editable preview
+    // Send an issued invoice, credit note or offer by email (Task 18, 19). GET shows the editable preview
     // without side effects; only the POST (an explicit click, CSRF-checked) sends.
     $mail = fn (string $method) => $app->protect([MailController::class, $method], [RequireCompany::class]);
     $r->addRoute('GET', '/documents/{id:\d+}/send', $mail('form'));

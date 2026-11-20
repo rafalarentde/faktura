@@ -46,6 +46,38 @@ final class DocumentPresenterTest extends TestCase
         return is_string($v) ? str_replace(["\u{00A0}", "\u{202F}"], ' ', $v) : $v;
     }
 
+    public function test_offer_view_model_has_valid_until_and_no_payment_or_bank_data(): void
+    {
+        $svc = $this->f->service($this->f->companyA);
+        $id = $svc->createDraft('offer', ['customer_id' => $this->de, 'lines' => PdfFixture::makietaLines(), 'issue_date' => '2026-11-18', 'valid_until' => '2026-12-18',
+            'due_date' => '2026-12-31']);
+        $svc->issue($id, new \DateTimeImmutable('2026-11-18 10:00:00', new \DateTimeZone('Europe/Berlin')));
+        $vm = $this->present($id);
+        $this->assertSame(['offer', 'Angebot', 'AN-2026-001', 'Angebot AN-2026-001'], [$vm['kind'], $vm['title'], $vm['number'], $vm['doc_title']]);
+        $this->assertSame(['18.11.2026', '18.12.2026', null, null], [$vm['issue_date'], $vm['valid_until'], $vm['due_date'], $vm['payment']]);
+        $this->assertSame(['Angebotsdatum', 'Gültig bis', 'Angebot für'], [$vm['labels']['issue_date'], $vm['labels']['valid_until'], $vm['labels']['bill_to']]);
+        $this->assertSame(['', '', ''], [$vm['seller']['iban'], $vm['seller']['bic'], $vm['seller']['bank']], 'offers carry no bank details');
+        $this->assertNull($vm['related']);
+        // lines and totals are those of an invoice
+        $this->assertSame('1.206,60 €', $vm['gross']);
+        $this->assertSame('1.020,00 €', $vm['net']);
+        $this->assertCount(2, $vm['vat']);
+    }
+
+    public function test_offer_titles_in_all_languages_and_invoice_has_no_valid_until(): void
+    {
+        $svc = $this->f->service($this->f->companyA);
+        $titles = [];
+        foreach (['de', 'pl', 'en'] as $lang) {
+            $id = $svc->createDraft('offer', ['customer_id' => $this->de, 'lang' => $lang, 'lines' => PdfFixture::makietaLines(), 'issue_date' => '2026-11-18']);
+            $svc->issue($id, new \DateTimeImmutable('2026-11-18 10:00:00', new \DateTimeZone('Europe/Berlin')));
+            $titles[$lang] = $this->present($id)['title'];
+            $this->assertSame('2026-12-18', $this->f->repo($this->f->companyA)->find($id)['valid_until'], 'default +30 days');
+        }
+        $this->assertSame(['de' => 'Angebot', 'pl' => 'Oferta', 'en' => 'Quote'], $titles);
+        $this->assertNull($this->present($this->f->issued($this->f->companyA, $this->de))['valid_until']);
+    }
+
     public function test_domestic_invoice_view_model(): void
     {
         $id = $this->f->issued($this->f->companyA, $this->de);

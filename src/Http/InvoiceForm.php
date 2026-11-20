@@ -29,7 +29,10 @@ use App\Money\QuantityParser;
 final class InvoiceForm
 {
     public const HEAD_FIELDS = ['customer_id', 'lang', 'currency', 'eur_rate', 'issue_date', 'service_date', 'due_date',
-        'intro_text', 'outro_text', 'notes'];
+        'valid_until', 'intro_text', 'outro_text', 'notes'];
+    /** Head fields only offers have (valid_until) or lack (service and due date): see parse(). */
+    private const OFFER_ONLY = ['valid_until'];
+    private const NOT_FOR_OFFERS = ['service_date', 'due_date'];
     /** Head fields a credit note takes from its invoice: never sent for credit notes. */
     public const FIXED_FOR_CREDIT_NOTE = ['customer_id', 'lang', 'currency', 'eur_rate'];
     public const LINE_FIELDS = ['name', 'description', 'qty', 'unit', 'price', 'discount', 'vat_bp', 'item_id'];
@@ -76,7 +79,7 @@ final class InvoiceForm
             'customer_id' => $doc['customer_id'] === null ? '' : (string) $doc['customer_id'],
             'lang' => (string) $doc['lang'], 'currency' => (string) $doc['currency'], 'eur_rate' => (string) ($doc['eur_rate'] ?? ''),
             'issue_date' => (string) ($doc['issue_date'] ?? ''), 'service_date' => (string) ($doc['service_date'] ?? ''),
-            'due_date' => (string) ($doc['due_date'] ?? ''), 'intro_text' => (string) ($doc['intro_text'] ?? ''),
+            'due_date' => (string) ($doc['due_date'] ?? ''), 'valid_until' => (string) ($doc['valid_until'] ?? ''), 'intro_text' => (string) ($doc['intro_text'] ?? ''),
             'outro_text' => (string) ($doc['outro_text'] ?? ''), 'notes' => (string) ($doc['notes'] ?? ''),
         ];
         $lines = [];
@@ -100,16 +103,21 @@ final class InvoiceForm
 
     /**
      * Parses the typed state. With $creditNote the fixed head fields are left out of `data`
-     * (the service keeps the invoice's values).
+     * (the service keeps the invoice's values). With $offer valid_until is handed over and the
+     * service/due dates are not (offers have none); without it valid_until never reaches the
+     * service, whatever the body contained.
      *
      * @return array{data: array<string, mixed>, errors: array<string, string>, rows: list<int>}
      */
-    public function parse(string $uiLang, bool $creditNote = false): array
+    public function parse(string $uiLang, bool $creditNote = false, bool $offer = false): array
     {
         $data = [];
         $errors = [];
         foreach (self::HEAD_FIELDS as $f) {
             if ($creditNote && in_array($f, self::FIXED_FOR_CREDIT_NOTE, true)) {
+                continue;
+            }
+            if (in_array($f, $offer ? self::NOT_FOR_OFFERS : self::OFFER_ONLY, true)) {
                 continue;
             }
             $data[$f] = $this->fields[$f];

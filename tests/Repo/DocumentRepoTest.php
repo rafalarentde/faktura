@@ -153,6 +153,47 @@ final class DocumentRepoTest extends TestCase
         }
     }
 
+    public function test_offer_filters_status_validity_and_related_ids(): void
+    {
+        $anna = $this->customer($this->companyA, 'Anna');
+        $svc = $this->svc($this->companyA);
+        $mk = function (string $validUntil, ?string $status) use ($anna, $svc): int {
+            $id = $this->draft($this->companyA, $anna, [], ['issue_date' => '2026-11-01', 'valid_until' => $validUntil], 'offer');
+            $svc->issue($id, $this->at('2026-11-02'));
+            if ($status !== null) {
+                $svc->setOfferStatus($id, $status);
+            }
+            return $id;
+        };
+        $past = $mk('2026-11-10', null);
+        $today = $mk('2026-11-20', 'sent');
+        $future = $mk('2026-12-31', null);
+        $accepted = $mk('2026-11-05', 'accepted');
+        $draft = $this->draft($this->companyA, $anna, [], [], 'offer');
+        $repo = $this->repo($this->companyA);
+        $ids = fn (array $f): array => array_column($repo->list(['type' => 'offer'] + $f), 'id');
+
+        $this->assertEqualsCanonicalizing([$past, $future], $ids(['offer_statuses' => ['open']]));
+        $this->assertEqualsCanonicalizing([$accepted], $ids(['offer_statuses' => ['accepted']]));
+        $this->assertEqualsCanonicalizing([$past, $today, $future], $ids(['offer_statuses' => ['open', 'sent']]));
+        // expired = open/sent and valid_until before the day; valid until the day itself is still valid
+        $this->assertEqualsCanonicalizing([$past], $ids(['offer_statuses' => ['open', 'sent'], 'valid_until_before' => '2026-11-20']));
+        $this->assertEqualsCanonicalizing([$today, $future], $ids(['offer_statuses' => ['open', 'sent'], 'valid_until_from' => '2026-11-20']));
+        $this->assertContains($draft, $ids(['valid_until_from' => '2026-11-20']), 'no valid_until counts as still valid');
+        $this->assertNotContains($draft, $ids(['valid_until_before' => '2026-11-20']));
+        $this->assertSame([$past], $ids(['status' => 'issued', 'q' => 'AN-2026-001']));
+        // invalid values match nothing instead of widening the query
+        foreach ([['offer_statuses' => []], ['offer_statuses' => ['expired']], ['offer_statuses' => ['open', 'x']], ['offer_statuses' => 'open'],
+            ['valid_until_before' => '2026-13-45x'], ['valid_until_from' => ['2026-11-20']], ['related_document_ids' => []]] as $bad) {
+            $this->assertSame([], $ids($bad), json_encode($bad));
+        }
+        $this->assertSame([], $repo->list(['related_document_ids' => [$past, $today]]));
+        $svc->setOfferStatus($accepted, 'accepted');
+        $linked = $svc->convertOffer($accepted);
+        $this->assertSame([$linked], array_column($repo->list(['related_document_ids' => [$past, $accepted, 999999]]), 'id'));
+        $this->assertSame([$linked], array_column($repo->list(['related_document_id' => $accepted]), 'id'));
+    }
+
     public function test_search_with_special_characters_never_throws(): void
     {
         $c = $this->customer($this->companyA, "o'brien a--b [x] #1 100% my_co");

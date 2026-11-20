@@ -1,22 +1,22 @@
-{# Step 1 of a new invoice: choose the customer (GET), then the editor opens with the customer's
-   defaults (language, currency, due date from the payment days). #}
+{# Step 1 of a new invoice or offer (kind, prefix): choose the customer (GET), then the editor opens
+   with the customer's defaults (language, currency, due date from the payment days). #}
 {% extends 'layout.twig' %}
 {% import '_icons.twig' as icons %}
-{% block title %}{{ t('invoice.new') }}{% endblock %}
+{% block title %}{{ t(kind ~ '.new') }}{% endblock %}
 {% block subtitle %}{{ t('invoice.new_subtitle') }}{% endblock %}
-{% block actions %}<a class="btn btn-ghost" href="/invoices">{{ t('invoice.back_to_list') }}</a>{% endblock %}
+{% block actions %}<a class="btn btn-ghost" href="{{ prefix }}">{{ t(kind ~ '.back_to_list') }}</a>{% endblock %}
 {% block content %}
 {% if customers %}
     <section class="panel panel-narrow">
         <div class="panel-head"><h2>{{ t('invoice.choose_customer') }}</h2></div>
-        <form class="form-grid" method="get" action="/invoices/new">
+        <form class="form-grid" method="get" action="{{ prefix }}/new">
             {% if error %}<p class="warn" role="alert">{{ error }}</p>{% endif %}
             <div class="field">
                 <label for="n-customer">{{ t('invoice.customer') }}</label>
                 <select id="n-customer" name="customer_id">
                     {% for c in customers %}<option value="{{ c.id }}">{{ c.name }} ({{ c.country }})</option>{% endfor %}
                 </select>
-                <p class="hint">{{ t('invoice.choose_customer_text') }}</p>
+                <p class="hint">{{ t(kind ~ '.choose_customer_text') }}</p>
             </div>
             <div class="form-actions"><button class="btn btn-primary" type="submit">{{ t('invoice.continue') }}</button></div>
         </form>
@@ -24,7 +24,7 @@
 {% else %}
     <section class="card empty-state">
         <h2>{{ t('invoice.no_customers') }}</h2>
-        <p>{{ t('invoice.no_customers_text') }}</p>
+        <p>{{ t(kind ~ '.no_customers_text') }}</p>
         <p><a class="btn btn-primary" href="/customers#customer-form">{{ icons.icon('plus') }}{{ t('invoice.create_customer') }}</a></p>
     </section>
 {% endif %}

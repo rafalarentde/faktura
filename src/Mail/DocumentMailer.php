@@ -38,11 +38,12 @@ use Twig\Loader\FilesystemLoader;
  * subject, body or credentials); a failure is rethrown as MailSendFailed AFTER logging.
  *
  * Supported types are TYPES; for another type add `templates/mail/<type>.<lang>.twig` (de, pl, en),
- * the `mail.subject_<type>` keys and the type here (and PDF support in PdfRenderer).
+ * the `mail.subject_<type>` keys and the type here (and PDF support in PdfRenderer). Offers: TYPES includes them; after a delivered mail
+ * the optional $offerSent callback marks an open offer as sent (after the log rows, errors swallowed).
  */
 final class DocumentMailer
 {
-    public const TYPES = [DocType::INVOICE, DocType::CREDIT_NOTE];
+    public const TYPES = [DocType::INVOICE, DocType::CREDIT_NOTE, DocType::OFFER];
     public const LIMIT = 20;
     public const TEST_LIMIT = 3;
     public const WINDOW_SEC = 600;
@@ -56,7 +57,11 @@ final class DocumentMailer
     private Environment $text;
     private \Closure $clock;
 
-    /** @param string $templateDir directory with the <type>.<lang>.twig plain-text bodies */
+    /**
+     * @param string $templateDir directory with the <type>.<lang>.twig plain-text bodies
+     * @param \Closure|null $offerSent fn(int $offerId): void, called after an offer mail was DELIVERED
+     *        (App wires DocumentService::markOfferSent: an open offer becomes "sent")
+     */
     public function __construct(
         private Db $db,
         private CompanyContext $ctx,
@@ -69,6 +74,7 @@ final class DocumentMailer
         \Closure $clock,
         string $templateDir,
         private ?SmtpTargetPolicy $policy = null,
+        private ?\Closure $offerSent = null,
     ) {
         $this->clock = $clock;
         $this->settings = new CompanySettingsRepo($db, $ctx, $crypto, $clock);
@@ -101,6 +107,7 @@ final class DocumentMailer
             'iban' => $type === DocType::INVOICE ? self::line((string) $vm['seller']['iban']) : '',
             'bic' => $type === DocType::INVOICE ? self::line((string) $vm['seller']['bic']) : '',
             'related' => self::line((string) ($vm['related'] ?? '')),
+            'valid_until' => $type === DocType::OFFER ? self::line((string) ($vm['valid_until'] ?? '')) : '',
             'company' => $company,
         ]);
         $body = trim((string) preg_replace("/\n{3,}/", "\n\n", str_replace("\r", '', $body))) . "\n";
@@ -147,6 +154,13 @@ final class DocumentMailer
             $this->log->record((int) $doc['id'], $to, $subject, $status, $reason, $this->ctx->userId(), $at);
             $this->audit('document.email_send', $detail, $at);
         });
+        if ($reason === null && $doc['type'] === DocType::OFFER && $this->offerSent !== null) {
+            // Bookkeeping only: a failure here must never turn a delivered mail into an error.
+            try {
+                ($this->offerSent)((int) $doc['id']);
+            } catch (\Throwable) {
+            }
+        }
         if ($reason !== null) {
             throw new MailSendFailed($reason);
         }

@@ -218,11 +218,13 @@ final class MailRouteTest extends HttpTestCase
         $this->assertStringContainsString('Inhaber', $page);
     }
 
-    public function test_draft_is_409_foreign_unknown_and_offer_are_identical_404(): void
+    public function test_draft_is_409_foreign_unknown_and_dunning_are_identical_404(): void
     {
         $draft = $this->draft($this->companyA, $this->customer);
         $foreign = $this->issued($this->companyB, $this->customer($this->companyB));
-        $offer = $this->issued($this->companyA, $this->customer, 'offer');
+        // dunning letters have no mail support yet (Task 21); offers do (Task 19)
+        $this->db->exec("INSERT INTO documents (company_id, type, status, number, lang, currency) VALUES (?, 'dunning', 'issued', 'MA-1', 'de', 'EUR')", [$this->companyA]);
+        $offer = $this->db->lastId();
         $this->login();
         $this->assertSame(409, $this->get("/documents/$draft/send")->status);
         $this->assertSame(409, $this->post("/documents/$draft/send", $this->form())->status);

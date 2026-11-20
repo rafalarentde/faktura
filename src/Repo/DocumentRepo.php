@@ -25,6 +25,8 @@ final class DocumentRepo extends BaseRepo
     private const LINES = 'document_lines';
     private const PAYMENTS = 'payments';
     public const STATUSES = ['draft', 'issued'];
+    /** Stored offer statuses (DocumentService::OFFER_STATUSES; 'expired' is computed, never stored). */
+    private const OFFER_STATUSES = ['open', 'sent', 'accepted', 'rejected'];
 
     private const DOC_INTS = ['id', 'company_id', 'reverse_charge', 'net_minor', 'vat_minor', 'gross_minor'];
     private const DOC_NULLABLE_INTS = ['related_document_id', 'customer_id', 'vat_eur_minor', 'created_by'];
@@ -46,7 +48,10 @@ final class DocumentRepo extends BaseRepo
      * Documents ordered by issue_date DESC, id DESC (drafts without a date come last).
      * Filters: type, types (non-empty list of types: any of them), status (unknown values match
      * nothing; an empty or invalid types list matches nothing too), customer_id (int),
-     * related_document_id (int: e.g. the credit notes of an invoice), q (number or
+     * related_document_id (int: e.g. the credit notes of an invoice), related_document_ids (non-empty
+     * list of ints), offer_statuses (non-empty list of stored offer statuses), valid_until_before
+     * ('Y-m-d': valid_until set and earlier) and valid_until_from ('Y-m-d': no valid_until or on/after;
+     * together they split offers into expired and still valid), q (number or
      * buyer name, substring, case-insensitive). Unknown filter keys are ignored.
      *
      * buyer_name is a snapshot too: issued documents show the name from the issue, drafts the
@@ -281,6 +286,33 @@ final class DocumentRepo extends BaseRepo
         if (isset($filter['related_document_id'])) {
             $conds[] = 'related_document_id = ?';
             $params[] = (int) $filter['related_document_id'];
+        }
+        if (array_key_exists('related_document_ids', $filter)) {
+            $ids = $filter['related_document_ids'];
+            if (!is_array($ids) || $ids === []) {
+                return ['1=0', []];
+            }
+            $ids = array_values(array_unique(array_map('intval', $ids)));
+            $conds[] = 'related_document_id IN (' . implode(', ', array_fill(0, count($ids), '?')) . ')';
+            array_push($params, ...$ids);
+        }
+        if (array_key_exists('offer_statuses', $filter)) {
+            $statuses = $filter['offer_statuses'];
+            if (!is_array($statuses) || $statuses === [] || array_diff($statuses, self::OFFER_STATUSES) !== []) {
+                return ['1=0', []];
+            }
+            $statuses = array_values(array_unique($statuses));
+            $conds[] = 'offer_status IN (' . implode(', ', array_fill(0, count($statuses), '?')) . ')';
+            array_push($params, ...$statuses);
+        }
+        foreach (['valid_until_before' => 'valid_until IS NOT NULL AND valid_until < ?', 'valid_until_from' => '(valid_until IS NULL OR valid_until >= ?)'] as $key => $cond) {
+            if (isset($filter[$key])) {
+                if (!is_string($filter[$key]) || preg_match('/\A\d{4}-\d{2}-\d{2}\z/', $filter[$key]) !== 1) {
+                    return ['1=0', []];
+                }
+                $conds[] = $cond;
+                $params[] = $filter[$key];
+            }
         }
         if (isset($filter['customer_id'])) {
             $conds[] = 'customer_id = ?';

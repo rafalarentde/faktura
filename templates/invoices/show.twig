@@ -4,25 +4,26 @@
   (Task 17; GET /documents/{id}/pdf, inline and ?download=1) and the "send by email" link (Task 18, GET /documents/{id}/send).
 #}
 {% extends 'layout.twig' %}
-{% block title %}{{ t('invoice.type_' ~ doc.type) }} {{ doc.number }}{% endblock %}
-{% block subtitle %}{{ doc.buyer }}{% if doc.issue_date %} · {{ doc.issue_date }}{% endif %}{% endblock %}
-{% block actions %}<a class="btn btn-ghost" href="/invoices">{{ t('invoice.back_to_list') }}</a>{% endblock %}
-{% block content %}
 {% import 'invoices/_macros.twig' as m %}
+{% block title %}{{ type_label }} {{ doc.number }}{% endblock %}
+{% block subtitle %}{{ doc.buyer }}{% if doc.issue_date %} · {{ doc.issue_date }}{% endif %}{% endblock %}
+{% block actions %}<a class="btn btn-ghost" href="{{ prefix }}">{{ t(doc.type == 'offer' ? 'offer.back_to_list' : 'invoice.back_to_list') }}</a>{% endblock %}
+{% block content %}
 {% if flash %}<p class="{{ flash.kind == 'warn' ? 'warn-box' : 'notice' }}" role="status">{{ flash.text }}</p>{% endif %}
 {% if errors.document is defined %}<p class="warn-box" role="alert">{{ errors.document }}</p>{% endif %}
+{% block top_notices %}{% endblock %}
 <section class="panel doc-head">
     <div class="doc-chips">
-        <span class="chip chip-outline">{{ t('invoice.type_' ~ doc.type) }}</span>
-        <span class="chip {{ chip }}">{{ t('invoice.status_' ~ status) }}</span>
+        <span class="chip chip-outline">{{ type_label }}</span>
+        <span class="chip {{ chip }}">{{ status_label }}</span>{% block extra_chips %}{% endblock %}
     </div>
-    <dl class="doc-meta">
+    <dl class="doc-meta">{% block doc_meta %}
         <div><dt>{{ t('table.number') }}</dt><dd class="mono">{{ doc.number }}</dd></div>
         <div><dt>{{ t('invoice.date') }}</dt><dd>{{ doc.issue_date ?? '—' }}</dd></div>
         <div><dt>{{ t('invoice.service_date') }}</dt><dd>{{ doc.service_date ?? '—' }}</dd></div>
         {% if doc.type == 'invoice' %}<div><dt>{{ t('invoice.due_date') }}</dt><dd>{{ doc.due_date ?? '—' }}</dd></div>{% endif %}
         <div><dt>{{ t('invoice.currency') }}</dt><dd>{{ doc.currency }}</dd></div>
-    </dl>
+    {% endblock %}</dl>
     <div class="doc-actions" data-block="document_actions">{% block document_actions %}
         <a class="btn btn-sm" href="/documents/{{ doc.id }}/pdf" target="_blank" rel="noopener" aria-label="{{ t('pdf.open_label', {number: doc.number}) }}">{{ t('invoice.pdf') }}</a>
         <a class="btn btn-sm btn-ghost" href="/documents/{{ doc.id }}/pdf?download=1">{{ t('pdf.download') }}</a>
@@ -32,6 +33,7 @@
 
 <div class="inv-layout">
     <div class="stack">
+        {% block side_panels %}
         {% if summary %}
             <section class="panel">
                 <div class="panel-head"><h2>{{ t('invoice.payments') }}</h2></div>
@@ -86,6 +88,9 @@
                 {% if related %}
                     <p>{{ t('invoice.original_invoice') }}: <a class="strong-link" href="/invoices/{{ related.id }}">{{ related.number }}</a>{% if related.date %} · {{ related.date }}{% endif %}</p>
                 {% endif %}
+                {% if related_offer %}
+                    <p data-related-offer>{{ t('offer.from_offer') }}: <a class="strong-link" href="/offers/{{ related_offer.id }}">{{ related_offer.number }}</a>{% if related_offer.date %} · {{ related_offer.date }}{% endif %}</p>
+                {% endif %}
                 {% if doc.type == 'invoice' %}
                     {% if credit_notes %}
                         <ul class="plain-list">
@@ -106,6 +111,8 @@
                 {% endif %}
             </div>
         </section>
+
+        {% endblock %}
 
         <section class="panel" data-block="email_log">
             <div class="panel-head"><h2>{{ t('mail.history') }}</h2></div>

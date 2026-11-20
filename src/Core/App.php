@@ -332,7 +332,8 @@ final class App
             $this->mailer = new DocumentMailer(
                 $this->db, $ctx, $repo, new DocumentPresenter($this->translator(), $repo), $this->pdf(),
                 $configured instanceof MailTransport ? $configured : new SmtpTransport($this->mailPolicy()),
-                $this->crypto(), $this->translator(), $this->clock, $this->root . '/templates/mail', $this->mailPolicy()
+                $this->crypto(), $this->translator(), $this->clock, $this->root . '/templates/mail', $this->mailPolicy(),
+                fn (int $offerId) => $this->documents()->markOfferSent($offerId)
             );
         }
         return $this->mailer;

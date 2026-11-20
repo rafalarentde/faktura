@@ -45,6 +45,13 @@ use App\Tenant\CompanyContext;
  * whose ranges are adjacent could then block each other in a rare cycle. InnoDB rolls one back
  * (1213); nothing is written and no number is consumed.
  *
+ * OFFERS (Task 19): an offer is issued like an invoice (own 'offer' number sequence) but is no tax
+ * invoice (R30): the gate asks only for both names, an unconfirmed VIES result never blocks it, it
+ * has no due date, and valid_until defaults to issue date + 30 days. Issued offers stay immutable;
+ * only offer_status (open | sent | accepted | rejected, 'expired' is computed) changes, through
+ * setOfferStatus()/markOfferSent() under the offer's row lock. convertOffer() locks the same row,
+ * so a double click creates one draft. Neither takes another document's lock (no new lock order).
+ *
  * SNAPSHOTS: under REPEATABLE READ the first plain SELECT of a transaction fixes its read view.
  * issue() therefore does its plain pre-read (type, related_document_id) BEFORE opening its
  * transaction, and every plain read inside the transaction (lines, customer, company) comes

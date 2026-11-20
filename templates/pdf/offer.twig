@@ -1,0 +1,15 @@
+{#
+  PDF of an issued offer (doc.kind = offer). See pdf/_base.twig for the inputs. Title "Angebot",
+  "valid until" instead of a due date, no payment terms and no bank block (the presenter blanks the
+  bank details of offers); lines, totals and the reverse-charge note are the same as on invoices.
+#}
+{% extends 'pdf/_base.twig' %}
+
+{% block head_meta %}
+    {%- if doc.issue_date %}<tr><th>{{ doc.labels.issue_date }}</th><td>{{ doc.issue_date }}</td></tr>{% endif %}
+    {%- if doc.valid_until %}<tr><th>{{ doc.labels.valid_until }}</th><td class="strong">{{ doc.valid_until }}</td></tr>{% endif %}
+{% endblock %}
+
+{% block content %}
+{% include 'pdf/_body.twig' %}
+{% endblock %}

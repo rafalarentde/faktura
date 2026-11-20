@@ -129,6 +129,57 @@ final class ContentSecurityTest extends HttpTestCase
         $this->assertArrayNotHasKey('Content-Security-Policy', $json->headers);
     }
 
+    /** Offer pages (Task 19): list, step 1, editor states, re-render, issued view with status buttons, converted state, JSON. */
+    public function test_offer_pages_have_no_inline_markup(): void
+    {
+        $u = $this->createUser('off@example.com');
+        $c = $this->createCompany('Off GmbH');
+        $this->db->exec("UPDATE companies SET address = 'Firmenweg 1', vat_id = 'DE987654321' WHERE id = ?", [$c]);
+        $this->addMember($u['id'], $c);
+        $this->db->exec("INSERT INTO customers (company_id, name, address, country, is_company, vat_id, vies_status, default_currency) VALUES (?, 'Kowalski', 'ul. Długa 12', 'PL', 1, 'PL1234567890', 'valid', 'PLN')", [$c]);
+        $pl = $this->db->lastId();
+        $this->db->exec("INSERT INTO customers (company_id, name, address, country, is_company, vat_id) VALUES (?, 'Nowak', 'ul. Krótka 1', 'PL', 1, 'PL999')", [$c]);
+        $unverified = $this->db->lastId();
+        $this->loginFully($u['secret'], 'off@example.com');
+        $line = ['name' => 'Beratung', 'description' => '', 'qty' => '2', 'unit' => 'hour', 'price' => '450,00', 'discount' => '', 'vat_bp' => '1900', 'item_id' => ''];
+        $form = fn (int $customer, array $over = []): array => $over + ['customer_id' => (string) $customer, 'lang' => 'de', 'currency' => 'EUR',
+            'eur_rate' => '', 'issue_date' => '', 'valid_until' => '', 'intro_text' => '', 'outro_text' => '', 'notes' => '', 'lines' => [$line]];
+
+        $pages = [];
+        $pages['offer_list_empty'] = $this->get('/offers');
+        $pages['offer_new'] = $this->get('/offers/new');
+        $pages['offer_new_rc'] = $this->app->handle(new \App\Core\Request('GET', '/offers/new', query: ['customer_id' => (string) $pl], server: ['REMOTE_ADDR' => self::IP]));
+        $pages['offer_422'] = $this->post('/offers', $form($pl, ['currency' => 'PLN', 'lines' => [['price' => 'x'] + $line]]));
+        $pages['offer_add_line'] = $this->post('/offers', $form($pl) + ['add_line' => '1']);
+        $created = $this->post('/offers', $form($unverified));
+        $id = (int) substr($created->headers['Location'] ?? '', strlen('/offers/'));
+        $pages['offer_draft_vies'] = $this->get("/offers/$id");
+        $this->post("/offers/$id/issue", $form($unverified));
+        $pages['offer_issued'] = $this->get("/offers/$id");
+        $pages['offer_status_flash'] = $this->post("/offers/$id/status", ['status' => 'accepted']);
+        $pages['offer_accepted'] = $this->get("/offers/$id");
+        $invoice = $this->post("/offers/$id/convert");
+        $pages['offer_converted'] = $this->get("/offers/$id");
+        $pages['invoice_from_offer'] = $this->get($invoice->headers['Location'] ?? '/invoices');
+        $pages['offer_list'] = $this->get('/offers');
+        $pages['offer_send'] = $this->get("/documents/$id/send");
+
+        foreach ($pages as $name => $r) {
+            if ($r->status === 303) {
+                continue;
+            }
+            $this->assertStringContainsString('<html', $r->body, $name);
+            $this->assertSame(self::CSP, $r->headers['Content-Security-Policy'] ?? null, $name);
+            $this->assertNoInlineMarkup($name, $r->body);
+        }
+        foreach (['offer_issued', 'offer_accepted', 'offer_converted', 'invoice_from_offer', 'offer_list', 'offer_send', 'offer_draft_vies'] as $name) {
+            $this->assertSame(200, $pages[$name]->status, $name);
+        }
+        $this->assertStringContainsString('src="/assets/invoice.js', $pages['offer_draft_vies']->body);
+        $json = $this->post('/offers/recalc', $form($pl));
+        $this->assertArrayNotHasKey('Content-Security-Policy', $json->headers);
+    }
+
     private function assertNoInlineMarkup(string $name, string $html): void
     {
         $this->assertDoesNotMatchRegularExpression('/\sstyle\s*=/i', $html, "$name: style attribute");

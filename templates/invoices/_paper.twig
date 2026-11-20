@@ -28,6 +28,7 @@
         {% if paper.issue_date %}<div><dt>{{ paper.labels.issue_date }}</dt><dd>{{ paper.issue_date }}</dd></div>{% endif %}
         {% if paper.service_date %}<div><dt>{{ paper.labels.service_date }}</dt><dd>{{ paper.service_date }}</dd></div>{% endif %}
         {% if paper.due_date %}<div><dt>{{ paper.labels.due_date }}</dt><dd>{{ paper.due_date }}</dd></div>{% endif %}
+        {% if paper.valid_until %}<div><dt>{{ paper.labels.valid_until }}</dt><dd>{{ paper.valid_until }}</dd></div>{% endif %}
     </dl>
     {% if paper.related %}<p class="paper-related">{{ paper.related }}</p>{% endif %}
     {% for l in paper.intro %}<p class="paper-text">{{ l }}</p>{% endfor %}

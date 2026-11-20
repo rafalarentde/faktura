@@ -1,20 +1,21 @@
 {#
-  Invoice / credit-note editor (create mode: doc = null, posts to /invoices; draft: posts to
-  /invoices/{id}/save). Works without JavaScript: the row buttons (add line, remove line, add from
+  Invoice / credit-note / offer editor (create mode: doc = null, posts to {prefix}; draft: posts to
+  {prefix}/{id}/save; prefix = /invoices or /offers, kind = invoice | offer). Offers have
+  a "valid until" date instead of service and due date and no VAT confirmation. Works without JavaScript: the row buttons (add line, remove line, add from
   catalogue) are submit buttons that re-render the posted state; invoice.js only refreshes the
   totals block live. The Save/Issue buttons in the page head belong to the form (form="invoice-form")
   and come first in tree order, so Enter in a field saves (never removes a line).
 #}
 {% extends 'layout.twig' %}
-{% block title %}{% if credit_note %}{{ t('invoice.edit_credit_title') }}{% elseif doc %}{{ t('invoice.edit_title') }}{% else %}{{ t('invoice.new') }}{% endif %}{% endblock %}
+{% block title %}{% if credit_note %}{{ t('invoice.edit_credit_title') }}{% elseif doc %}{{ t(kind ~ '.edit_title') }}{% else %}{{ t(kind ~ '.new') }}{% endif %}{% endblock %}
 {% block subtitle %}{{ t('invoice.new_subtitle') }}{% if next_number %} · {{ t('invoice.next_number', {number: next_number}) }}{% endif %}{% endblock %}
 {% block scripts %}<script src="{{ asset('/assets/invoice.js') }}" defer></script>{% endblock %}
 {% block actions %}
-    <a class="btn btn-ghost" href="/invoices">{{ t('invoice.back_to_list') }}</a>
+    <a class="btn btn-ghost" href="{{ prefix }}">{{ t(kind ~ '.back_to_list') }}</a>
     <button class="btn" type="submit" form="invoice-form">{{ t('invoice.save_draft') }}</button>
     {% if doc %}
-        <button class="btn btn-primary" type="submit" form="invoice-form" formaction="/invoices/{{ doc.id }}/issue"{% if not can_issue %} disabled aria-describedby="issue-blocked"{% endif %}>{{ t('invoice.issue') }}</button>
-        <button class="btn" type="submit" form="invoice-form" formaction="/invoices/{{ doc.id }}/issue" name="then" value="send"{% if not can_issue %} disabled aria-describedby="issue-blocked"{% endif %}>{{ t('invoice.issue_and_mail') }}</button>
+        <button class="btn btn-primary" type="submit" form="invoice-form" formaction="{{ prefix }}/{{ doc.id }}/issue"{% if not can_issue %} disabled aria-describedby="issue-blocked"{% endif %}>{{ t('invoice.issue') }}</button>
+        <button class="btn" type="submit" form="invoice-form" formaction="{{ prefix }}/{{ doc.id }}/issue" name="then" value="send"{% if not can_issue %} disabled aria-describedby="issue-blocked"{% endif %}>{{ t('invoice.issue_and_mail') }}</button>
     {% else %}
         <button class="btn btn-primary" type="submit" form="invoice-form" name="intent" value="issue"{% if not can_issue %} disabled aria-describedby="issue-blocked"{% endif %}>{{ t('invoice.issue') }}</button>
         <button class="btn" type="submit" form="invoice-form" name="then" value="send"{% if not can_issue %} disabled aria-describedby="issue-blocked"{% endif %}>{{ t('invoice.issue_and_mail') }}</button>
@@ -24,6 +25,7 @@
 {% import 'invoices/_macros.twig' as m %}
 {% if flash %}<p class="{{ flash.kind == 'warn' ? 'warn-box' : 'notice' }}" role="status">{{ flash.text }}</p>{% endif %}
 {% if notice %}<p class="notice" role="status">{{ notice }}</p>{% endif %}
+{% if source_offer %}<p class="notice" role="note" data-source-offer>{{ t('offer.invoice_from_offer', {number: source_offer.number}) }} <a href="/offers/{{ source_offer.id }}">{{ source_offer.number }}</a></p>{% endif %}
 {% if not can_issue %}<p class="warn-box" id="issue-blocked" role="alert">{{ t('invoice.suspended') }}</p>{% endif %}
 {% if errors.document is defined and (can_issue or errors.document != t('invoice.suspended')) %}<p class="warn-box" role="alert">{{ errors.document }}</p>{% endif %}
 {% for md in missing_data %}
@@ -35,7 +37,7 @@
 {% if errors.company is defined %}<p class="warn-box" role="alert">{{ errors.company }}</p>{% endif %}
 <div class="inv-layout">
     <section class="panel">
-        <form class="form-grid" id="invoice-form" method="post" action="{{ doc ? '/invoices/' ~ doc.id ~ '/save' : '/invoices' }}" data-recalc="/invoices/recalc">
+        <form class="form-grid" id="invoice-form" method="post" action="{{ doc ? prefix ~ '/' ~ doc.id ~ '/save' : prefix }}" data-recalc="{{ prefix }}/recalc">
             {{ csrf_field() }}
             {% if doc %}<input type="hidden" name="document_id" value="{{ doc.id }}">{% endif %}
             {% if errors %}<p class="warn" role="alert">{{ t('invoice.err_summary') }}</p>{% endif %}
@@ -55,7 +57,7 @@
                             {% for c in customers %}<option value="{{ c.id }}"{{ form.customer_id == c.id ~ '' ? ' selected' : '' }}>{{ c.name }} ({{ c.country }})</option>{% endfor %}
                         </select>
                         {{ m.err('f-customer', errors.customer_id ?? null) }}
-                        {% if not doc %}<p class="hint"><a href="/invoices/new">{{ t('invoice.change_customer') }}</a></p>{% endif %}
+                        {% if not doc %}<p class="hint"><a href="{{ prefix }}/new">{{ t('invoice.change_customer') }}</a></p>{% endif %}
                     </div>
                     <div class="field">
                         <label for="f-lang">{{ t('invoice.document_language') }}</label>
@@ -67,13 +69,15 @@
                 </div>
             {% endif %}
 
-            <div class="grid-3">
-                {% for f in (credit_note ? ['issue_date', 'service_date'] : ['issue_date', 'service_date', 'due_date']) %}
+            {% set date_fields = kind == 'offer' ? ['issue_date', 'valid_until'] : (credit_note ? ['issue_date', 'service_date'] : ['issue_date', 'service_date', 'due_date']) %}
+            <div class="{{ date_fields|length == 2 ? 'grid-2' : 'grid-3' }}">
+                {% for f in date_fields %}
                     <div class="field">
-                        <label for="f-{{ f }}">{{ t('invoice.' ~ (f == 'issue_date' ? 'date' : f)) }}</label>
+                        <label for="f-{{ f }}">{{ t(f == 'issue_date' ? (kind == 'offer' ? 'offer.date' : 'invoice.date') : (f == 'valid_until' ? 'offer.valid_until' : 'invoice.' ~ f)) }}</label>
                         <input type="date" id="f-{{ f }}" name="{{ f }}" value="{{ attribute(form, f) }}"{{ m.invalid('f-' ~ f, attribute(errors, f) ?? null) }}>
                         {{ m.err('f-' ~ f, attribute(errors, f) ?? null) }}
                         {% if f == 'issue_date' and attribute(form, f) == '' %}<p class="hint">{{ t('invoice.issue_date_hint') }}</p>{% endif %}
+                        {% if f == 'valid_until' and attribute(form, f) == '' %}<p class="hint">{{ t('offer.valid_until_hint') }}</p>{% endif %}
                     </div>
                 {% endfor %}
             </div>
@@ -101,7 +105,7 @@
                     <p>{{ banner.text }}</p>
                     {% if banner.link %}<p><a href="{{ banner.link }}">{{ t('invoice.vies_check_link') }}</a></p>{% endif %}
                     {% if banner.recheck %}<p class="hint">{{ t('invoice.vat_recheck') }}</p>{% endif %}
-                    {% if banner.kind == 'warn' %}
+                    {% if banner.confirm %}
                         <label class="toggle banner-confirm" for="f-confirm-vat">
                             <input type="checkbox" id="f-confirm-vat" name="confirm_vat" value="1"{% if confirm_vat %} checked{% endif %}{{ m.invalid('f-confirm-vat', errors.confirm_vat ?? null) }}>
                             <span><b>{{ t('invoice.confirm_vat') }}</b><span>{{ t('invoice.confirm_vat_hint') }}</span></span>
@@ -227,7 +231,7 @@
             </div>
         </form>
         {% if doc %}
-            <form class="panel-foot" method="post" action="/invoices/{{ doc.id }}/delete" data-confirm="{{ t('invoice.delete_confirm') }}">
+            <form class="panel-foot" method="post" action="{{ prefix }}/{{ doc.id }}/delete" data-confirm="{{ t('invoice.delete_confirm') }}">
                 {{ csrf_field() }}
                 <button class="btn btn-ghost btn-sm" type="submit">{{ t('invoice.delete_draft') }}</button>
             </form>

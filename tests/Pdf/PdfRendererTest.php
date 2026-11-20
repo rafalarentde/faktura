@@ -434,7 +434,7 @@ final class PdfRendererTest extends TestCase
         self::$f->renderer(self::$f->companyB)->render(self::$ids['domestic']);
     }
 
-    public function test_unknown_document_and_offers_are_not_found(): void
+    public function test_unknown_document_and_dunning_letters_are_not_found(): void
     {
         $r = self::$f->renderer(self::$f->companyA);
         try {
@@ -442,12 +442,10 @@ final class PdfRendererTest extends TestCase
             $this->fail('unknown id');
         } catch (DocumentNotFound) {
         }
-        $svc = self::$f->service(self::$f->companyA);
-        $offer = $svc->createDraft('offer', ['customer_id' => self::$f->customer(self::$f->companyA), 'issue_date' => '2026-11-18',
-            'lines' => [PdfFixture::line()]]);
-        $svc->issue($offer, new \DateTimeImmutable('2026-11-18 10:00:00', new \DateTimeZone('Europe/Berlin')));
+        self::$f->db->exec("INSERT INTO documents (company_id, type, status, number, lang, currency) VALUES (?, 'dunning', 'issued', 'MA-1', 'de', 'EUR')", [self::$f->companyA]);
+        $dunning = self::$f->db->lastId();
         $this->expectException(DocumentNotFound::class);
-        $r->html($offer);
+        $r->html($dunning);
     }
 
     public function test_pdf_is_built_from_snapshots(): void

@@ -57,7 +57,7 @@ final class DocumentMailerTest extends TestCase
         );
     }
 
-    private function mailer(?int $company = null): DocumentMailer
+    private function mailer(?int $company = null, ?\Closure $offerSent = null): DocumentMailer
     {
         $company ??= $this->fx->companyA;
         $ctx = $this->fx->ctx($company);
@@ -68,7 +68,7 @@ final class DocumentMailerTest extends TestCase
         return new DocumentMailer(
             $this->fx->db, $ctx, $repo, new DocumentPresenter($this->fx->translator(), $repo), $renderer, $this->transport,
             $this->crypto(), $this->fx->translator(), fn (): int => $this->now, PdfFixture::ROOT . '/templates/mail',
-            new SmtpTargetPolicy(FakeResolver::publicHosts())
+            new SmtpTargetPolicy(FakeResolver::publicHosts()), $offerSent
         );
     }
 
@@ -91,6 +91,75 @@ final class DocumentMailerTest extends TestCase
     {
         $p = $this->mailer()->preview($doc ?? $this->doc);
         return ['to' => $p['to'], 'subject' => $p['subject'], 'body' => $p['body']];
+    }
+
+    // ---- offers (Task 19) ----
+
+    private function issuedOffer(): int
+    {
+        $svc = $this->fx->service($this->fx->companyA);
+        $id = $svc->createDraft('offer', ['customer_id' => $this->customer, 'lines' => PdfFixture::makietaLines(), 'issue_date' => '2026-11-18', 'valid_until' => '2026-12-18']);
+        $svc->issue($id, new \DateTimeImmutable('2026-11-18 10:00:00', new \DateTimeZone('Europe/Berlin')));
+        return $id;
+    }
+
+    public function test_offer_preview_subject_and_body_per_language(): void
+    {
+        $id = $this->issuedOffer();
+        $p = $this->mailer()->preview($id);
+        $this->assertSame('Angebot AN-2026-001 von Muster Service GmbH', $p['subject']);
+        $this->assertStringContainsString('anbei erhalten Sie unser Angebot AN-2026-001', $p['body']);
+        $this->assertStringContainsString('gültig bis zum 18.12.2026', $p['body']);
+        $this->assertStringContainsString('Mit freundlichen Grüßen', $p['body']);
+        $this->assertSame('AN-2026-001.pdf', $p['attachment_name']);
+        foreach (['IBAN', 'BIC', 'Verwendungszweck', 'überweisen'] as $absent) {
+            $this->assertStringNotContainsString($absent, $p['body'], $absent);
+        }
+        foreach (['pl' => ['Oferta AN-2026-002 od Muster Service GmbH', 'Z poważaniem', 'ważna do dnia 18.12.2026'],
+            'en' => ['Quote AN-2026-003 from Muster Service GmbH', 'Kind regards', 'valid until 18/12/2026']] as $lang => [$subject, $closing, $valid]) {
+            $svc = $this->fx->service($this->fx->companyA);
+            $draft = $svc->createDraft('offer', ['customer_id' => $this->customer, 'lang' => $lang, 'lines' => PdfFixture::makietaLines(), 'issue_date' => '2026-11-18', 'valid_until' => '2026-12-18']);
+            $svc->issue($draft, new \DateTimeImmutable('2026-11-18 10:00:00', new \DateTimeZone('Europe/Berlin')));
+            $p = $this->mailer()->preview($draft);
+            $this->assertSame($subject, $p['subject'], $lang);
+            $this->assertStringContainsString($closing, $p['body'], $lang);
+            $this->assertStringContainsString($valid, $p['body'], $lang);
+            $this->assertStringNotContainsString('IBAN', $p['body'], $lang);
+        }
+    }
+
+    public function test_offer_send_calls_the_offer_hook_after_delivery_only(): void
+    {
+        $id = $this->issuedOffer();
+        $calls = [];
+        $m = $this->mailer(null, function (int $offerId) use (&$calls): void {
+            $calls[] = [$offerId, $this->rows('email_log')];
+        });
+        $this->transport->failWith = MailSendFailed::CONNECT;
+        try {
+            $m->send($id, 'kunde@example.de', 'Betreff', 'Text');
+            $this->fail('expected MailSendFailed');
+        } catch (MailSendFailed) {
+        }
+        $this->assertSame([], $calls, 'a failed send does not touch the offer');
+        $this->transport->failWith = null;
+        $m->send($id, 'kunde@example.de', 'Betreff', 'Text');
+        $this->assertSame([[$id, 2]], $calls, 'called once, after the log row of the delivery was written');
+        // invoices never trigger it
+        $m->send($this->doc, 'kunde@example.de', 'Betreff', 'Text');
+        $this->assertCount(1, $calls);
+    }
+
+    public function test_offer_hook_failure_never_turns_a_delivered_mail_into_an_error(): void
+    {
+        $id = $this->issuedOffer();
+        $m = $this->mailer(null, function (): void {
+            throw new \RuntimeException('database is gone');
+        });
+        $m->send($id, 'kunde@example.de', 'Betreff', 'Text');
+        $this->assertCount(1, $this->transport->sent);
+        $this->assertSame(1, $this->rows('email_log'));
+        $this->assertSame('sent', $this->fx->db->one('SELECT status FROM email_log')['status']);
     }
 
     public function test_send_attaches_pdf_and_logs(): void
@@ -392,8 +461,9 @@ final class DocumentMailerTest extends TestCase
     public function test_foreign_unknown_and_unsupported_documents_are_refused_identically(): void
     {
         $other = $this->fx->issued($this->fx->companyB, $this->fx->customer($this->fx->companyB));
-        $offer = $this->fx->service($this->fx->companyA)->createDraft('offer', ['customer_id' => $this->customer, 'lines' => PdfFixture::makietaLines()]);
-        $this->fx->service($this->fx->companyA)->issue($offer, new \DateTimeImmutable('2026-11-18 10:00:00', new \DateTimeZone('Europe/Berlin')), true);
+        // dunning letters have no mail support yet (Task 21); offers do (Task 19)
+        $this->fx->db->exec("INSERT INTO documents (company_id, type, status, number, lang, currency) VALUES (?, 'dunning', 'issued', 'MA-1', 'de', 'EUR')", [$this->fx->companyA]);
+        $offer = $this->fx->db->lastId();
         foreach ([$other, 987654, $offer] as $id) {
             try {
                 $this->mailer()->preview($id);

@@ -1,0 +1,12 @@
+Dzień dobry, {{ buyer }},
+
+w załączniku przesyłamy ofertę {{ number }} na kwotę {{ gross }} (PDF).
+
+{% if valid_until %}
+Oferta jest ważna do dnia {{ valid_until }}.
+
+{% endif %}
+W razie pytań lub chęci wprowadzenia zmian prosimy o kontakt. Będziemy wdzięczni za odpowiedź.
+
+Z poważaniem
+{{ company }}
