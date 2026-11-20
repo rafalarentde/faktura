@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace App\Domain;
 
 use App\Money\Money;
+use App\Money\Rounding;
 
 /**
  * Invoice totals. All arithmetic is exact integer arithmetic (no floats), rounding half-up.
@@ -116,7 +117,7 @@ final class Totals
         $whole = self::checked(self::checked($u1 * $line->qtyMilli) * $f);
         $whole = self::checked($whole + self::checked(self::checked($u0 * $q1) * $f));
         $tail = $u0 * $q0 * $f; // < 10^7 * 10^7 * 10^4 = 10^18, fits
-        return self::checked($whole + self::divHalfUp($tail, $d));
+        return self::checked($whole + Rounding::divHalfUp($tail, $d));
     }
 
     /**
@@ -130,7 +131,7 @@ final class Totals
         $q = intdiv($vatMinor, $rateScaled);
         $r = $vatMinor % $rateScaled;          // < 10^12
         $rm = $r * self::RATE_SCALE;           // < 10^18, fits
-        return self::checked(self::checked($q * self::RATE_SCALE) + self::divHalfUp($rm, $rateScaled));
+        return self::checked(self::checked($q * self::RATE_SCALE) + Rounding::divHalfUp($rm, $rateScaled));
     }
 
     /**
@@ -148,12 +149,6 @@ final class Totals
             throw new \InvalidArgumentException('Exchange rate must be greater than zero.');
         }
         return $scaled;
-    }
-
-    /** round_half_up($n / $d) for $n >= 0, $d > 0 and $d <= 10^12 (so the remainder doubled cannot overflow). */
-    private static function divHalfUp(int $n, int $d): int
-    {
-        return intdiv($n, $d) + (($n % $d) * 2 >= $d ? 1 : 0);
     }
 
     /** PHP turns int overflow into float; detect that. */
