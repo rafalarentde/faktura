@@ -9,6 +9,7 @@
     actions   optional buttons right of the heading (rendered only when defined)
     content   page body
     promo     partner banner slot; rendered only when config promo_enabled is truthy
+    scripts   extra external <script src> tags for one page (e.g. invoice.js, with defer)
 
   Layout data comes from the shell() Twig function (App\Http\Shell), so controllers pass
   nothing extra. No inline style/script/event handlers anywhere (CSP).
@@ -25,6 +26,7 @@
     <title>{% block title %}{% endblock %} · Faktura</title>
     <link rel="stylesheet" href="{{ asset('/assets/app.css') }}">
     <script src="{{ asset('/assets/app.js') }}"></script>
+    {% block scripts %}{% endblock %}
 </head>
 <body>
 <div class="app">

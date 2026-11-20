@@ -145,6 +145,8 @@ final class DocumentRepoTest extends TestCase
         $this->assertSame(2, $repo->count($both));
         $this->assertSame([$o1], array_column($repo->list(['types' => ['offer']]), 'id'));
         $this->assertSame([$i1], array_column($repo->list($both + ['status' => 'issued']), 'id'));
+        $this->assertSame([$cn], array_column($repo->list(['related_document_id' => $i1]), 'id'));
+        $this->assertSame([], $repo->list(['related_document_id' => $o1]));
         foreach ([[], ['invoice', 'bogus'], ['invoice', ['x']], 'invoice'] as $bad) {
             $this->assertSame([], $repo->list(['types' => $bad]), var_export($bad, true));
             $this->assertSame(0, $repo->count(['types' => $bad]));

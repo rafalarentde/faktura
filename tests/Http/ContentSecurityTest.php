@@ -83,6 +83,51 @@ final class ContentSecurityTest extends HttpTestCase
         $this->assertSame(403, $pages['no_company']->status);
     }
 
+    /** Invoice pages (Task 16): list, step 1, editor states, re-render, issued view, credit note, JSON. */
+    public function test_invoice_pages_have_no_inline_markup(): void
+    {
+        $u = $this->createUser('inv@example.com');
+        $c = $this->createCompany('Inv GmbH');
+        $this->addMember($u['id'], $c);
+        $this->db->exec("INSERT INTO customers (company_id, name, country, is_company, vat_id, vies_status, default_currency) VALUES (?, 'Kowalski', 'PL', 1, 'PL1234567890', 'valid', 'PLN')", [$c]);
+        $pl = $this->db->lastId();
+        $this->db->exec("INSERT INTO customers (company_id, name, country, is_company, vat_id) VALUES (?, 'Nowak', 'PL', 1, 'PL999')", [$c]);
+        $unverified = $this->db->lastId();
+        $this->loginFully($u['secret'], 'inv@example.com');
+        $line = ['name' => 'Beratung', 'description' => '', 'qty' => '2', 'unit' => 'hour', 'price' => '450,00', 'discount' => '', 'vat_bp' => '1900', 'item_id' => ''];
+        $form = fn (int $customer, array $over = []): array => $over + ['customer_id' => (string) $customer, 'lang' => 'de', 'currency' => 'EUR',
+            'eur_rate' => '', 'issue_date' => '', 'service_date' => '', 'due_date' => '', 'intro_text' => '', 'outro_text' => '', 'notes' => '', 'lines' => [$line]];
+
+        $pages = [];
+        $pages['invoice_list_empty'] = $this->get('/invoices');
+        $pages['invoice_new'] = $this->get('/invoices/new');
+        $pages['invoice_new_rc'] = $this->app->handle(new \App\Core\Request('GET', '/invoices/new', query: ['customer_id' => (string) $pl], server: ['REMOTE_ADDR' => self::IP]));
+        $pages['invoice_422'] = $this->post('/invoices', $form($pl, ['currency' => 'PLN', 'lines' => [['price' => 'x'] + $line]]));
+        $pages['invoice_add_line'] = $this->post('/invoices', $form($pl) + ['add_line' => '1']);
+        $created = $this->post('/invoices', $form($unverified));
+        $id = (int) substr($created->headers['Location'] ?? '', strlen('/invoices/'));
+        $pages['invoice_draft_vies'] = $this->get("/invoices/$id");
+        $pages['invoice_issue_confirm'] = $this->post("/invoices/$id/issue", $form($unverified));
+        $this->post("/invoices/$id/issue", $form($unverified) + ['confirm_vat' => '1']);
+        $pages['invoice_issued'] = $this->get("/invoices/$id");
+        $pages['invoice_payment_error'] = $this->post("/invoices/$id/payments", ['amount' => 'x', 'paid_on' => '']);
+        $cn = (int) substr($this->post("/invoices/$id/correct")->headers['Location'] ?? '', strlen('/invoices/'));
+        $pages['credit_note_draft'] = $this->get("/invoices/$cn");
+        $pages['invoice_list'] = $this->get('/invoices');
+
+        foreach ($pages as $name => $r) {
+            $this->assertStringContainsString('<html', $r->body, $name);
+            $this->assertSame(self::CSP, $r->headers['Content-Security-Policy'] ?? null, $name);
+            $this->assertNoInlineMarkup($name, $r->body);
+        }
+        $this->assertSame(200, $pages['invoice_issued']->status);
+        $this->assertSame(200, $pages['credit_note_draft']->status);
+        $this->assertSame(422, $pages['invoice_issue_confirm']->status);
+        $this->assertStringContainsString('src="/assets/invoice.js', $pages['invoice_draft_vies']->body);
+        $json = $this->post('/invoices/recalc', $form($pl));
+        $this->assertArrayNotHasKey('Content-Security-Policy', $json->headers);
+    }
+
     private function assertNoInlineMarkup(string $name, string $html): void
     {
         $this->assertDoesNotMatchRegularExpression('/\sstyle\s*=/i', $html, "$name: style attribute");

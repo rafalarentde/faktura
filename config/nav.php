@@ -16,7 +16,7 @@ declare(strict_types=1);
  */
 return [
     ['key' => 'dashboard', 'label' => 'nav.dashboard', 'path' => '/', 'icon' => 'home', 'enabled' => true, 'admin_only' => false],
-    ['key' => 'new_invoice', 'label' => 'nav.new_invoice', 'path' => '/invoices/new', 'match' => '/invoices', 'icon' => 'invoice', 'enabled' => false, 'admin_only' => false],
+    ['key' => 'new_invoice', 'label' => 'nav.invoices', 'path' => '/invoices', 'match' => '/invoices', 'icon' => 'invoice', 'enabled' => true, 'admin_only' => false],
     ['key' => 'offers', 'label' => 'nav.offers', 'path' => '/offers', 'icon' => 'offers', 'enabled' => false, 'admin_only' => false],
     ['key' => 'dunning', 'label' => 'nav.dunning', 'path' => '/dunning', 'icon' => 'alert', 'enabled' => false, 'admin_only' => false],
     ['separator' => true],

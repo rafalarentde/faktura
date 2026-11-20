@@ -45,7 +45,8 @@ final class DocumentRepo extends BaseRepo
     /**
      * Documents ordered by issue_date DESC, id DESC (drafts without a date come last).
      * Filters: type, types (non-empty list of types: any of them), status (unknown values match
-     * nothing; an empty or invalid types list matches nothing too), customer_id (int), q (number or
+     * nothing; an empty or invalid types list matches nothing too), customer_id (int),
+     * related_document_id (int: e.g. the credit notes of an invoice), q (number or
      * buyer name, substring, case-insensitive). Unknown filter keys are ignored.
      *
      * buyer_name is a snapshot too: issued documents show the name from the issue, drafts the
@@ -261,6 +262,10 @@ final class DocumentRepo extends BaseRepo
             }
             $conds[] = 'status = ?';
             $params[] = $filter['status'];
+        }
+        if (isset($filter['related_document_id'])) {
+            $conds[] = 'related_document_id = ?';
+            $params[] = (int) $filter['related_document_id'];
         }
         if (isset($filter['customer_id'])) {
             $conds[] = 'customer_id = ?';

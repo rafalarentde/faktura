@@ -1,0 +1,117 @@
+{#
+  Read-only view of an ISSUED invoice or credit note, built only from the stored snapshots, lines
+  and totals. There are no edit or delete controls. Block `document_actions` is the place for the
+  PDF and mail buttons (Tasks 17/18).
+#}
+{% extends 'layout.twig' %}
+{% block title %}{{ t('invoice.type_' ~ doc.type) }} {{ doc.number }}{% endblock %}
+{% block subtitle %}{{ doc.buyer }}{% if doc.issue_date %} · {{ doc.issue_date }}{% endif %}{% endblock %}
+{% block actions %}<a class="btn btn-ghost" href="/invoices">{{ t('invoice.back_to_list') }}</a>{% endblock %}
+{% block content %}
+{% import 'invoices/_macros.twig' as m %}
+{% if flash %}<p class="{{ flash.kind == 'warn' ? 'warn-box' : 'notice' }}" role="status">{{ flash.text }}</p>{% endif %}
+{% if errors.document is defined %}<p class="warn-box" role="alert">{{ errors.document }}</p>{% endif %}
+<section class="panel doc-head">
+    <div class="doc-chips">
+        <span class="chip chip-outline">{{ t('invoice.type_' ~ doc.type) }}</span>
+        <span class="chip {{ chip }}">{{ t('invoice.status_' ~ status) }}</span>
+    </div>
+    <dl class="doc-meta">
+        <div><dt>{{ t('table.number') }}</dt><dd class="mono">{{ doc.number }}</dd></div>
+        <div><dt>{{ t('invoice.date') }}</dt><dd>{{ doc.issue_date ?? '—' }}</dd></div>
+        <div><dt>{{ t('invoice.service_date') }}</dt><dd>{{ doc.service_date ?? '—' }}</dd></div>
+        {% if doc.type == 'invoice' %}<div><dt>{{ t('invoice.due_date') }}</dt><dd>{{ doc.due_date ?? '—' }}</dd></div>{% endif %}
+        <div><dt>{{ t('invoice.currency') }}</dt><dd>{{ doc.currency }}</dd></div>
+    </dl>
+    <div class="doc-actions" data-block="document_actions">{% block document_actions %}{% endblock %}</div>
+</section>
+
+<div class="inv-layout">
+    <div class="stack">
+        {% if summary %}
+            <section class="panel">
+                <div class="panel-head"><h2>{{ t('invoice.payments') }}</h2></div>
+                <dl class="doc-summary">
+                    <div><dt>{{ t('invoice.summary_gross') }}</dt><dd class="num">{{ summary.gross }}</dd></div>
+                    <div><dt>{{ t('invoice.summary_paid') }}</dt><dd class="num">{{ summary.paid }}</dd></div>
+                    <div><dt>{{ t('invoice.summary_credited') }}</dt><dd class="num">{{ summary.credited }}</dd></div>
+                    <div class="doc-balance"><dt>{{ t('invoice.summary_balance') }}</dt><dd class="num">{{ summary.balance }}</dd></div>
+                </dl>
+                <div class="tbl-wrap">
+                    <table class="table">
+                        <thead><tr><th>{{ t('invoice.payment_date') }}</th><th class="r">{{ t('invoice.payment_amount') }}</th><th>{{ t('invoice.payment_remark') }}</th></tr></thead>
+                        <tbody>
+                        {% for p in payments %}
+                            <tr><td>{{ p.date }}</td><td class="r num">{{ p.amount }}</td><td class="wrap">{{ p.note }}</td></tr>
+                        {% else %}
+                            <tr><td colspan="3" class="empty-row">{{ t('invoice.no_payments') }}</td></tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% if can_pay %}
+                    <form class="form-grid payment-form" method="post" action="/invoices/{{ doc.id }}/payments">
+                        {{ csrf_field() }}
+                        <h3 class="form-title">{{ t('invoice.add_payment') }}</h3>
+                        <div class="grid-3">
+                            <div class="field">
+                                <label for="p-amount">{{ t('invoice.payment_amount') }} ({{ doc.currency }})</label>
+                                <input id="p-amount" name="amount" value="{{ payment.amount }}" inputmode="decimal" autocomplete="off" maxlength="30" required{{ m.invalid('p-amount', errors.amount ?? null) }}>
+                                {{ m.err('p-amount', errors.amount ?? null) }}
+                            </div>
+                            <div class="field">
+                                <label for="p-date">{{ t('invoice.payment_date') }}</label>
+                                <input type="date" id="p-date" name="paid_on" value="{{ payment.paid_on }}" required{{ m.invalid('p-date', errors.paid_on ?? null) }}>
+                                {{ m.err('p-date', errors.paid_on ?? null) }}
+                            </div>
+                            <div class="field">
+                                <label for="p-note">{{ t('invoice.payment_remark') }}</label>
+                                <input id="p-note" name="note" value="{{ payment.note }}" maxlength="190"{{ m.invalid('p-note', errors.note ?? null) }}>
+                                {{ m.err('p-note', errors.note ?? null) }}
+                            </div>
+                        </div>
+                        <div class="form-actions"><button class="btn btn-primary" type="submit">{{ t('invoice.record_payment') }}</button></div>
+                    </form>
+                {% endif %}
+            </section>
+        {% endif %}
+
+        <section class="panel">
+            <div class="panel-head"><h2>{{ t('invoice.related') }}</h2></div>
+            <div class="panel-body">
+                {% if related %}
+                    <p>{{ t('invoice.original_invoice') }}: <a class="strong-link" href="/invoices/{{ related.id }}">{{ related.number }}</a>{% if related.date %} · {{ related.date }}{% endif %}</p>
+                {% endif %}
+                {% if doc.type == 'invoice' %}
+                    {% if credit_notes %}
+                        <ul class="plain-list">
+                        {% for cn in credit_notes %}
+                            <li><a class="strong-link" href="/invoices/{{ cn.id }}">{{ cn.number ?: t('invoice.draft_number') }}</a> · {{ t('invoice.type_credit_note') }}{% if cn.date %} · {{ cn.date }}{% endif %} · <span class="num">{{ cn.amount }}</span>{% if cn.status == 'draft' %} <span class="chip chip-draft">{{ t('invoice.status_draft') }}</span>{% endif %}</li>
+                        {% endfor %}
+                        </ul>
+                    {% else %}
+                        <p class="hint">{{ t('invoice.no_credit_notes') }}</p>
+                    {% endif %}
+                    {% if can_correct %}
+                        <form class="inline-form" method="post" action="/invoices/{{ doc.id }}/correct">
+                            {{ csrf_field() }}
+                            <button class="btn" type="submit">{{ t('invoice.create_correction') }}</button>
+                        </form>
+                        <p class="hint">{{ t('invoice.correction_hint') }}</p>
+                    {% endif %}
+                {% endif %}
+            </div>
+        </section>
+
+        {% if doc.notes %}
+            <section class="panel">
+                <div class="panel-head"><h2>{{ t('invoice.notes') }}</h2></div>
+                <p class="panel-body pre-line">{{ doc.notes }}</p>
+            </section>
+        {% endif %}
+    </div>
+    <aside class="paper-col">
+        {% include 'invoices/_paper.twig' %}
+    </aside>
+</div>
+{% endblock %}

@@ -1,0 +1,10 @@
+{# Totals block (UI language). Input: `totals` (InvoiceController::totalsView) or null.
+   invoice.js updates the [data-total] cells and the VAT rows from POST /invoices/recalc. #}
+<div class="totals" id="invoice-totals" aria-live="polite" aria-atomic="true" data-totals>
+    <div class="totals-row"><span>{{ t('invoice.net') }}</span><span class="num" data-total="net">{{ totals ? totals.net : '—' }}</span></div>
+    <div class="totals-vat" data-total-vat>
+        {% if totals %}{% for v in totals.vat %}<div class="totals-row"><span>{{ v.label }}</span><span class="num">{{ v.amount }}</span></div>{% endfor %}{% endif %}
+    </div>
+    <div class="totals-row totals-gross"><span>{{ t('invoice.total') }}</span><span class="num" data-total="gross">{{ totals ? totals.gross : '—' }}</span></div>
+    <div class="totals-row totals-eur" data-total-row="vat_eur"{% if not (totals and totals.vat_eur) %} hidden{% endif %}><span>{{ t('invoice.vat_in_eur') }}</span><span class="num" data-total="vat_eur">{{ totals and totals.vat_eur ? totals.vat_eur : '' }}</span></div>
+</div>

@@ -6,6 +6,7 @@ use App\Http\AdminController;
 use App\Http\AuthController;
 use App\Http\CustomerController;
 use App\Http\DashboardController;
+use App\Http\InvoiceController;
 use App\Http\ItemController;
 use App\Http\Middleware\RequireAdmin;
 use App\Http\Middleware\RequireCompany;
@@ -61,6 +62,20 @@ return function (App $app, RouteCollector $r): void {
     $r->addRoute('POST', '/items', $item('create'));
     $r->addRoute('POST', '/items/{id:\d+}', $item('update'));
     $r->addRoute('POST', '/items/{id:\d+}/active', $item('active'));
+
+    // Invoices and credit notes (Task 16). Credit notes use the same routes; offers get their own
+    // routes (Task 19). /invoices/recalc returns JSON live totals (CSRF via X-CSRF-Token header).
+    $invoice = fn (string $method) => $app->protect([InvoiceController::class, $method], [RequireCompany::class]);
+    $r->addRoute('GET', '/invoices', $invoice('index'));
+    $r->addRoute('GET', '/invoices/new', $invoice('newForm'));
+    $r->addRoute('POST', '/invoices', $invoice('create'));
+    $r->addRoute('POST', '/invoices/recalc', $invoice('recalc'));
+    $r->addRoute('GET', '/invoices/{id:\d+}', $invoice('show'));
+    $r->addRoute('POST', '/invoices/{id:\d+}/save', $invoice('save'));
+    $r->addRoute('POST', '/invoices/{id:\d+}/issue', $invoice('issue'));
+    $r->addRoute('POST', '/invoices/{id:\d+}/delete', $invoice('delete'));
+    $r->addRoute('POST', '/invoices/{id:\d+}/payments', $invoice('payments'));
+    $r->addRoute('POST', '/invoices/{id:\d+}/correct', $invoice('correct'));
 
     // Settings: company/dunning/mail/logo are owner-only (checked in the controller, 403 for
     // role 'user'); the security tab is personal. The logo is served only for the context company.
