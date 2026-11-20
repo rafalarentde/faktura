@@ -23,6 +23,8 @@ final class ItemRepo extends BaseRepo
     public function raise(int $id, string $column, int $value): int { return $this->scopedRaise('scoped_items', $id, $column, $value); }
     public function bumpMax(int $id, int $max): int { return $this->scopedIncrement('scoped_items', $id, 'qty', 1, $max); }
     public function onTable(string $table): ?array { return $this->scopedOne($table, 1); }
+    public function report(array $q, string $orderBy = '', ?int $limit = null, int $offset = 0): array { return $this->scopedReport($q, $orderBy, $limit, $offset); }
+    public function reportCount(array $q): int { return $this->scopedReportCount($q); }
 }
 
 final class IsolationTest extends TestCase
@@ -205,6 +207,64 @@ final class IsolationTest extends TestCase
             }
         }
         $this->assertSame(['a-item'], array_column($this->repoA->all("name = 'it''s (x)' OR (name = ? AND 1=1)", ['a-item']), 'name'));
+    }
+
+    /** @return array<string, mixed> a report of items with the summed qty of same-named items (sub query) */
+    private function reportSpec(array $over = []): array
+    {
+        return $over + ['table' => 'scoped_items', 'alias' => 'i', 'columns' => 'i.id, i.name, i.qty',
+            'subs' => ['same_qty' => ['scoped_items', 's', 'COALESCE(SUM(s.qty), 0)', 's.name = i.name']],
+            'computed' => ['big' => 'CASE WHEN same_qty > 5 AND name = ? THEN 1 ELSE 0 END'], 'computed_params' => ['same']];
+    }
+
+    public function test_report_is_company_scoped_on_every_level(): void
+    {
+        $this->db->exec("UPDATE scoped_items SET name = 'same', qty = 7");
+        $rows = $this->repoA->report($this->reportSpec());
+        $this->assertSame([[$this->itemA, 7, 1]], array_map(fn (array $r): array => [(int) $r['id'], (int) $r['same_qty'], (int) $r['big']], $rows),
+            "B's row of the same name is neither listed nor summed");
+        $this->assertSame(1, $this->repoA->reportCount($this->reportSpec()));
+        $this->assertSame([], $this->repoA->report($this->reportSpec(['outer_where' => 'big = ?', 'outer_params' => [0]])));
+        $this->assertSame(0, $this->repoA->reportCount($this->reportSpec(['where' => 'i.id = ?', 'params' => [$this->itemB]])));
+    }
+
+    public function test_report_fragments_cannot_reach_other_tables_or_break_out(): void
+    {
+        $bad = [
+            ['columns' => 'i.id, (SELECT name FROM scoped_items) AS x'],
+            ['columns' => 'i.id, ? AS x'],
+            ['where' => '1=1) OR (1=1'],
+            ['where' => '1=0 UNION SELECT 1'],
+            ['where' => 'i.id IN (SELECT id FROM scoped_items)'],
+            ['outer_where' => '1=1; DELETE'],
+            ['outer_where' => 'id IN (SELECT id FROM scoped_items)'],
+            ['computed' => ['x' => '(SELECT 1 FROM scoped_items LIMIT 1)']],
+            ['subs' => ['x' => ['scoped_items', 's', 'COUNT(*)', 's.id = ?']]],
+            ['subs' => ['x' => ['scoped_items', 's', 'COUNT(*)', '1=1 -- ']]],
+            ['subs' => ['x' => ['scoped_items s JOIN companies', 's', 'COUNT(*)', '1=1']]],
+            ['subs' => ['x y' => ['scoped_items', 's', 'COUNT(*)', '1=1']]],
+            ['table' => 'scoped_items i, companies'],
+            ['alias' => 'i WHERE 1=1 OR'],
+            ['columns' => ''],
+        ];
+        foreach ($bad as $over) {
+            foreach ([fn () => $this->repoA->report($this->reportSpec($over)), fn () => $this->repoA->reportCount($this->reportSpec($over))] as $call) {
+                try {
+                    $call();
+                    $this->fail('Accepted: ' . json_encode($over));
+                } catch (\InvalidArgumentException) {
+                    $this->addToAssertionCount(1);
+                }
+            }
+        }
+        foreach (['id; --', 'name DESC, (SELECT 1)'] as $order) {
+            try {
+                $this->repoA->report($this->reportSpec(), $order);
+                $this->fail("Order accepted: $order");
+            } catch (\InvalidArgumentException) {
+                $this->addToAssertionCount(1);
+            }
+        }
     }
 
     public function test_trailing_newline_in_identifiers_is_rejected(): void

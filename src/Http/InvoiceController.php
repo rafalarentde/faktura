@@ -8,6 +8,7 @@ use App\Core\Response;
 use App\Domain\DocType;
 use App\Domain\ValidationException;
 use App\Money\AmountParser;
+use App\Repo\DocumentRepo;
 use App\Repo\EmailLogRepo;
 
 /**
@@ -22,7 +23,6 @@ use App\Repo\EmailLogRepo;
 final class InvoiceController extends AbstractDocumentController
 {
     private const LIST_TYPES = [DocType::INVOICE, DocType::CREDIT_NOTE];
-    private const PAYMENT_STATUSES = ['open', 'partial', 'overdue', 'paid', 'credited'];
     private const STATUS_FILTERS = ['draft', 'open', 'partial', 'overdue', 'paid', 'credited', 'issued'];
     private const CHIPS = ['draft' => 'chip-draft', 'open' => 'chip-sent', 'partial' => 'chip-soon', 'overdue' => 'chip-late',
         'paid' => 'chip-ok', 'credited' => 'chip-draft', 'issued' => 'chip-sent'];
@@ -67,20 +67,16 @@ final class InvoiceController extends AbstractDocumentController
         $filter += $type === '' ? ['types' => self::LIST_TYPES] : ['type' => $type];
         $today = $this->now();
         $service = $this->service();
-        if (in_array($status, self::PAYMENT_STATUSES, true)) {
-            // Payment states are computed per invoice (DocumentService::paymentSummary).
-            $matching = [];
-            // Only invoices have payment states (a type=credit_note filter gives no rows).
-            $candidates = $type === DocType::CREDIT_NOTE ? [] : $this->docs()->list(['type' => DocType::INVOICE, 'status' => 'issued', 'q' => $q]);
-            foreach ($candidates as $doc) {
-                $summary = $service->paymentSummary((int) $doc['id'], $today);
-                if ($summary['status'] === $status) {
-                    $matching[] = [$doc, $summary];
-                }
-            }
-            $total = count($matching);
+        if (in_array($status, DocumentRepo::PAYMENT_STATUSES, true)) {
+            // R27: payment states of issued invoices from the ONE aggregate query (same semantics as
+            // paymentSummary). Only invoices have payment states (a type=credit_note filter gives no rows).
+            $filterP = ['status' => $status, 'q' => $q];
+            $total = $type === DocType::CREDIT_NOTE ? 0 : $this->docs()->paymentCount($filterP, $today);
             $page = $query->clampedPage($total);
-            $slice = array_slice($matching, ($page - 1) * ListQuery::PER_PAGE, ListQuery::PER_PAGE);
+            $slice = $total === 0 ? [] : array_map(
+                fn (array $r): array => [$r, ['status' => $r['pay_status']]],
+                $this->docs()->paymentRows($filterP, $today, ListQuery::PER_PAGE, ($page - 1) * ListQuery::PER_PAGE, 'issued')
+            );
         } else {
             if ($status !== '') {
                 $filter['status'] = $status === 'draft' ? 'draft' : 'issued';

@@ -947,8 +947,10 @@ final class DocumentServiceTest extends TestCase
         $this->assertSame([
             // Task 19: offers. setOfferStatus/markOfferSent change only offer_status of an issued offer
             // (DocumentRepo::updateOfferStatus); convertOffer creates a draft; offerStatus is a pure function.
-            'addPayment', 'balanceMinor', 'convertOffer', 'createCorrection', 'createDraft', 'deleteDraft', 'issue',
-            'markOfferSent', 'offerStatus', 'paymentStatus', 'paymentSummary', 'setOfferStatus', 'totalsFor', 'updateDraft',
+            // Task 21: createDunning creates AND issues a new dunning letter (never changes an existing
+            // document); dunningContext/dunningQuote only read.
+            'addPayment', 'balanceMinor', 'convertOffer', 'createCorrection', 'createDraft', 'createDunning', 'deleteDraft', 'dunningContext',
+            'dunningQuote', 'issue', 'markOfferSent', 'offerStatus', 'paymentStatus', 'paymentSummary', 'setOfferStatus', 'totalsFor', 'updateDraft',
         ], $svc);
         foreach ($methods(DocumentRepo::class) as $name) {
             $this->assertDoesNotMatchRegularExpression('/payment.*(update|delete|remove|edit)|(update|delete|remove|edit).*payment/i', $name);

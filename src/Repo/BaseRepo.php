@@ -82,6 +82,105 @@ abstract class BaseRepo
         return (int) ($row['c'] ?? 0);
     }
 
+    /**
+     * Read-only aggregate report over ONE tenant table (R27), company-scoped at every level:
+     *
+     *   SELECT * FROM (
+     *     SELECT r.*, <computed> FROM (
+     *       SELECT <columns>, (SELECT <sub expr> FROM `<sub table>` AS <sub alias>
+     *                          WHERE <sub alias>.company_id = ? AND (<sub where>)) AS `<name>`, ...
+     *       FROM `<table>` AS <alias> WHERE <alias>.company_id = ? AND (<where>)
+     *     ) AS r
+     *   ) AS x WHERE (<outer where>) ORDER BY ... LIMIT ...
+     *
+     * $q keys: table, alias, columns (select list over the alias), where + params, subs (name =>
+     * [table, alias, expr, where]: correlated scalar subqueries; the helper adds and binds the
+     * `company_id = ?` of the sub table itself), computed (name => expression over the inner
+     * columns) + computed_params, outer_where + outer_params (filter over all columns).
+     *
+     * Every fragment must be a code literal and passes the same checks as a scopedAll WHERE; in
+     * addition no fragment may contain SELECT, FROM or JOIN (so another table can only be reached
+     * through `subs`, which are always scoped), and only where/computed/outer_where may contain `?`
+     * (sub queries and the select list carry no user values). Identifiers are validated.
+     *
+     * @param array<string, mixed> $q
+     * @return list<array<string, mixed>>
+     */
+    protected function scopedReport(array $q, string $orderBy = '', ?int $limit = null, int $offset = 0): array
+    {
+        [$sql, $params] = $this->reportSql($q);
+        $sql = "SELECT * FROM ($sql) AS x WHERE (" . $this->fragment((string) ($q['outer_where'] ?? '1=1'), true) . ')';
+        if ($orderBy !== '') {
+            $sql .= ' ORDER BY ' . $this->orderBy($orderBy);
+        }
+        if ($limit !== null) {
+            if ($limit < 0 || $offset < 0) {
+                throw new \InvalidArgumentException('Invalid LIMIT/OFFSET.');
+            }
+            $sql .= ' LIMIT ' . $limit . ' OFFSET ' . $offset;
+        } elseif ($offset !== 0) {
+            throw new \InvalidArgumentException('OFFSET requires LIMIT.');
+        }
+        return $this->db->all($sql, [...$params, ...array_values($q['outer_params'] ?? [])]);
+    }
+
+    /** Number of rows scopedReport($q) would return without LIMIT. @param array<string, mixed> $q */
+    protected function scopedReportCount(array $q): int
+    {
+        [$sql, $params] = $this->reportSql($q);
+        $row = $this->db->one(
+            "SELECT COUNT(*) AS c FROM ($sql) AS x WHERE (" . $this->fragment((string) ($q['outer_where'] ?? '1=1'), true) . ')',
+            [...$params, ...array_values($q['outer_params'] ?? [])]
+        );
+        return (int) ($row['c'] ?? 0);
+    }
+
+    /**
+     * @param array<string, mixed> $q
+     * @return array{0: string, 1: list<scalar|null>} the inner two levels and their parameters (in text order)
+     */
+    private function reportSql(array $q): array
+    {
+        $t = $this->ident((string) ($q['table'] ?? ''));
+        $a = $this->ident((string) ($q['alias'] ?? ''));
+        $select = [$this->fragment((string) ($q['columns'] ?? ''), false)];
+        $subParams = [];
+        foreach ($q['subs'] ?? [] as $name => [$subTable, $subAlias, $expr, $where]) {
+            $st = $this->ident((string) $subTable);
+            $sa = $this->ident((string) $subAlias);
+            $select[] = '(SELECT ' . $this->fragment((string) $expr, false) . " FROM `$st` AS $sa WHERE $sa.company_id = ? AND ("
+                . $this->fragment((string) $where, false) . ')) AS `' . $this->ident((string) $name) . '`';
+            $subParams[] = $this->ctx->id();
+        }
+        $inner = 'SELECT ' . implode(', ', $select) . " FROM `$t` AS $a WHERE $a.company_id = ? AND ("
+            . $this->fragment((string) ($q['where'] ?? '1=1'), true) . ')';
+        $innerParams = [...$subParams, $this->ctx->id(), ...array_values($q['params'] ?? [])];
+        $computed = [];
+        foreach ($q['computed'] ?? [] as $name => $expr) {
+            $computed[] = $this->fragment((string) $expr, true) . ' AS `' . $this->ident((string) $name) . '`';
+        }
+        if ($computed === []) {
+            return [$inner, $innerParams];
+        }
+        return [
+            'SELECT r.*, ' . implode(', ', $computed) . " FROM ($inner) AS r",
+            [...array_values($q['computed_params'] ?? []), ...$innerParams],
+        ];
+    }
+
+    /** A literal SQL fragment of a report (see scopedReport). */
+    private function fragment(string $sql, bool $paramsAllowed): string
+    {
+        if (trim($sql) === '') {
+            throw new \InvalidArgumentException('Empty SQL fragment.');
+        }
+        $this->checkWhere($sql);
+        if (preg_match('/\b(SELECT|FROM|JOIN)\b/i', $sql) === 1 || (!$paramsAllowed && str_contains($sql, '?'))) {
+            throw new \InvalidArgumentException('Forbidden token in report fragment.');
+        }
+        return $sql;
+    }
+
     /** Inserts $row with company_id forced to the context company; returns the new id. */
     protected function scopedInsert(string $table, array $row): int
     {

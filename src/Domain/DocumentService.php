@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace App\Domain;
 
 use App\Core\Db;
+use App\Money\Money;
 use App\Repo\CustomerRepo;
 use App\Repo\DocumentRepo;
 use App\Tenant\CompanyContext;
@@ -76,6 +77,8 @@ final class DocumentService
     public const OFFER_STATUSES = ['open', 'sent', 'accepted', 'rejected'];
     private const OFFER_OPEN = 'open';
     private const OFFER_VALID_DAYS = 30;
+    /** A dunning letter asks for payment within this many days of its issue date (R33: fixed for now). */
+    public const DUNNING_PAY_DAYS = 7;
     private const TEXT_FIELDS = ['intro_text', 'outro_text', 'notes'];
     private const DATE_FIELDS = ['issue_date', 'service_date', 'due_date', 'valid_until'];
     private const INPUT_FIELDS = ['customer_id', 'lang', 'currency', 'eur_rate', 'issue_date', 'service_date', 'due_date',
@@ -574,6 +577,247 @@ final class DocumentService
         }
         $this->docs->updateOfferStatus($id, $status, $this->nowUtc());
         $this->audit('document.offer_status', ['document_id' => $id, 'from' => $from, 'to' => $status]);
+    }
+
+    // ---- dunning letters (Task 21, R33) ----
+
+    /**
+     * What can be dunned for an ISSUED invoice right now (plain reads, no side effects): the
+     * invoice facts, the OUTSTANDING balance (gross - payments - issued credit notes), days overdue
+     * on the Berlin date of $at, the last issued dunning level, the levels still allowed (strictly
+     * higher), the suggestion (Dunning::suggest) and which extras are available.
+     *
+     * @return array<string, mixed> keys: invoice_id, number, invoice_date, due_date, currency,
+     *   lang, buyer_name, is_company, gross_minor, paid_minor, credited_minor, outstanding_minor,
+     *   days_overdue, last_level (?DunningLevel), last_date (?string), levels (list<DunningLevel>),
+     *   suggested (?DunningLevel), base_rate_set, interest_rate_bp (?int, annual rate for this buyer),
+     *   flat_fee_allowed, flat_fee_setting_minor, fee_allowed, fee_setting_minor, can_issue, today ('Y-m-d'), pay_by,
+     *   settings (DunningSettings)
+     * @throws DocumentNotFound unknown id, another company's document, not an invoice
+     * @throws ValidationException ['invoice' => dunning.err_not_issued | err_credited | err_paid | err_not_overdue | err_final_reached]
+     */
+    public function dunningContext(int $invoiceId, ?\DateTimeImmutable $at = null): array
+    {
+        $invoice = $this->docs->row($invoiceId) ?? throw new DocumentNotFound();
+        $base = $this->dunningBase($invoice, false, $at ?? $this->clockNow());
+        if ($base['levels'] === []) {
+            throw new ValidationException(['invoice' => 'dunning.err_final_reached']);
+        }
+        return $base;
+    }
+
+    /**
+     * The dunning letter createDunning() would store for these inputs now, without writing anything
+     * (the on-screen preview). Same checks and the same computation as createDunning().
+     *
+     * @return array<string, mixed> dunningContext() plus level, interest_minor, interest_days,
+     *   interest_rate_bp, flat_fee_minor, fee_minor (each null when not charged), claim_minor, issue_date
+     * @throws DocumentNotFound|ValidationException as dunningContext(), plus level | interest | flat_fee | fee | invoice (err_overflow)
+     */
+    public function dunningQuote(int $invoiceId, DunningLevel $level, bool $withInterest, bool $withFlatFee, bool $withFee, ?\DateTimeImmutable $at = null): array
+    {
+        $base = $this->dunningContext($invoiceId, $at);
+        return $this->dunningAmounts($base, $level, $withInterest, $withFlatFee, $withFee) + $base;
+    }
+
+    /**
+     * Creates AND issues a dunning letter for an overdue invoice (R33): numbered from the 'dunning'
+     * sequence, immutable, buyer snapshot copied from the invoice, seller snapshot = company data
+     * now, amounts in the dunning_* columns (net/vat/gross stay 0, so no revenue report counts it).
+     * Interest, flat fee and fee only when their flag is true AND they are allowed; never silently.
+     * Nothing is sent here. Returns the new document id.
+     *
+     * ONE transaction: the invoice row is locked FIRST (the first statement), then its payments,
+     * credit notes and dunning letters are read with locking reads, every check runs (no counter is
+     * consumed by a refusal), then the new document row is written and NumberSequences::next draws
+     * the number (R24 collision retry as for every issue).
+     *
+     * @throws DocumentNotFound|AccessSuspended|ValidationException (see dunningQuote)
+     */
+    public function createDunning(int $invoiceId, DunningLevel $level, bool $withInterest, bool $withFlatFee, bool $withFee, ?\DateTimeImmutable $at = null): int
+    {
+        $at ??= $this->clockNow();
+        return $this->db->transaction(function () use ($invoiceId, $level, $withInterest, $withFlatFee, $withFee, $at): int {
+            $invoice = $this->docs->lockedFind($invoiceId) ?? throw new DocumentNotFound();
+            if ($invoice['type'] !== DocType::INVOICE) {
+                throw new DocumentNotFound();
+            }
+            if (!$this->ctx->canIssue($at)) {
+                throw new AccessSuspended();
+            }
+            $base = $this->dunningBase($invoice, true, $at);
+            $q = $this->dunningAmounts($base, $level, $withInterest, $withFlatFee, $withFee);
+            $seller = self::sellerSnapshot($this->docs->company());
+            if (!self::validUtf8($seller)) {
+                throw new ValidationException(['company' => 'document.err_encoding']);
+            }
+            // R30-style relaxed gate (a dunning letter is no tax invoice): both names.
+            self::assertMandatoryParties($seller, (array) $invoice['buyer'], false, true);
+
+            $now = $this->nowUtc();
+            $id = $this->docs->insertDraft([
+                'type' => DocType::DUNNING, 'related_document_id' => $invoiceId, 'customer_id' => $invoice['customer_id'],
+                'lang' => $invoice['lang'], 'currency' => $invoice['currency'], 'reverse_charge' => 0, 'buyer_name' => $invoice['buyer_name'],
+                'net_minor' => 0, 'vat_minor' => 0, 'gross_minor' => 0, 'created_by' => $this->ctx->userId(), 'created_at' => $now, 'updated_at' => $now,
+            ]);
+            $number = $this->writeWithNumber($id, DocType::DUNNING, new \DateTimeImmutable($base['today'], new \DateTimeZone('Europe/Berlin')), [
+                'status' => 'issued',
+                'issued_at' => $at->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d H:i:s'),
+                'issue_date' => $base['today'],
+                'seller_json' => self::json($seller),
+                'buyer_json' => self::json((array) $invoice['buyer']),
+                'dunning_level' => $level->value,
+                'dunning_outstanding_minor' => $base['outstanding_minor'],
+                'dunning_interest_minor' => $q['interest_minor'],
+                'dunning_interest_days' => $q['interest_days'],
+                'dunning_interest_rate_bp' => $q['interest_rate_bp'],
+                'dunning_flat_fee_minor' => $q['flat_fee_minor'],
+                'dunning_fee_minor' => $q['fee_minor'],
+                'dunning_claim_minor' => $q['claim_minor'],
+                'dunning_pay_by' => $base['pay_by'],
+                'updated_at' => $now,
+            ]);
+            $this->audit('document.dunning_create', ['document_id' => $id, 'invoice_id' => $invoiceId, 'level' => $level->value,
+                'interest' => $withInterest, 'flat_fee' => $withFlatFee, 'fee' => $withFee]);
+            return $id;
+        });
+    }
+
+    /**
+     * Eligibility and facts of an invoice for dunning (see dunningContext). With $lock the scans run
+     * as locking reads (inside createDunning's transaction, after the invoice lock).
+     *
+     * @param array<string, mixed> $invoice document row
+     * @return array<string, mixed>
+     */
+    private function dunningBase(array $invoice, bool $lock, \DateTimeImmutable $at): array
+    {
+        if ($invoice['type'] !== DocType::INVOICE) {
+            throw new DocumentNotFound();
+        }
+        if ($invoice['status'] !== 'issued') {
+            throw new ValidationException(['invoice' => 'dunning.err_not_issued']);
+        }
+        $id = (int) $invoice['id'];
+        $summary = $this->summary($invoice, $lock, null);
+        $last = null;
+        $lastDate = null;
+        foreach ($this->docs->issuedDunnings($id, $lock) as $d) {
+            $lvl = DunningLevel::tryFrom((int) $d['dunning_level']);
+            if ($lvl !== null && ($last === null || $lvl->value >= $last->value)) {
+                $last = $lvl;
+                $lastDate = $d['issue_date'];
+            }
+        }
+        $today = $this->berlin($at)->format('Y-m-d');
+        $days = $invoice['due_date'] === null ? 0 : Dunning::daysOverdue((string) $invoice['due_date'], $at);
+        if ($summary['credited_minor'] > 0 && $summary['credited_minor'] >= $invoice['gross_minor']) {
+            throw new ValidationException(['invoice' => 'dunning.err_credited']);
+        }
+        if ($summary['balance_minor'] <= 0) {
+            throw new ValidationException(['invoice' => 'dunning.err_paid']);
+        }
+        if ($days < 1) {
+            throw new ValidationException(['invoice' => 'dunning.err_not_overdue']);
+        }
+        // Empty after the final level: createDunning() then refuses any level (err_level_not_higher).
+        $levels = array_values(array_filter(DunningLevel::cases(), fn (DunningLevel $l): bool => $last === null || $l->value > $last->value));
+        $settings = DunningSettings::fromCompanyRow($this->docs->company());
+        $isCompany = (int) (((array) $invoice['buyer'])['is_company'] ?? 0) === 1;
+        $currency = (string) $invoice['currency'];
+        $feesAllowed = Dunning::feesAllowedFor($currency);
+        return [
+            'invoice_id' => $id,
+            'number' => (string) $invoice['number'],
+            'invoice_date' => (string) $invoice['issue_date'],
+            'due_date' => (string) $invoice['due_date'],
+            'currency' => $currency,
+            'lang' => (string) $invoice['lang'],
+            'buyer_name' => (string) ($invoice['buyer_name'] ?? ''),
+            'is_company' => $isCompany,
+            'gross_minor' => (int) $invoice['gross_minor'],
+            'paid_minor' => $summary['paid_minor'],
+            'credited_minor' => $summary['credited_minor'],
+            'outstanding_minor' => $summary['balance_minor'],
+            'days_overdue' => $days,
+            'last_level' => $last,
+            'last_date' => $lastDate,
+            'levels' => $levels,
+            'suggested' => Dunning::suggest($days, $last, $settings),
+            'settings' => $settings,
+            'base_rate_set' => $settings->baseRateBp !== null,
+            'interest_rate_bp' => Dunning::annualRateBp($settings, $isCompany),
+            'flat_fee_allowed' => $isCompany && $feesAllowed,
+            'flat_fee_setting_minor' => $settings->flatMinor,
+            'fee_allowed' => $feesAllowed && $settings->feeMinor > 0,
+            'fee_setting_minor' => $settings->feeMinor,
+            'can_issue' => $this->ctx->canIssue($at),
+            'today' => $today,
+            'pay_by' => (new \DateTimeImmutable($today))->modify('+' . self::DUNNING_PAY_DAYS . ' days')->format('Y-m-d'),
+        ];
+    }
+
+    /**
+     * The amounts of a dunning letter at $level from dunningBase(): interest from the OUTSTANDING
+     * balance for the days overdue on the issue date, flat fee / fee only when flagged AND allowed.
+     *
+     * @param array<string, mixed> $base
+     * @return array{level: DunningLevel, interest_minor: ?int, interest_days: ?int, interest_rate_bp: ?int, flat_fee_minor: ?int, fee_minor: ?int, claim_minor: int, issue_date: string}
+     * @throws ValidationException
+     */
+    private function dunningAmounts(array $base, DunningLevel $level, bool $withInterest, bool $withFlatFee, bool $withFee): array
+    {
+        if (!in_array($level, $base['levels'], true)) {
+            throw new ValidationException(['level' => 'dunning.err_level_not_higher']);
+        }
+        /** @var DunningSettings $s */
+        $s = $base['settings'];
+        $errors = [];
+        if ($withInterest && !$base['base_rate_set']) {
+            $errors['interest'] = 'dunning.err_no_base_rate';
+        }
+        if ($withFlatFee && !$base['flat_fee_allowed']) {
+            $errors['flat_fee'] = 'dunning.err_flat_fee_not_allowed';
+        }
+        if ($withFee && !$base['fee_allowed']) {
+            $errors['fee'] = 'dunning.err_fee_not_allowed';
+        }
+        if ($errors !== []) {
+            throw new ValidationException($errors);
+        }
+        $currency = (string) $base['currency'];
+        try {
+            $outstanding = Money::of((int) $base['outstanding_minor'], $currency);
+            $interest = null;
+            if ($withInterest) {
+                $surcharge = $base['is_company'] ? $s->b2bSurchargeBp : $s->b2cSurchargeBp;
+                $rate = $s->baseRateBp + $surcharge;
+                if (!is_int($rate)) {
+                    throw new \OverflowException('Rate overflows.');
+                }
+                $interest = Dunning::interest($outstanding, (int) $base['days_overdue'], $s->baseRateBp, $surcharge);
+            }
+            $flat = $withFlatFee ? Dunning::flatFee(true, $s) : null;
+            $fee = $withFee ? Dunning::fee($s) : null;
+            $claim = Dunning::claimTotal($outstanding, $interest, $flat, $fee);
+        } catch (\OverflowException) {
+            throw new ValidationException(['invoice' => 'dunning.err_overflow']);
+        }
+        return [
+            'level' => $level,
+            'interest_minor' => $interest?->minor(),
+            'interest_days' => $interest === null ? null : (int) $base['days_overdue'],
+            'interest_rate_bp' => $interest === null ? null : $base['interest_rate_bp'],
+            'flat_fee_minor' => $flat?->minor(),
+            'fee_minor' => $fee?->minor(),
+            'claim_minor' => $claim->minor(),
+            'issue_date' => (string) $base['today'],
+        ];
+    }
+
+    private function clockNow(): \DateTimeImmutable
+    {
+        return new \DateTimeImmutable('@' . ($this->clock)());
     }
 
     // ---- internals ----

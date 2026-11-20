@@ -27,9 +27,13 @@ final class DocumentRepo extends BaseRepo
     public const STATUSES = ['draft', 'issued'];
     /** Stored offer statuses (DocumentService::OFFER_STATUSES; 'expired' is computed, never stored). */
     private const OFFER_STATUSES = ['open', 'sent', 'accepted', 'rejected'];
+    /** Payment states of issued invoices (paymentRows; same values as DocumentService::paymentSummary). */
+    public const PAYMENT_STATUSES = ['open', 'partial', 'overdue', 'paid', 'credited'];
 
     private const DOC_INTS = ['id', 'company_id', 'reverse_charge', 'net_minor', 'vat_minor', 'gross_minor'];
-    private const DOC_NULLABLE_INTS = ['related_document_id', 'customer_id', 'vat_eur_minor', 'created_by'];
+    private const DOC_NULLABLE_INTS = ['related_document_id', 'customer_id', 'vat_eur_minor', 'created_by', 'dunning_level',
+        'dunning_outstanding_minor', 'dunning_interest_minor', 'dunning_interest_days', 'dunning_interest_rate_bp', 'dunning_flat_fee_minor',
+        'dunning_fee_minor', 'dunning_claim_minor'];
     private const LINE_INTS = ['id', 'company_id', 'document_id', 'position', 'qty_milli', 'unit_minor', 'discount_bp', 'vat_bp', 'net_minor'];
 
     /** @return array<string, mixed>|null the document with `lines`, `seller`, `buyer` */
@@ -78,6 +82,94 @@ final class DocumentRepo extends BaseRepo
     {
         [$where, $params] = $this->filterWhere($filter);
         return $this->scopedCount(self::DOCS, $where, $params);
+    }
+
+    /**
+     * R27: payment state of every ISSUED INVOICE in ONE aggregate query (no per-row lookups), with
+     * exactly the semantics of DocumentService::paymentSummary() on the Berlin date of $today:
+     * paid = SUM(payments), credited = SUM(ABS(gross)) of ISSUED credit notes of the invoice
+     * (drafts never count), balance = max(0, gross - paid - credited), pay_status =
+     * credited (credited > 0 and >= gross) | paid (balance 0) | overdue (due_date before today;
+     * due today is not overdue; wins over partial) | partial (paid > 0) | open.
+     * Also: last_dunning_level / last_dunning_date of the invoice's ISSUED dunning letters
+     * (type 'dunning', related_document_id = invoice; null when there is none).
+     * Drafts, offers, credit notes and dunning letters are never rows themselves.
+     *
+     * Filters: status (one of PAYMENT_STATUSES; anything else matches nothing), q (number or buyer
+     * name, as list()). Order: 'due' = due_date ASC, id ASC (dunning list, dashboard) or 'issued' =
+     * issue_date DESC, id DESC (invoice list). Every table is company-scoped (BaseRepo::scopedReport).
+     *
+     * Row keys: id, number, type, status, buyer_name, customer_id, currency, lang, reverse_charge,
+     * issue_date, due_date, gross_minor, paid_minor, credited_minor, balance_minor, pay_status,
+     * last_dunning_level (?int), last_dunning_date (?string).
+     *
+     * @param array<string, mixed> $filter
+     * @return list<array<string, mixed>>
+     */
+    public function paymentRows(array $filter, \DateTimeImmutable $today, ?int $limit = null, int $offset = 0, string $order = 'due'): array
+    {
+        $orders = ['due' => 'due_date ASC, id ASC', 'issued' => 'issue_date DESC, id DESC'];
+        if (!isset($orders[$order])) {
+            throw new \InvalidArgumentException('Unknown order.');
+        }
+        $q = $this->paymentQuery($filter, $today);
+        if ($q === null) {
+            return [];
+        }
+        return array_map(function (array $r): array {
+            $r = $this->ints($r, ['id', 'reverse_charge', 'gross_minor', 'paid_minor', 'credited_minor', 'balance_minor'], ['customer_id', 'last_dunning_level']);
+            $r['last_dunning_date'] = $r['last_dunning_date'] === null ? null : substr((string) $r['last_dunning_date'], 0, 10);
+            return $r;
+        }, $this->scopedReport($q, $orders[$order], $limit, $offset));
+    }
+
+    /** @param array<string, mixed> $filter same as paymentRows() */
+    public function paymentCount(array $filter, \DateTimeImmutable $today): int
+    {
+        $q = $this->paymentQuery($filter, $today);
+        return $q === null ? 0 : $this->scopedReportCount($q);
+    }
+
+    /**
+     * @param array<string, mixed> $filter
+     * @return array<string, mixed>|null the scopedReport spec, null when the filter matches nothing
+     */
+    private function paymentQuery(array $filter, \DateTimeImmutable $today): ?array
+    {
+        $outer = '1=1';
+        $outerParams = [];
+        if (array_key_exists('status', $filter)) {
+            if (!in_array($filter['status'], self::PAYMENT_STATUSES, true)) {
+                return null;
+            }
+            $outer = 'pay_status = ?';
+            $outerParams = [$filter['status']];
+        }
+        [$where, $params] = $this->filterWhere(['q' => $filter['q'] ?? null]);
+        $balance = 'CASE WHEN gross_minor - paid_minor - credited_minor > 0 THEN gross_minor - paid_minor - credited_minor ELSE 0 END';
+        return [
+            'table' => self::DOCS,
+            'alias' => 'd',
+            'columns' => 'd.id, d.number, d.type, d.status, d.buyer_name, d.customer_id, d.currency, d.lang, d.reverse_charge, d.issue_date, d.due_date, d.gross_minor',
+            'subs' => [
+                'paid_minor' => [self::PAYMENTS, 'p', 'COALESCE(SUM(p.amount_minor), 0)', 'p.document_id = d.id'],
+                'credited_minor' => [self::DOCS, 'c', 'COALESCE(SUM(ABS(c.gross_minor)), 0)', "c.type = 'credit_note' AND c.status = 'issued' AND c.related_document_id = d.id"],
+                'last_dunning_level' => [self::DOCS, 'm', 'MAX(m.dunning_level)', "m.type = 'dunning' AND m.status = 'issued' AND m.related_document_id = d.id"],
+                'last_dunning_date' => [self::DOCS, 'n', 'MAX(n.issue_date)', "n.type = 'dunning' AND n.status = 'issued' AND n.related_document_id = d.id"],
+            ],
+            'where' => "d.type = 'invoice' AND d.status = 'issued' AND ($where)",
+            'params' => $params,
+            'computed' => [
+                'balance_minor' => $balance,
+                'pay_status' => "CASE WHEN credited_minor > 0 AND credited_minor >= gross_minor THEN 'credited'"
+                    . " WHEN ($balance) = 0 THEN 'paid'"
+                    . " WHEN due_date IS NOT NULL AND due_date < ? THEN 'overdue'"
+                    . " WHEN paid_minor > 0 THEN 'partial' ELSE 'open' END",
+            ],
+            'computed_params' => [$today->setTimezone(new \DateTimeZone('Europe/Berlin'))->format('Y-m-d')],
+            'outer_where' => $outer,
+            'outer_params' => $outerParams,
+        ];
     }
 
     /**
@@ -131,6 +223,24 @@ final class DocumentRepo extends BaseRepo
         return array_map(fn (array $r): array => $this->normalize($r), $this->scopedAll(
             self::DOCS,
             "type = 'credit_note' AND status = 'issued' AND related_document_id = ?",
+            [$invoiceId],
+            'id ASC',
+            null,
+            0,
+            $lock
+        ));
+    }
+
+    /**
+     * Issued dunning letters of an invoice, oldest first (locking read when $lock).
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function issuedDunnings(int $invoiceId, bool $lock = false): array
+    {
+        return array_map(fn (array $r): array => $this->normalize($r), $this->scopedAll(
+            self::DOCS,
+            "type = 'dunning' AND status = 'issued' AND related_document_id = ?",
             [$invoiceId],
             'id ASC',
             null,
