@@ -132,6 +132,25 @@ final class DocumentRepoTest extends TestCase
         $this->assertIsArray($repo->list()[0]['buyer']);
     }
 
+    public function test_list_filter_by_several_types(): void
+    {
+        $anna = $this->customer($this->companyA, 'Anna');
+        $i1 = $this->draft($this->companyA, $anna);
+        $o1 = $this->draft($this->companyA, $anna, [], [], 'offer');
+        $this->svc($this->companyA)->issue($i1, $this->at('2026-11-20'));
+        $cn = $this->svc($this->companyA)->createCorrection($i1);
+        $repo = $this->repo($this->companyA);
+        $both = ['types' => ['invoice', 'credit_note']];
+        $this->assertSame([$i1, $cn], array_column($repo->list($both), 'id'));
+        $this->assertSame(2, $repo->count($both));
+        $this->assertSame([$o1], array_column($repo->list(['types' => ['offer']]), 'id'));
+        $this->assertSame([$i1], array_column($repo->list($both + ['status' => 'issued']), 'id'));
+        foreach ([[], ['invoice', 'bogus'], ['invoice', ['x']], 'invoice'] as $bad) {
+            $this->assertSame([], $repo->list(['types' => $bad]), var_export($bad, true));
+            $this->assertSame(0, $repo->count(['types' => $bad]));
+        }
+    }
+
     public function test_search_with_special_characters_never_throws(): void
     {
         $c = $this->customer($this->companyA, "o'brien a--b [x] #1 100% my_co");

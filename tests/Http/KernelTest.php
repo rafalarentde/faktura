@@ -92,4 +92,23 @@ final class KernelTest extends HttpTestCase
     {
         $this->assertNull($this->app->context());
     }
+
+    /** CSRF token from the `_csrf` body field OR the X-CSRF-Token header (fetch() of invoice.js). */
+    public function test_csrf_token_accepted_from_body_or_header_only_when_it_matches(): void
+    {
+        $this->app->routes(function (App $app, RouteCollector $r): void {
+            $r->addRoute('POST', '/_t/change', $app->open(fn (): Response => Response::html('changed')));
+        });
+        $token = $this->app->csrf()->token();
+        $post = fn (array $data, array $server = []): Response => $this->app->handle(
+            new Request('POST', '/_t/change', post: $data, server: $server + ['REMOTE_ADDR' => self::IP])
+        );
+        $this->assertSame(200, $post(['_csrf' => $token])->status, 'body field');
+        $this->assertSame(200, $post([], ['HTTP_X_CSRF_TOKEN' => $token])->status, 'header');
+        $this->assertSame(419, $post([])->status, 'neither');
+        $this->assertSame(419, $post([], ['HTTP_X_CSRF_TOKEN' => str_repeat('a', 64)])->status, 'wrong header');
+        $this->assertSame(419, $post(['_csrf' => 'nope'], ['HTTP_X_CSRF_TOKEN' => ''])->status, 'wrong body, empty header');
+        $this->assertSame(200, $post(['_csrf' => 'nope'], ['HTTP_X_CSRF_TOKEN' => $token])->status, 'valid header wins');
+        $this->assertSame(419, $post(['_csrf' => ['x']], ['HTTP_X_CSRF_TOKEN' => ''])->status, 'array body');
+    }
 }

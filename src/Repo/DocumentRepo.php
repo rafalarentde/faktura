@@ -44,7 +44,8 @@ final class DocumentRepo extends BaseRepo
 
     /**
      * Documents ordered by issue_date DESC, id DESC (drafts without a date come last).
-     * Filters: type, status (unknown values match nothing), customer_id (int), q (number or
+     * Filters: type, types (non-empty list of types: any of them), status (unknown values match
+     * nothing; an empty or invalid types list matches nothing too), customer_id (int), q (number or
      * buyer name, substring, case-insensitive). Unknown filter keys are ignored.
      *
      * buyer_name is a snapshot too: issued documents show the name from the issue, drafts the
@@ -239,6 +240,20 @@ final class DocumentRepo extends BaseRepo
             }
             $conds[] = 'type = ?';
             $params[] = $filter['type'];
+        }
+        if (array_key_exists('types', $filter)) {
+            $types = $filter['types'];
+            if (!is_array($types) || $types === []) {
+                return ['1=0', []];
+            }
+            foreach ($types as $t) {
+                if (!is_string($t) || !DocType::isValid($t)) {
+                    return ['1=0', []];
+                }
+            }
+            $types = array_values(array_unique($types));
+            $conds[] = 'type IN (' . implode(', ', array_fill(0, count($types), '?')) . ')';
+            array_push($params, ...$types);
         }
         if (isset($filter['status'])) {
             if (!in_array($filter['status'], self::STATUSES, true)) {

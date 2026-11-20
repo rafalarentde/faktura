@@ -368,11 +368,19 @@ final class App
                 "Route {$request->method} {$request->path} must be declared with \$app->protect() or \$app->open()."
             );
         }
-        // CSRF is enforced centrally for every state-changing request, whatever the route.
-        if (!$request->isSafeMethod() && !$this->csrf()->check($request->input(Csrf::FIELD))) {
+        // CSRF is enforced centrally for every state-changing request, whatever the route. The
+        // token comes from the `_csrf` body field or, for fetch() calls (public/assets/invoice.js),
+        // from the X-CSRF-Token header; each is compared in constant time (Csrf::check).
+        if (!$request->isSafeMethod() && !$this->csrfOk($request)) {
             return $this->errorPage(419, 'error.csrf');
         }
         return $route($request, $params);
+    }
+
+    private function csrfOk(Request $request): bool
+    {
+        $csrf = $this->csrf();
+        return $csrf->check($request->input(Csrf::FIELD)) || $csrf->check((string) $request->header(Csrf::HEADER));
     }
 
     private function dispatcher(): Dispatcher

@@ -3,11 +3,15 @@ declare(strict_types=1);
 
 namespace App\Core;
 
-/** Per-session synchronizer token, sent as the `_csrf` form field on every POST. */
+/**
+ * Per-session synchronizer token, sent as the `_csrf` form field on every POST (or, for scripts,
+ * as the X-CSRF-Token request header; App accepts either).
+ */
 final class Csrf
 {
     public const SESSION_KEY = '_csrf';
     public const FIELD = '_csrf';
+    public const HEADER = 'X-CSRF-Token';
 
     public function __construct(private Session $session)
     {

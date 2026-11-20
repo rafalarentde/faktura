@@ -44,6 +44,12 @@ final class Formatter
         return $out;
     }
 
+    /** Quantity in thousandths for display and for refilling inputs (QuantityParser reads it back). */
+    public function quantity(int $qtyMilli, string $lang): string
+    {
+        return $this->decimal($qtyMilli, $lang);
+    }
+
     /**
      * Plain amount for an input field: always 2 decimals, the language's decimal separator, no
      * currency symbol and no thousands separator. AmountParser::parse() reads it back unchanged.
