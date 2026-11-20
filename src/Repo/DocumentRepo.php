@@ -211,6 +211,21 @@ final class DocumentRepo extends BaseRepo
         $this->scopedDelete(self::DOCS, $id);
     }
 
+    /**
+     * The one column of an ISSUED offer that may change: offer_status (DocumentService validates
+     * the value and the transition). Refuses anything that is not an issued offer.
+     *
+     * @throws DocumentNotFound
+     */
+    public function updateOfferStatus(int $id, string $status, string $updatedAt): void
+    {
+        $row = $this->scopedOne(self::DOCS, $id);
+        if ($row === null || $row['type'] !== DocType::OFFER || $row['status'] !== 'issued') {
+            throw new DocumentNotFound();
+        }
+        $this->scopedUpdate(self::DOCS, $id, ['offer_status' => $status, 'updated_at' => $updatedAt]);
+    }
+
     /** @param array<string, mixed> $row */
     public function insertPayment(array $row): int
     {

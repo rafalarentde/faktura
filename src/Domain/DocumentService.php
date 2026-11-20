@@ -65,6 +65,10 @@ final class DocumentService
     private const QTY_MAX = 999_999_999;
     private const PRICE_MAX = 99_999_999_999;
     private const NUMBER_ATTEMPTS = 50;
+    /** Stored offer statuses (issued offers); 'expired' is computed, never stored. */
+    public const OFFER_STATUSES = ['open', 'sent', 'accepted', 'rejected'];
+    private const OFFER_OPEN = 'open';
+    private const OFFER_VALID_DAYS = 30;
     private const TEXT_FIELDS = ['intro_text', 'outro_text', 'notes'];
     private const DATE_FIELDS = ['issue_date', 'service_date', 'due_date', 'valid_until'];
     private const INPUT_FIELDS = ['customer_id', 'lang', 'currency', 'eur_rate', 'issue_date', 'service_date', 'due_date',
@@ -103,27 +107,36 @@ final class DocumentService
      */
     public function createDraft(string $type, array $data): int
     {
+        return $this->db->transaction(fn (): int => $this->insertNewDraft($type, $data, null));
+    }
+
+    /**
+     * The one draft insert. `related_document_id` is an INTERNAL argument (convertOffer): it never
+     * comes from `$data`, which is read only through INPUT_FIELDS. Call inside a transaction.
+     *
+     * @param array<string, mixed> $data
+     */
+    private function insertNewDraft(string $type, array $data, ?int $relatedId): int
+    {
         if (!in_array($type, self::DRAFT_TYPES, true)) {
             throw new \InvalidArgumentException('Unsupported draft type.');
         }
-        return $this->db->transaction(function () use ($type, $data): int {
-            $company = $this->docs->company();
-            $in = ['customer_id' => null, 'lang' => null, 'currency' => null, 'eur_rate' => null, 'issue_date' => null,
-                'service_date' => null, 'due_date' => null, 'valid_until' => null, 'notes' => null, 'lines' => null,
-                'intro_text' => $company['intro_text'] ?? null, 'outro_text' => $company['outro_text'] ?? null];
-            foreach (self::INPUT_FIELDS as $f) {
-                if (array_key_exists($f, $data) && !(in_array($f, ['intro_text', 'outro_text'], true) && $data[$f] === null)) {
-                    $in[$f] = $data[$f];
-                }
+        $company = $this->docs->company();
+        $in = ['customer_id' => null, 'lang' => null, 'currency' => null, 'eur_rate' => null, 'issue_date' => null,
+            'service_date' => null, 'due_date' => null, 'valid_until' => null, 'notes' => null, 'lines' => null,
+            'intro_text' => $company['intro_text'] ?? null, 'outro_text' => $company['outro_text'] ?? null];
+        foreach (self::INPUT_FIELDS as $f) {
+            if (array_key_exists($f, $data) && !(in_array($f, ['intro_text', 'outro_text'], true) && $data[$f] === null)) {
+                $in[$f] = $data[$f];
             }
-            [$row, $lines] = $this->prepare($type, $in, null);
-            $now = $this->nowUtc();
-            $id = $this->docs->insertDraft(['type' => $type] + $row + [
-                'created_by' => $this->ctx->userId(), 'created_at' => $now,
-            ]);
-            $this->docs->replaceLines($id, $lines);
-            return $id;
-        });
+        }
+        [$row, $lines] = $this->prepare($type, $in, null);
+        $now = $this->nowUtc();
+        $id = $this->docs->insertDraft(['type' => $type, 'related_document_id' => $relatedId] + $row + [
+            'created_by' => $this->ctx->userId(), 'created_at' => $now,
+        ]);
+        $this->docs->replaceLines($id, $lines);
+        return $id;
     }
 
     /**
@@ -208,7 +221,8 @@ final class DocumentService
             if ($issueDate > $today) {
                 throw new ValidationException(['issue_date' => 'document.err_issue_future']);
             }
-            $dueDate = $doc['due_date'];
+            $isOffer = $type === DocType::OFFER;
+            $dueDate = $isOffer ? null : $doc['due_date']; // offers have no payment terms
             $confirmed = false;
 
             if ($type === DocType::CREDIT_NOTE) {
@@ -234,7 +248,9 @@ final class DocumentService
                 }
                 $buyerName = (string) $customer['name'];
                 $decision = VatRule::decide(VatRule::buyerFromCustomerRow($customer));
-                if ($decision->needsConfirmation) {
+                // R30: an offer is no tax invoice, so an unconfirmed VIES result never blocks it
+                // (it is issued with German VAT and the reason stays recorded).
+                if ($decision->needsConfirmation && !$isOffer) {
                     if (!$confirmUnverifiedVat) {
                         throw new VatNeedsConfirmation($decision);
                     }
@@ -253,14 +269,18 @@ final class DocumentService
             if ($dueDate !== null && $dueDate < $issueDate) {
                 throw new ValidationException(['due_date' => 'document.err_due_before_issue']);
             }
-            if ($doc['valid_until'] !== null && $doc['valid_until'] < $issueDate) {
+            $validUntil = $doc['valid_until'];
+            if ($isOffer && $validUntil === null) {
+                $validUntil = (new \DateTimeImmutable($issueDate))->modify('+' . self::OFFER_VALID_DAYS . ' days')->format('Y-m-d');
+            }
+            if ($validUntil !== null && $validUntil < $issueDate) {
                 throw new ValidationException(['valid_until' => 'document.err_valid_until_before_issue']);
             }
             $seller = self::sellerSnapshot($this->docs->company());
             if (!self::validUtf8($seller)) {
                 throw new ValidationException(['company' => 'document.err_encoding']);
             }
-            self::assertMandatoryParties($seller, (array) $buyer, $reverseCharge);
+            self::assertMandatoryParties($seller, (array) $buyer, $reverseCharge, $isOffer);
 
             $totals = $this->computeTotals($lines, $reverseCharge, (string) $doc['currency'], $doc['eur_rate']);
             foreach ($lines as $l) {
@@ -291,7 +311,8 @@ final class DocumentService
                 'vat_note_key' => $reverseCharge ? $noteKey : null,
                 'vat_reason' => $reason,
                 'updated_at' => $this->nowUtc(),
-            ] + self::signedTotals($totals, $sign);
+            ] + ($isOffer ? ['valid_until' => $validUntil, 'offer_status' => self::OFFER_OPEN] : [])
+                + self::signedTotals($totals, $sign);
 
             $number = $this->writeWithNumber($id, $type, new \DateTimeImmutable($issueDate, new \DateTimeZone('Europe/Berlin')), $row);
             $this->audit('document.issue', [
@@ -430,6 +451,124 @@ final class DocumentService
         );
     }
 
+    // ---- offers ----
+
+    /**
+     * Sets the decision status of an ISSUED offer: open | sent | accepted | rejected (any to any,
+     * except that an offer with a linked invoice, draft or issued, cannot leave 'accepted').
+     * Writes an audit row (ids and both statuses). Allowed for suspended companies too.
+     *
+     * @throws DocumentNotFound unknown, another company's document or not an offer
+     * @throws ValidationException status (unknown value | document.err_offer_converted) or document (draft)
+     */
+    public function setOfferStatus(int $id, string $status): void
+    {
+        $this->db->transaction(function () use ($id, $status): void {
+            $this->changeOfferStatus($id, $status, null);
+        });
+    }
+
+    /**
+     * Bookkeeping after an offer email went out: 'open' becomes 'sent'; any other state stays.
+     * Never throws for a state that does not fit (DocumentNotFound for a foreign/unknown id only).
+     *
+     * @throws DocumentNotFound
+     */
+    public function markOfferSent(int $id): void
+    {
+        $this->db->transaction(function () use ($id): void {
+            $this->changeOfferStatus($id, 'sent', self::OFFER_OPEN);
+        });
+    }
+
+    /**
+     * draft | open | sent | accepted | rejected | expired. 'expired' is computed: a stored open
+     * or sent status whose valid_until lies before the Berlin date of $today (valid until today
+     * is still valid). Accepted and rejected offers never expire.
+     *
+     * @param array<string, mixed> $document a DocumentRepo row of an offer
+     */
+    public function offerStatus(array $document, \DateTimeImmutable $today): string
+    {
+        if (($document['status'] ?? null) !== 'issued') {
+            return 'draft';
+        }
+        $stored = in_array($document['offer_status'] ?? null, self::OFFER_STATUSES, true) ? (string) $document['offer_status'] : self::OFFER_OPEN;
+        $validUntil = $document['valid_until'] ?? null;
+        if (in_array($stored, [self::OFFER_OPEN, 'sent'], true) && $validUntil !== null && $validUntil < $this->berlin($today)->format('Y-m-d')) {
+            return 'expired';
+        }
+        return $stored;
+    }
+
+    /**
+     * Creates a DRAFT invoice from an ISSUED, ACCEPTED offer (also after valid_until: the offer was
+     * accepted). Copies customer, language, currency, exchange rate and all lines as new rows and
+     * links the invoice to the offer (related_document_id). The texts are the company defaults;
+     * notes and dates stay empty (issue date at issue, due date from the payment terms). Totals
+     * and VAT treatment are decided like for any draft (VatRule on the customer as of now).
+     *
+     * Double-click protection: when a DRAFT invoice for this offer already exists, its id is
+     * returned and nothing is created. After the first invoice was issued a further draft can be
+     * created (partial billing). One transaction under the offer's row lock, so two parallel
+     * requests cannot both create a draft.
+     *
+     * @throws DocumentNotFound unknown, another company's document or not an offer
+     * @throws ValidationException document (draft or not accepted) or the draft's own errors
+     */
+    public function convertOffer(int $offerId): int
+    {
+        return $this->db->transaction(function () use ($offerId): int {
+            $offer = $this->docs->lockedFind($offerId) ?? throw new DocumentNotFound();
+            if ($offer['type'] !== DocType::OFFER) {
+                throw new DocumentNotFound();
+            }
+            if ($offer['status'] !== 'issued' || $offer['offer_status'] !== 'accepted') {
+                throw new ValidationException(['document' => 'document.err_offer_not_accepted']);
+            }
+            $existing = $this->docs->list(['type' => DocType::INVOICE, 'status' => 'draft', 'related_document_id' => $offerId], 1);
+            if ($existing !== []) {
+                return (int) $existing[0]['id'];
+            }
+            $id = $this->insertNewDraft(DocType::INVOICE, [
+                'customer_id' => $offer['customer_id'], 'lang' => $offer['lang'], 'currency' => $offer['currency'],
+                'eur_rate' => $offer['eur_rate'], 'lines' => $this->lineInput($offerId),
+            ], $offerId);
+            $this->audit('document.offer_convert', ['offer_id' => $offerId, 'invoice_id' => $id]);
+            return $id;
+        });
+    }
+
+    /** $onlyFrom: change only when the stored status is this one (otherwise nothing happens). */
+    private function changeOfferStatus(int $id, string $status, ?string $onlyFrom): void
+    {
+        if (!in_array($status, self::OFFER_STATUSES, true)) {
+            throw new ValidationException(['status' => 'document.err_offer_status']);
+        }
+        $offer = $this->docs->lockedFind($id) ?? throw new DocumentNotFound();
+        if ($offer['type'] !== DocType::OFFER) {
+            throw new DocumentNotFound();
+        }
+        if ($offer['status'] !== 'issued') {
+            if ($onlyFrom !== null) {
+                return;
+            }
+            throw new ValidationException(['document' => 'document.err_offer_draft_status']);
+        }
+        $from = (string) ($offer['offer_status'] ?? self::OFFER_OPEN);
+        if (($onlyFrom !== null && $from !== $onlyFrom) || $from === $status) {
+            return;
+        }
+        if ($from === 'accepted' && $this->docs->count(['type' => DocType::INVOICE, 'related_document_id' => $id]) > 0) {
+            if ($onlyFrom !== null) {
+                return;
+            }
+            throw new ValidationException(['status' => 'document.err_offer_converted']);
+        }
+        $this->docs->updateOfferStatus($id, $status, $this->nowUtc());
+        $this->audit('document.offer_status', ['document_id' => $id, 'from' => $from, 'to' => $status]);
+    }
+
     // ---- internals ----
 
     /** @return array<string, mixed> */
@@ -514,6 +653,10 @@ final class DocumentService
                     $e[$f] = 'document.err_date';
                 }
             }
+        }
+        if ($type === DocType::OFFER) {
+            $dates['due_date'] = null; // offers carry no payment terms: a posted due date is ignored
+            unset($e['due_date']);
         }
         if ($dates['issue_date'] !== null && $dates['due_date'] !== null && $dates['due_date'] < $dates['issue_date']) {
             $e['due_date'] = 'document.err_due_before_issue';
@@ -762,19 +905,26 @@ final class DocumentService
      *
      * @param array<string, mixed> $seller
      * @param array<string, mixed> $buyer
+     * Offers (R30) only need both names.
+     *
      * @throws ValidationException keys seller | seller_vat | buyer
      */
-    private static function assertMandatoryParties(array $seller, array $buyer, bool $reverseCharge): void
+    private static function assertMandatoryParties(array $seller, array $buyer, bool $reverseCharge, bool $offer = false): void
     {
         $blank = fn (mixed $v): bool => trim((string) $v) === '';
         $errors = [];
-        if ($blank($seller['name'] ?? null) || $blank($seller['address'] ?? null)
+        if ($offer) {
+            // R30: an offer is not a tax invoice; only both names are required.
+            if ($blank($seller['name'] ?? null)) {
+                $errors['seller'] = 'document.err_seller_incomplete';
+            }
+        } elseif ($blank($seller['name'] ?? null) || $blank($seller['address'] ?? null)
             || ($blank($seller['tax_number'] ?? null) && $blank($seller['vat_id'] ?? null))) {
             $errors['seller'] = 'document.err_seller_incomplete';
         } elseif ($reverseCharge && $blank($seller['vat_id'] ?? null)) {
             $errors['seller_vat'] = 'document.err_seller_vat_required';
         }
-        if ($blank($buyer['name'] ?? null) || $blank($buyer['address'] ?? null)) {
+        if ($blank($buyer['name'] ?? null) || (!$offer && $blank($buyer['address'] ?? null))) {
             $errors['buyer'] = 'document.err_buyer_incomplete';
         }
         if ($errors !== []) {
