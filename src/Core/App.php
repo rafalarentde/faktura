@@ -14,7 +14,9 @@ use App\Http\DocumentPresenter;
 use App\Http\Middleware\RequireLogin;
 use App\Http\Shell;
 use App\Mail\DocumentMailer;
+use App\Mail\HostResolver;
 use App\Mail\MailTransport;
+use App\Mail\SmtpTargetPolicy;
 use App\Mail\SmtpTransport;
 use App\I18n\Translator;
 use App\Pdf\PdfRenderer;
@@ -329,11 +331,22 @@ final class App
             $configured = $this->config('mail_transport');
             $this->mailer = new DocumentMailer(
                 $this->db, $ctx, $repo, new DocumentPresenter($this->translator(), $repo), $this->pdf(),
-                $configured instanceof MailTransport ? $configured : new SmtpTransport(),
-                $this->crypto(), $this->translator(), $this->clock, $this->root . '/templates/mail'
+                $configured instanceof MailTransport ? $configured : new SmtpTransport($this->mailPolicy()),
+                $this->crypto(), $this->translator(), $this->clock, $this->root . '/templates/mail', $this->mailPolicy()
             );
         }
         return $this->mailer;
+    }
+
+    /**
+     * Where SMTP settings may point (ports 25/465/587/2525, public addresses only). Config:
+     * `mail_allow_private_hosts` (default false: LAN relays for self-hosters), `mail_host_resolver`
+     * (a HostResolver, tests only: no real DNS).
+     */
+    public function mailPolicy(): SmtpTargetPolicy
+    {
+        $resolver = $this->config('mail_host_resolver');
+        return new SmtpTargetPolicy($resolver instanceof HostResolver ? $resolver : null, $this->config('mail_allow_private_hosts', false) === true);
     }
 
     private function resolveContext(): ?CompanyContext

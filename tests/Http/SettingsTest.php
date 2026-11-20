@@ -5,6 +5,7 @@ namespace Tests\Http;
 
 use App\Core\Request;
 use App\Core\Response;
+use Tests\Support\FakeResolver;
 
 final class SettingsTest extends HttpTestCase
 {
@@ -18,10 +19,15 @@ final class SettingsTest extends HttpTestCase
         parent::setUp();
         $this->storage = sys_get_temp_dir() . '/faktura-storage-' . bin2hex(random_bytes(6));
         mkdir($this->storage);
-        $this->app = $this->makeApp(['storage_path' => $this->storage, 'trust_upload_paths' => true]);
+        $this->app = $this->makeApp(['storage_path' => $this->storage, 'trust_upload_paths' => true, 'mail_host_resolver' => $this->resolver()]);
         $this->company = $this->createCompany('Muster GmbH');
         $this->owner = $this->createUser('owner@example.com');
         $this->addMember($this->owner['id'], $this->company, 'owner');
+    }
+
+    private function resolver(): FakeResolver
+    {
+        return new FakeResolver(['smtp.example.com' => ['93.184.216.34'], 'mail.example.org' => ['93.184.216.36'], 'intern.example' => ['10.0.0.8']]);
     }
 
     protected function tearDown(): void
@@ -682,5 +688,32 @@ final class SettingsTest extends HttpTestCase
         for ($i = 0; $i < 4; $i++) {
             $this->assertSame(422, $this->post('/settings/security/password', $this->pwForm(['current_password' => 'wrong wrong wrong']))->status);
         }
+    }
+
+    public function test_smtp_target_guard_at_save_time(): void
+    {
+        $this->loginOwner();
+        foreach (['127.0.0.1', 'localhost', '10.0.0.5', '169.254.169.254', '::1', 'fe80::1', '::ffff:127.0.0.1', 'intern.example', 'unbekannt.example'] as $host) {
+            $r = $this->post('/settings/mail', $this->mailForm(['smtp_host' => $host]));
+            $this->assertSame(422, $r->status, $host);
+            $this->assertStringContainsString('privaten Netz', $r->body, $host);
+            $this->assertNull($this->companyRow()['smtp_host'], "$host must not be stored");
+        }
+        foreach (['22', '6379', '3306', '80'] as $port) {
+            $r = $this->post('/settings/mail', $this->mailForm(['smtp_port' => $port]));
+            $this->assertSame(422, $r->status, $port);
+            $this->assertStringContainsString('Erlaubte Ports sind 25, 465, 587 und 2525', $r->body);
+        }
+        foreach (['25', '465', '587', '2525'] as $port) {
+            $this->assertRedirect('/settings/mail?saved=1', $this->post('/settings/mail', $this->mailForm(['smtp_port' => $port])));
+        }
+    }
+
+    public function test_private_hosts_can_be_allowed_by_config_but_ports_stay_restricted(): void
+    {
+        $this->app = $this->makeApp(['storage_path' => $this->storage, 'trust_upload_paths' => true, 'mail_host_resolver' => $this->resolver(), 'mail_allow_private_hosts' => true]);
+        $this->loginOwner();
+        $this->assertRedirect('/settings/mail?saved=1', $this->post('/settings/mail', $this->mailForm(['smtp_host' => '192.168.1.10', 'smtp_port' => '587'])));
+        $this->assertSame(422, $this->post('/settings/mail', $this->mailForm(['smtp_host' => '192.168.1.10', 'smtp_port' => '6379']))->status);
     }
 }

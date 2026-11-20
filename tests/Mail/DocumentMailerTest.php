@@ -15,7 +15,9 @@ use App\Pdf\PdfRenderer;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Tests\Pdf\PdfFixture;
+use Tests\Support\FakeResolver;
 use Tests\Support\FakeTransport;
+use App\Mail\SmtpTargetPolicy;
 
 /** Sending issued documents: access, validation, PDF attachment, log, audit, secrets, rate limit. */
 final class DocumentMailerTest extends TestCase
@@ -65,7 +67,8 @@ final class DocumentMailerTest extends TestCase
             $ctx, PdfFixture::ROOT . '/resources', PdfFixture::cacheDir());
         return new DocumentMailer(
             $this->fx->db, $ctx, $repo, new DocumentPresenter($this->fx->translator(), $repo), $renderer, $this->transport,
-            $this->crypto(), $this->fx->translator(), fn (): int => $this->now, PdfFixture::ROOT . '/templates/mail'
+            $this->crypto(), $this->fx->translator(), fn (): int => $this->now, PdfFixture::ROOT . '/templates/mail',
+            new SmtpTargetPolicy(FakeResolver::publicHosts())
         );
     }
 
@@ -367,19 +370,23 @@ final class DocumentMailerTest extends TestCase
         $this->assertSame(0, $this->rows('login_attempts'));
     }
 
-    public function test_draft_is_refused(): void
+    public function test_draft_is_refused_for_preview_and_send(): void
     {
         $draft = $this->fx->draft($this->fx->companyA, $this->customer);
-        $this->expectException(PdfNotAvailable::class);
-        try {
-            $this->mailer()->preview($draft);
-        } finally {
+        $calls = [
+            'preview' => fn () => $this->mailer()->preview($draft),
+            'send' => fn () => $this->mailer()->send($draft, 'kunde@example.de', 'Betreff', 'Text'),
+        ];
+        foreach ($calls as $name => $call) {
             try {
-                $this->mailer()->send($draft, 'kunde@example.de', 'Betreff', 'Text');
+                $call();
+                $this->fail("$name of a draft must be refused");
             } catch (PdfNotAvailable) {
-                $this->assertSame([], $this->transport->sent);
+                $this->addToAssertionCount(1);
             }
         }
+        $this->assertSame([], $this->transport->sent);
+        $this->assertSame(0, $this->rows('email_log'));
     }
 
     public function test_foreign_unknown_and_unsupported_documents_are_refused_identically(): void
@@ -698,5 +705,60 @@ final class DocumentMailerTest extends TestCase
         }
         $this->mailer()->send($this->doc, 'kunde@example.de', 'Betreff', 'Text');
         $this->assertCount(4, $this->transport->sent);
+    }
+
+    /** @return array<string, array{string, int}> */
+    public static function badTargets(): array
+    {
+        return [
+            'loopback ip' => ['127.0.0.1', 587], 'localhost' => ['localhost', 587], 'private' => ['10.0.0.5', 25], 'metadata' => ['169.254.169.254', 587],
+            'ipv6 loopback' => ['::1', 587], 'mapped loopback' => ['::ffff:127.0.0.1', 587], 'unresolvable' => ['nirgendwo.example', 587],
+            'redis port' => ['smtp.firma.example', 6379], 'ssh port' => ['smtp.firma.example', 22],
+        ];
+    }
+
+    #[DataProvider('badTargets')]
+    public function test_ssrf_targets_never_reach_the_transport_and_fail_as_connect(string $host, int $port): void
+    {
+        $this->fx->db->exec('UPDATE companies SET smtp_host = ?, smtp_port = ? WHERE id = ?', [$host, $port, $this->fx->companyA]);
+        try {
+            $this->mailer()->send($this->doc, 'kunde@example.de', 'Betreff', 'Text');
+            $this->fail('expected MailSendFailed');
+        } catch (MailSendFailed $e) {
+            $this->assertSame('connect', $e->reason);
+        }
+        $this->assertSame([], $this->transport->sent, 'transport not called');
+        $this->assertSame('connect', $this->fx->db->one('SELECT error FROM email_log')['error']);
+        $this->assertStringNotContainsString(self::PASSWORD, $this->dump());
+        try {
+            $this->mailer()->sendTest('jan@example.pl', 'de');
+            $this->fail('expected MailSendFailed for the test mail');
+        } catch (MailSendFailed $e) {
+            $this->assertSame('connect', $e->reason);
+        }
+        $this->assertSame([], $this->transport->sent);
+    }
+
+    public function test_allowed_ports_pass_the_guard(): void
+    {
+        foreach ([25, 465, 587, 2525] as $port) {
+            $this->fx->db->exec('UPDATE companies SET smtp_port = ? WHERE id = ?', [$port, $this->fx->companyA]);
+            $this->mailer()->send($this->doc, 'kunde@example.de', 'Betreff', 'Text');
+        }
+        $this->assertCount(4, $this->transport->sent);
+    }
+
+    public function test_buyer_email_domain_is_prefilled_in_punycode(): void
+    {
+        if (!function_exists('idn_to_ascii')) {
+            $this->markTestSkipped('intl idn_to_ascii is not available.');
+        }
+        $cases = ['x@bücher.de' => 'x@xn--bcher-kva.de', 'info@example.com' => 'info@example.com', 'jürgen@bücher.de' => ''];
+        foreach ($cases as $stored => $expected) {
+            $buyer = json_decode((string) $this->fx->db->one('SELECT buyer_json FROM documents WHERE id = ?', [$this->doc])['buyer_json'], true);
+            $buyer['email'] = $stored;
+            $this->fx->db->exec('UPDATE documents SET buyer_json = ? WHERE id = ?', [json_encode($buyer, JSON_UNESCAPED_UNICODE), $this->doc]);
+            $this->assertSame($expected, $this->mailer()->preview($this->doc)['to'], $stored);
+        }
     }
 }

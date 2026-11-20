@@ -364,4 +364,21 @@ final class CompanySettingsRepoTest extends TestCase
         $this->expectException(\LogicException::class);
         $repo->saveMail($this->mailInput());
     }
+
+    public function test_mail_target_guard_with_policy(): void
+    {
+        $id = $this->company();
+        $policy = new \App\Mail\SmtpTargetPolicy(new \Tests\Support\FakeResolver(['smtp.example.com' => ['93.184.216.34'], 'lan.example' => ['10.1.1.1']]));
+        $repo = new CompanySettingsRepo($this->db, CompanyContext::forUser($this->db, $this->userId, $id), $this->crypto, fn (): int => 1_700_000_000, $policy);
+        foreach ([['smtp_host', 'lan.example'], ['smtp_host', '127.0.0.1'], ['smtp_host', 'weg.example'], ['smtp_port', '6379']] as [$field, $value]) {
+            try {
+                $repo->saveMail($this->mailInput([$field => $value]));
+                $this->fail("$field=$value must be refused");
+            } catch (ValidationException $e) {
+                $this->assertArrayHasKey($field, $e->errors);
+            }
+        }
+        $repo->saveMail($this->mailInput(['smtp_host' => 'smtp.example.com', 'smtp_port' => '587']));
+        $this->assertSame('smtp.example.com', $repo->get()['smtp_host']);
+    }
 }

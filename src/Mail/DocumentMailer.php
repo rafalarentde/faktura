@@ -68,6 +68,7 @@ final class DocumentMailer
         private Translator $translator,
         \Closure $clock,
         string $templateDir,
+        private ?SmtpTargetPolicy $policy = null,
     ) {
         $this->clock = $clock;
         $this->settings = new CompanySettingsRepo($db, $ctx, $crypto, $clock);
@@ -103,7 +104,7 @@ final class DocumentMailer
             'company' => $company,
         ]);
         $body = trim((string) preg_replace("/\n{3,}/", "\n\n", str_replace("\r", '', $body))) . "\n";
-        $buyerEmail = (string) (((array) ($doc['buyer'] ?? []))['email'] ?? '');
+        $buyerEmail = self::asciiDomain((string) (((array) ($doc['buyer'] ?? []))['email'] ?? ''));
         return [
             'to' => self::normalizeRecipient($buyerEmail) ?? '',
             'subject' => mb_substr($this->translator->t('mail.subject_' . $type, $lang, ['number' => $number, 'company' => $company]), 0, self::SUBJECT_MAX),
@@ -202,6 +203,20 @@ final class DocumentMailer
         return filter_var($to, FILTER_VALIDATE_EMAIL) === false ? null : $to;
     }
 
+    /**
+     * Prefill convenience: converts a non-ASCII DOMAIN to punycode (x@bücher.de -> x@xn--bcher-kva.de)
+     * when intl is available. A non-ASCII local part is left alone (and refused by the validation).
+     */
+    private static function asciiDomain(string $email): string
+    {
+        $at = strrpos($email, '@');
+        if ($at === false || !function_exists('idn_to_ascii') || preg_match('/[^\x00-\x7F]/', substr($email, $at + 1)) !== 1) {
+            return $email;
+        }
+        $domain = idn_to_ascii(substr($email, $at + 1), IDNA_DEFAULT, INTL_IDNA_VARIANT_UTS46);
+        return $domain === false ? $email : substr($email, 0, $at + 1) . $domain;
+    }
+
     /** @return array<string, mixed> @throws DocumentNotFound|PdfNotAvailable */
     private function issued(int $docId): array
     {
@@ -262,6 +277,10 @@ final class DocumentMailer
      */
     private function deliver(array $creds, string $to, string $subject, string $body, array $attachments): void
     {
+        // SSRF guard: refused before the transport is touched (the transport checks again).
+        if ($this->policy !== null && (!SmtpTargetPolicy::portAllowed($creds['port']) || $this->policy->connectAddress($creds['host']) === null)) {
+            throw new MailSendFailed(MailSendFailed::CONNECT);
+        }
         $secure = SmtpSecurity::smtpSecure($creds['port']) === SmtpSecurity::IMPLICIT_TLS ? 'ssl' : 'tls';
         $smtp = ['host' => $creds['host'], 'port' => $creds['port'], 'user' => $creds['user'], 'pass' => $creds['pass'], 'secure' => $secure];
         try {

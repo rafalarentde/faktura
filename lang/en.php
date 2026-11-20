@@ -665,4 +665,8 @@ return [
     'settings.mail_test_hint' => 'The test email goes to your own login address. The saved settings are used.',
     'settings.mail_test_ok' => 'Test email sent to {to}.',
     'settings.mail_test_needs_config' => 'Save complete settings first, then you can send a test email.',
+
+    // Task 18 fix round 1: SMTP target guard
+    'settings.err_smtp_port_list' => 'Allowed ports are 25, 465, 587 and 2525.',
+    'settings.err_smtp_host_unsafe' => 'This server cannot be reached or is in a private network. Only public mail servers are allowed.',
 ];

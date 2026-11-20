@@ -665,4 +665,8 @@ return [
     'settings.mail_test_hint' => 'Wiadomość testowa trafia na Twój własny adres logowania. Używane są zapisane ustawienia.',
     'settings.mail_test_ok' => 'Wiadomość testowa wysłana na adres {to}.',
     'settings.mail_test_needs_config' => 'Najpierw zapisz komplet ustawień, potem możesz wysłać wiadomość testową.',
+
+    // Task 18 fix round 1: SMTP target guard
+    'settings.err_smtp_port_list' => 'Dozwolone porty to 25, 465, 587 i 2525.',
+    'settings.err_smtp_host_unsafe' => 'Ten serwer jest nieosiągalny lub leży w sieci prywatnej. Dozwolone są tylko publiczne serwery poczty.',
 ];

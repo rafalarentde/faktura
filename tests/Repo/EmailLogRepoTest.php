@@ -77,4 +77,12 @@ final class EmailLogRepoTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->repo($this->fx->companyA)->record($this->docA, 'a@example.com', 'S', 'queued', null, null, 1_795_514_400);
     }
+
+    public function test_recipient_column_holds_a_full_length_address(): void
+    {
+        $to = str_repeat('a', 64) . '@' . str_repeat('b', 63) . '.' . str_repeat('c', 63) . '.' . str_repeat('d', 58) . '.de';
+        $this->assertSame(254, strlen($to));
+        $this->repo($this->fx->companyA)->record($this->docA, $to, 'S', 'sent', null, null, 1_795_514_400);
+        $this->assertSame($to, $this->repo($this->fx->companyA)->forDocument($this->docA)[0]['to_email']);
+    }
 }

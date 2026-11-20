@@ -14,4 +14,7 @@ return [
     'debug' => false,
     'promo_enabled' => false,
     'base_url' => 'https://example.com',
+    // SMTP targets must be public hosts on ports 25, 465, 587 or 2525 (SSRF guard). Set to true only
+    // if you run your own relay in a private network; the port list still applies.
+    'mail_allow_private_hosts' => false,
 ];

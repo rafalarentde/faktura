@@ -31,7 +31,7 @@ final class EmailLogRepo extends BaseRepo
         }
         return $this->scopedInsert(self::TABLE, [
             'document_id' => $documentId,
-            'to_email' => mb_substr($to, 0, 190),
+            'to_email' => mb_substr($to, 0, 254),
             'subject' => mb_substr($subject, 0, 255),
             'status' => $status,
             'error' => $status === 'failed' ? mb_substr((string) $error, 0, 40) : null,

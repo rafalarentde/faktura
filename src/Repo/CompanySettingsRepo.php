@@ -9,6 +9,7 @@ use App\Domain\Iban;
 use App\Domain\Percent;
 use App\Domain\ValidationException;
 use App\Domain\VatId;
+use App\Mail\SmtpTargetPolicy;
 use App\Money\AmountParser;
 use App\Tenant\CompanyContext;
 
@@ -41,6 +42,7 @@ final class CompanySettingsRepo
         private CompanyContext $ctx,
         private ?Crypto $crypto = null,
         ?\Closure $clock = null,
+        private ?SmtpTargetPolicy $policy = null,
     ) {
         $this->clock = $clock ?? time(...);
     }
@@ -252,6 +254,15 @@ final class CompanySettingsRepo
         $port = trim($this->str($in, 'smtp_port'));
         if ($port !== '' && (preg_match('/\A[0-9]{1,5}\z/', $port) !== 1 || (int) $port < 1 || (int) $port > 65535)) {
             $e['smtp_port'] = 'settings.err_smtp_port';
+        }
+        // SSRF guard (friendly message here; the mailer enforces it again at send time).
+        if ($this->policy !== null) {
+            if (!isset($e['smtp_port']) && $port !== '' && !SmtpTargetPolicy::portAllowed((int) $port)) {
+                $e['smtp_port'] = 'settings.err_smtp_port_list';
+            }
+            if (!isset($e['smtp_host']) && $host !== '' && $this->policy->connectAddress($host) === null) {
+                $e['smtp_host'] = 'settings.err_smtp_host_unsafe';
+            }
         }
         $user = trim($this->str($in, 'smtp_user'));
         if (mb_strlen($user, 'UTF-8') > 190) {

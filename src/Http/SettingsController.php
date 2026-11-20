@@ -34,6 +34,8 @@ final class SettingsController
 {
     /** Failed password checks (backup codes and password change share it) per user and window. */
     private const PASSWORD_LIMIT_KEY = 'security:user:';
+    /** Session key of the one-shot result of the test mail (secret-free text). */
+    private const TEST_FLASH = 'mail_test_flash';
 
     public function __construct(private App $app)
     {
@@ -217,7 +219,7 @@ final class SettingsController
     /** @param array<string, string> $params */
     public function mail(Request $request, array $params): Response
     {
-        return $this->gate() ?? $this->mailPage($this->mailForm($this->repo()->get()), [], 200, $request->queryParam('saved') === '1');
+        return $this->gate() ?? $this->mailPage($this->mailForm($this->repo()->get()), [], 200, $request->queryParam('saved') === '1', $this->takeTestResult());
     }
 
     /** @param array<string, string> $params */
@@ -252,16 +254,24 @@ final class SettingsController
         try {
             $this->app->mailer()->sendTest($to, $this->app->lang());
             $result = ['ok' => true, 'text' => $this->app->t('settings.mail_test_ok', ['to' => $to])];
-            $status = 200;
         } catch (MailNotConfigured) {
-            [$result, $status] = [['ok' => false, 'text' => $this->app->t('settings.mail_test_needs_config')], 409];
+            $result = ['ok' => false, 'text' => $this->app->t('settings.mail_test_needs_config')];
         } catch (ValidationException $e) {
-            $rate = isset($e->errors['rate']);
-            [$result, $status] = [['ok' => false, 'text' => $this->app->t($rate ? 'mail.err_rate' : 'mail.err_to')], $rate ? 429 : 422];
+            $result = ['ok' => false, 'text' => $this->app->t(isset($e->errors['rate']) ? 'mail.err_rate' : 'mail.err_to')];
         } catch (MailSendFailed $e) {
-            [$result, $status] = [['ok' => false, 'text' => $this->app->t($e->translationKey())], 502];
+            $result = ['ok' => false, 'text' => $this->app->t($e->translationKey())];
         }
-        return $this->mailPage($this->mailForm($this->repo()->get()), [], $status, false, $result);
+        // Post/Redirect/Get: a reload of the result page must not send another mail.
+        $this->app->session()->set(self::TEST_FLASH, $result);
+        return Response::redirect('/settings/mail', 303);
+    }
+
+    /** @return array{ok: bool, text: string}|null shown once */
+    private function takeTestResult(): ?array
+    {
+        $f = $this->app->session()->get(self::TEST_FLASH);
+        $this->app->session()->remove(self::TEST_FLASH);
+        return is_array($f) && is_bool($f['ok'] ?? null) && is_string($f['text'] ?? null) ? ['ok' => $f['ok'], 'text' => $f['text']] : null;
     }
 
     // ---- security (personal) ----
@@ -344,7 +354,7 @@ final class SettingsController
 
     private function repo(): CompanySettingsRepo
     {
-        return new CompanySettingsRepo($this->app->db(), $this->ctx(), $this->app->crypto(), fn (): int => $this->app->now());
+        return new CompanySettingsRepo($this->app->db(), $this->ctx(), $this->app->crypto(), fn (): int => $this->app->now(), $this->app->mailPolicy());
     }
 
     private function logos(): LogoStore

@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS email_log (
     id {AUTOID},
     company_id INTEGER NOT NULL,
     document_id INTEGER NOT NULL,
-    to_email VARCHAR(190) NOT NULL,
+    to_email VARCHAR(254) NOT NULL,
     subject VARCHAR(255) NOT NULL,
     status VARCHAR(10) NOT NULL,
     error VARCHAR(40) NULL,

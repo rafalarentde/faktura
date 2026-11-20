@@ -9,6 +9,7 @@ use App\Repo\CustomerRepo;
 use App\Repo\DocumentRepo;
 use App\Tenant\CompanyContext;
 use Tests\Pdf\PdfFixture;
+use Tests\Support\FakeResolver;
 use Tests\Support\FakeTransport;
 
 /** GET/POST /documents/{id}/send, the log and buttons on the issued view, POST /settings/mail/test. */
@@ -17,6 +18,8 @@ final class MailRouteTest extends HttpTestCase
     private const PASSWORD_SMTP = 'S3cr3t-Passw0rd!';
 
     private FakeTransport $transport;
+    /** Shared with PdfRouteTest (font cache built once), see setUpBeforeClass(). */
+    private static string $storage = '';
     private int $companyA;
     private int $companyB;
     private int $userId;
@@ -28,11 +31,7 @@ final class MailRouteTest extends HttpTestCase
     {
         parent::setUp();
         $this->transport = new FakeTransport();
-        $dir = sys_get_temp_dir() . '/faktura-mail-route-storage';
-        if (!is_dir($dir . '/logos')) {
-            mkdir($dir . '/logos', 0775, true);
-        }
-        $this->app = $this->makeApp(['storage_path' => $dir, 'mail_transport' => $this->transport]);
+        $this->app = $this->makeApp(['storage_path' => self::$storage, 'mail_transport' => $this->transport, 'mail_host_resolver' => FakeResolver::publicHosts()]);
         $this->now = (new \DateTimeImmutable('2026-11-18 10:00', new \DateTimeZone('Europe/Berlin')))->getTimestamp();
         $this->companyA = $this->company('Muster Service GmbH');
         $this->companyB = $this->company('Fremd AG');
@@ -43,6 +42,46 @@ final class MailRouteTest extends HttpTestCase
         $this->customer = $this->customer($this->companyA);
         $this->doc = $this->issued($this->companyA, $this->customer);
         $this->smtp($this->companyA);
+    }
+
+    public static function setUpBeforeClass(): void
+    {
+        // Same stable directory as PdfRouteTest: Dompdf keeps static font state keyed by the cache path,
+        // so a per-run directory that is deleted afterwards breaks the PDF tests that follow in the same process.
+        self::$storage = sys_get_temp_dir() . '/faktura-pdf-route-storage';
+        if (!is_dir(self::$storage . '/logos')) {
+            mkdir(self::$storage . '/logos', 0775, true);
+        }
+    }
+
+    /**
+     * Every route of the mail feature, taken from config/routes.php (so a new route cannot be missed).
+     *
+     * @return list<array{0: string, 1: string}> method and a concrete path
+     */
+    private function mailRoutes(): array
+    {
+        $collector = new class (new \FastRoute\RouteParser\Std(), new \FastRoute\DataGenerator\GroupCountBased()) extends \FastRoute\RouteCollector {
+            /** @var list<array{0: string, 1: string}> */
+            public array $seen = [];
+
+            public function addRoute($httpMethod, $route, $handler): void
+            {
+                foreach ((array) $httpMethod as $m) {
+                    $this->seen[] = [$m, $route];
+                }
+                parent::addRoute($httpMethod, $route, $handler);
+            }
+        };
+        (require __DIR__ . '/../../config/routes.php')($this->app, $collector);
+        $out = [];
+        foreach ($collector->seen as [$method, $pattern]) {
+            if (preg_match('#/send$|^/settings/mail/test$#', $pattern) === 1) {
+                $out[] = [$method, (string) preg_replace('/\{\w+(?::[^}]*)?\}/', (string) $this->doc, $pattern)];
+            }
+        }
+        $this->assertGreaterThanOrEqual(3, count($out), 'mail routes not found in config/routes.php');
+        return $out;
     }
 
     private function company(string $name): int
@@ -121,8 +160,9 @@ final class MailRouteTest extends HttpTestCase
 
     public function test_unauthenticated_goes_to_login_and_sends_nothing(): void
     {
-        $this->assertRedirect('/login', $this->get("/documents/{$this->doc}/send"));
-        $this->assertRedirect('/login', $this->post("/documents/{$this->doc}/send", $this->form()));
+        foreach ($this->mailRoutes() as [$method, $path]) {
+            $this->assertRedirect('/login', $method === 'GET' ? $this->get($path) : $this->post($path, $this->form()));
+        }
         $this->assertSame([], $this->transport->sent);
     }
 
@@ -384,8 +424,11 @@ final class MailRouteTest extends HttpTestCase
     {
         $this->login();
         $r = $this->post('/settings/mail/test', ['to' => 'evil@example.org']);
-        $this->assertSame(200, $r->status);
-        $this->assertStringContainsString('Testmail an jan@example.pl gesendet.', $r->body);
+        $this->assertRedirect('/settings/mail', $r);
+        $this->assertSame(303, $r->status);
+        $page = $this->get('/settings/mail');
+        $this->assertStringContainsString('Testmail an jan@example.pl gesendet.', $page->body);
+        $this->assertStringNotContainsString('Testmail an jan@example.pl gesendet.', $this->get('/settings/mail')->body, 'result is shown once; a reload sends nothing');
         $this->assertCount(1, $this->transport->sent);
         $this->assertSame('jan@example.pl', $this->transport->sent[0]['to']);
         $this->assertSame([], $this->transport->sent[0]['attachments']);
@@ -413,10 +456,10 @@ final class MailRouteTest extends HttpTestCase
     {
         $this->transport->failWith = 'connect';
         $this->login();
-        $r = $this->post('/settings/mail/test');
-        $this->assertSame(502, $r->status);
-        $this->assertStringContainsString('Der Mailserver ist nicht erreichbar', $r->body);
-        $this->assertStringNotContainsString(self::PASSWORD_SMTP, $r->body);
+        $this->assertRedirect('/settings/mail', $this->post('/settings/mail/test'));
+        $body = $this->get('/settings/mail')->body;
+        $this->assertStringContainsString('Der Mailserver ist nicht erreichbar', $body);
+        $this->assertStringNotContainsString(self::PASSWORD_SMTP, $body);
         $this->assertStringNotContainsString(self::PASSWORD_SMTP, $this->dump());
     }
 
@@ -424,14 +467,29 @@ final class MailRouteTest extends HttpTestCase
     {
         $this->login();
         for ($i = 0; $i < 3; $i++) {
-            $this->assertSame(200, $this->post('/settings/mail/test')->status);
+            $this->assertRedirect('/settings/mail', $this->post('/settings/mail/test'));
         }
-        $r = $this->post('/settings/mail/test');
-        $this->assertSame(429, $r->status);
-        $this->assertStringContainsString('zu viele E-Mails', $r->body);
+        $this->assertRedirect('/settings/mail', $this->post('/settings/mail/test'));
+        $this->assertStringContainsString('zu viele E-Mails', $this->get('/settings/mail')->body);
         $this->assertCount(3, $this->transport->sent);
         $this->db->exec('UPDATE companies SET smtp_host = NULL WHERE id = ?', [$this->companyA]);
-        $this->assertSame(409, $this->post('/settings/mail/test')->status);
+        $this->assertRedirect('/settings/mail', $this->post('/settings/mail/test'));
+        $this->assertStringContainsString('Speichere zuerst vollständige Einstellungen', $this->get('/settings/mail')->body);
         $this->assertCount(3, $this->transport->sent);
+    }
+
+    public function test_ssrf_target_fails_with_secret_free_text_for_test_mail_and_document_send(): void
+    {
+        $this->db->exec("UPDATE companies SET smtp_host = '127.0.0.1', smtp_port = 6379 WHERE id = ?", [$this->companyA]);
+        $this->login();
+        $this->assertRedirect('/settings/mail', $this->post('/settings/mail/test'));
+        $mail = $this->get('/settings/mail')->body;
+        $this->assertStringContainsString('Der Mailserver ist nicht erreichbar', $mail);
+        $this->assertStringNotContainsString('127.0.0.1:6379', $mail);
+        $r = $this->post("/documents/{$this->doc}/send", $this->form());
+        $this->assertSame(502, $r->status);
+        $this->assertStringContainsString('Der Mailserver ist nicht erreichbar', $r->body);
+        $this->assertStringNotContainsString(self::PASSWORD_SMTP, $r->body . $mail . $this->dump());
+        $this->assertSame([], $this->transport->sent);
     }
 }
