@@ -142,6 +142,18 @@ final class PdfRendererTest extends TestCase
         return PdfFixture::flat(self::$pdf[$name]);
     }
 
+    /** A translation in $lang (German expectations come from the lang files, not hand-typed). */
+    private static function t(string $key, string $lang = 'de', array $vars = []): string
+    {
+        return self::$f->translator()->t($key, $lang, $vars);
+    }
+
+    /** The page footer of the PDF, e.g. "RE-2026-001 · Seite 1 von 2". */
+    private static function pageLabel(string $number, int $page, int $pages, string $lang = 'de'): string
+    {
+        return $number . ' · ' . self::t('pdf.page', $lang, ['page' => (string) $page, 'pages' => (string) $pages]);
+    }
+
     private function html(string $name): string
     {
         $company = $name === 'evil' ? self::$f->companyB : self::$f->companyA;
@@ -198,9 +210,10 @@ final class PdfRendererTest extends TestCase
         $t = $this->text('glyphs');
         foreach (['RECHNUNG', 'RE-2026-002', 'Łukasz Żółć & Söhne Gärtnerei', 'ul. Świętokrzyska 5', '00-950 Warszawa', 'Polen',
             'Größe ÄÖÜ äöü ß', 'Zażółć gęślą jaźń ĄĆĘŁŃÓŚŹŻ', 'Übergröße Maßband', '1.234,56 €', '22,48 €', '10 %', '1.257,04 €',
-            'USt 19 %', '238,84 €', '1.495,88 €', 'Muster Service GmbH', 'DE987654321', '27/123/45678', 'DE89370400440532013000',
-            'COBADEFFXXX', 'Commerzbank Berlin', 'Rechnungsdatum', '18.11.2026', 'Leistungsdatum', '17.11.2026', 'Fällig am', '02.12.2026',
-            'Zahlbar bis 02.12.2026 ohne Abzug.', 'Vielen Dank für deinen Auftrag.', 'Mit freundlichen Grüßen', 'RABATT %', 'Seite 1 von 1'] as $s) {
+            'USt 19 % auf 1.257,04 €', '238,84 €', '1.495,88 €', 'Muster Service GmbH', 'DE987654321', '27/123/45678', 'DE89370400440532013000',
+            'COBADEFFXXX', 'Commerzbank Berlin', self::t('invoice.date'), '18.11.2026', self::t('invoice.service_date'), '17.11.2026',
+            self::t('invoice.due_date'), '02.12.2026', self::t('pdf.payment_due', 'de', ['date' => '02.12.2026']), 'Vielen Dank für deinen Auftrag.',
+            'Mit freundlichen Grüßen', mb_strtoupper(self::t('invoice.discount')), self::pageLabel('RE-2026-002', 1, 1)] as $s) {
             $this->assertStringContainsString($s, $t);
         }
         $info = PdfFixture::info($pdf);
@@ -214,12 +227,13 @@ final class PdfRendererTest extends TestCase
     {
         $t = $this->text('domestic');
         foreach (['RE-2026-001', 'Bauhaus Logistik GmbH', 'Hauptstraße 5', '80331 München', 'USt-IdNr.: DE123456789', 'Beratung / Workshop',
-            'Anfahrtspauschale', 'Schulungsunterlagen', '2 Std.', '1 pauschal', '5 Stk.', '450,00 €', '900,00 €', '1.020,00 €', 'USt 19 %',
-            '182,40 €', 'USt 7 %', '4,20 €', '1.206,60 €'] as $s) {
+            'Anfahrtspauschale', 'Schulungsunterlagen', '2 Std.', '1 pauschal', '5 Stk.', '450,00 €', '900,00 €', '1.020,00 €',
+            'USt 19 % auf 960,00 €', '182,40 €', 'USt 7 % auf 60,00 €', '4,20 €', '1.206,60 €'] as $s) {
             $this->assertStringContainsString($s, $t);
         }
-        $this->assertStringNotContainsString('RABATT', $t, 'no discount column without discounts');
-        $this->assertStringNotContainsString('USt in EUR', $t);
+        $this->assertStringNotContainsString(mb_strtoupper(self::t('invoice.discount')), $t, 'no discount column without discounts');
+        $this->assertStringNotContainsString(self::t('invoice.vat_in_eur'), $t);
+        $this->assertStringNotContainsString('USt 0 %', $t, 'no 0 % row without 0 % lines');
         $this->assertStringNotContainsString('Reverse', $t);
     }
 
@@ -238,7 +252,9 @@ final class PdfRendererTest extends TestCase
             }
         }
         $this->assertStringContainsString('1 020,00 zł', $this->text('rc_pl'));
-        $this->assertStringContainsString('VAT 0 %', $this->text('rc_pl'));
+        foreach (['rc_de' => 'USt', 'rc_pl' => 'VAT', 'rc_en' => 'VAT'] as $name => $vat) {
+            $this->assertStringNotContainsString("$vat 0 %", $this->text($name), 'reverse charge: no VAT rows, only the note');
+        }
     }
 
     public function test_reverse_charge_shows_both_vat_ids(): void
@@ -254,8 +270,9 @@ final class PdfRendererTest extends TestCase
     {
         $t = $this->flat('pln');
         $this->assertStringContainsString('1.206,60 PLN', $t);
-        $this->assertStringContainsString('USt in EUR: 43,75 €', $t);
-        $this->assertStringContainsString('Umrechnungskurs: 1 EUR = 4,2650 PLN', $t);
+        $this->assertStringContainsString(self::t('invoice.vat_in_eur') . ': 43,75 €', $t);
+        $this->assertStringContainsString(self::t('invoice.exchange_rate') . ': 1 EUR = 4,2650 PLN', $t);
+        $this->assertStringContainsString('USt 19 % auf 960,00 PLN', $t);
         $this->assertStringNotContainsString('Reverse', $t);
     }
 
@@ -263,7 +280,7 @@ final class PdfRendererTest extends TestCase
     {
         $t = $this->flat('usd');
         foreach (['INVOICE', 'Acme Inc', 'United States', 'US$1,206.60', 'VAT in EUR: €171.67', 'Exchange rate: 1 EUR = 1.0870 USD',
-            'Invoice date', '18/11/2026', 'Payable by 02/12/2026 without deduction.', 'Page 1 of 1', 'Bank details'] as $s) {
+            'Invoice date', '18/11/2026', 'Payable by 02/12/2026 without deduction.', self::pageLabel('RE-2026-007', 1, 1, 'en'), 'Bank details', 'VAT 19 % on US$960.00'] as $s) {
             $this->assertStringContainsString($s, $t);
         }
     }
@@ -271,12 +288,12 @@ final class PdfRendererTest extends TestCase
     public function test_labels_in_each_language(): void
     {
         $this->assertStringContainsString('FAKTURA', $this->text('rc_pl'));
-        $this->assertStringContainsString('NABYWCA', $this->text('rc_pl'));
-        $this->assertStringContainsString('Strona 1 z 1', $this->text('rc_pl'));
-        $this->assertStringContainsString('Dane do przelewu', $this->text('rc_pl'));
-        $this->assertStringContainsString('Płatne do 02.12.2026 bez potrąceń.', $this->flat('rc_pl'));
-        $this->assertStringContainsString('RECHNUNGSEMPFÄNGER', $this->text('rc_de'));
-        $this->assertStringContainsString('Seite 1 von 1', $this->text('rc_de'));
+        $this->assertStringContainsString(mb_strtoupper(self::t('invoice.bill_to', 'pl')), $this->text('rc_pl'));
+        $this->assertStringContainsString(self::pageLabel('RE-2026-003', 1, 1, 'pl'), $this->text('rc_pl'));
+        $this->assertStringContainsString(self::t('pdf.bank_details', 'pl'), $this->text('rc_pl'));
+        $this->assertStringContainsString(self::t('pdf.payment_due', 'pl', ['date' => '02.12.2026']), $this->flat('rc_pl'));
+        $this->assertStringContainsString(mb_strtoupper(self::t('invoice.bill_to')), $this->text('rc_de'));
+        $this->assertStringContainsString(self::pageLabel('RE-2026-004', 1, 1), $this->text('rc_de'));
         $this->assertStringContainsString('BILL TO', $this->text('rc_en'));
         $this->assertStringContainsString('INVOICE', $this->text('rc_en'));
     }
@@ -284,12 +301,15 @@ final class PdfRendererTest extends TestCase
     public function test_credit_note_pdf(): void
     {
         $t = $this->flat('credit');
-        foreach (['RECHNUNGSKORREKTUR', 'KO-2026-001', 'Korrektur zur Rechnung RE-2026-001 vom 18.11.2026', 'Gutschrift Anfahrt',
-            '60,00 €', '-60,00 €', '-11,40 €', '-71,40 €', 'Bauhaus Logistik GmbH'] as $s) {
+        foreach ([mb_strtoupper(self::t('invoice.type_credit_note')), 'KO-2026-001',
+            self::t('invoice.corrects', 'de', ['number' => 'RE-2026-001', 'date' => '18.11.2026']), 'Gutschrift Anfahrt',
+            '60,00 €', '-60,00 €', 'USt 19 % auf -60,00 €', '-11,40 €', '-71,40 €', 'Bauhaus Logistik GmbH', self::pageLabel('KO-2026-001', 1, 1)] as $s) {
             $this->assertStringContainsString($s, $t);
         }
         $this->assertStringNotContainsString('Zahlbar bis', $t);
-        $this->assertStringNotContainsString('Fällig am', $t);
+        $this->assertStringNotContainsString(self::t('invoice.due_date'), $t);
+        // No payment request on a credit note: no bank block in the body (the letterhead footer stays).
+        $this->assertStringNotContainsString(self::t('pdf.bank_details'), $t);
         $this->assertSame('Rechnungskorrektur KO-2026-001', PdfFixture::info(self::$pdf['credit'])['Title'] ?? null);
     }
 
@@ -313,13 +333,14 @@ final class PdfRendererTest extends TestCase
         $this->assertStringContainsString('6.283,20 €', $t);
         // The table header repeats on every page that carries lines; every page has the footer.
         $perPage = explode("\f", $t);
+        $number = (string) self::$f->repo(self::$f->companyA)->row(self::$ids['long'])['number'];
         $withLines = 0;
         for ($p = 1; $p <= $pages; $p++) {
             if (str_contains($perPage[$p - 1], 'Leistung Nr.')) {
                 $withLines++;
                 $this->assertStringContainsString('BESCHREIBUNG', $perPage[$p - 1], "table header repeated on page $p");
             }
-            $this->assertStringContainsString("Seite $p von $pages", $perPage[$p - 1], "footer page $p");
+            $this->assertStringContainsString(self::pageLabel($number, $p, $pages), $perPage[$p - 1], "footer names the document on page $p");
             $this->assertStringContainsString('DE89370400440532013000', $perPage[$p - 1], "bank data in footer page $p");
         }
         $this->assertGreaterThanOrEqual(2, $withLines);

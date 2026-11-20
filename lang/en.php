@@ -612,4 +612,12 @@ return [
     'pdf.download' => 'Download PDF',
     'pdf.open_label' => 'Open the PDF of {number}',
     'pdf.err_draft' => 'Drafts have no PDF yet. Issue the document first.',
+
+    // Task 17 fix round 1: mandatory invoice data (R29), net per VAT rate
+    'document.err_seller_incomplete' => 'Company details are missing for issuing: name, address and tax number or VAT ID. Add them in the settings under company details.',
+    'document.err_seller_vat_required' => 'A reverse-charge invoice needs your company\'s VAT ID. Add it in the settings under company details.',
+    'document.err_buyer_incomplete' => 'The customer\'s name or address is missing. Add it on the customer page.',
+    'invoice.fix_company' => 'Complete company details',
+    'invoice.fix_customer' => 'Complete customer details',
+    'invoice.vat_on' => '{label} on {net}',
 ];

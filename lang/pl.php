@@ -612,4 +612,12 @@ return [
     'pdf.download' => 'Pobierz PDF',
     'pdf.open_label' => 'Otwórz PDF dokumentu {number}',
     'pdf.err_draft' => 'Dla szkiców nie ma jeszcze PDF. Najpierw wystaw dokument.',
+
+    // Task 17 fix round 1: mandatory invoice data (R29), net per VAT rate
+    'document.err_seller_incomplete' => 'Do wystawienia brakuje danych firmy: nazwy, adresu oraz numeru podatkowego lub NIP UE. Uzupełnij je w ustawieniach w danych firmy.',
+    'document.err_seller_vat_required' => 'Faktura z odwrotnym obciążeniem wymaga numeru NIP UE Twojej firmy. Uzupełnij go w ustawieniach w danych firmy.',
+    'document.err_buyer_incomplete' => 'U klienta brakuje nazwy lub adresu. Uzupełnij je na stronie klienta.',
+    'invoice.fix_company' => 'Uzupełnij dane firmy',
+    'invoice.fix_customer' => 'Uzupełnij dane klienta',
+    'invoice.vat_on' => '{label} od {net}',
 ];

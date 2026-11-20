@@ -25,6 +25,7 @@ use App\Repo\DocumentRepo;
  * - Issued documents (issued()) are built ONLY from the stored snapshots (seller/buyer), the stored
  *   lines and the stored totals; per-rate VAT comes from the stored lines (the same Totals::compute
  *   that wrote the stored sums at issue). Live company/customer rows are never read here.
+ * - VAT rows name their net base ("USt 19 % auf 960,00 €"); none under reverse charge.
  * - Credit notes: lines stay positive, sums carry a leading minus; `related` names the original
  *   invoice (looked up with the company-scoped repo; null when it cannot be found).
  */
@@ -85,12 +86,17 @@ final class DocumentPresenter
                 'net' => $money((int) $net),
             ];
         }
+        // §14(4) Nr. 7/8 UStG: VAT per rate together with the net amount it is computed on. Under
+        // reverse charge there is no VAT row at all (Totals::vat is empty); the note says why.
         $vat = [];
         foreach ($totals->vat as $bp => $amount) {
-            $vat[] = ['label' => $tr('invoice.vat') . ' ' . Percent::format($bp, $lang) . ' %', 'amount' => $money($sign * $amount)];
-        }
-        if ($rc) {
-            $vat[] = ['label' => $tr('invoice.vat') . ' 0 %', 'amount' => $money(0)];
+            $vat[] = [
+                'label' => $tr('invoice.vat_on', [
+                    'label' => $tr('invoice.vat') . ' ' . Percent::format($bp, $lang) . ' %',
+                    'net' => $money($sign * (int) ($totals->nets[$bp] ?? 0)),
+                ]),
+                'amount' => $money($sign * $amount),
+            ];
         }
 
         // Sums: stored (already signed) for issued documents, computed otherwise.

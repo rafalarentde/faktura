@@ -24,6 +24,12 @@
 {% if notice %}<p class="notice" role="status">{{ notice }}</p>{% endif %}
 {% if not can_issue %}<p class="warn-box" id="issue-blocked" role="alert">{{ t('invoice.suspended') }}</p>{% endif %}
 {% if errors.document is defined and (can_issue or errors.document != t('invoice.suspended')) %}<p class="warn-box" role="alert">{{ errors.document }}</p>{% endif %}
+{% for md in missing_data %}
+    <div class="banner banner-warn" role="alert" data-missing="{{ md.key }}">
+        <p>{{ md.text }}</p>
+        {% if md.link %}<p><a href="{{ md.link }}">{{ md.label }}</a></p>{% endif %}
+    </div>
+{% endfor %}
 {% if errors.company is defined %}<p class="warn-box" role="alert">{{ errors.company }}</p>{% endif %}
 <div class="inv-layout">
     <section class="panel">

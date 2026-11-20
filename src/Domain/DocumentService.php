@@ -260,6 +260,7 @@ final class DocumentService
             if (!self::validUtf8($seller)) {
                 throw new ValidationException(['company' => 'document.err_encoding']);
             }
+            self::assertMandatoryParties($seller, (array) $buyer, $reverseCharge);
 
             $totals = $this->computeTotals($lines, $reverseCharge, (string) $doc['currency'], $doc['eur_rate']);
             foreach ($lines as $l) {
@@ -752,6 +753,33 @@ final class DocumentService
             $s[$f] = $company[$f] ?? null;
         }
         return $s;
+    }
+
+    /**
+     * R29 (§14(4) Nr. 1, 2 UStG): an issued document must name both parties with their address and
+     * carry a tax ID of the seller (Steuernummer or USt-IdNr.; under reverse charge the USt-IdNr.).
+     * Checked on the snapshots before a number is drawn, so a refusal consumes no number.
+     *
+     * @param array<string, mixed> $seller
+     * @param array<string, mixed> $buyer
+     * @throws ValidationException keys seller | seller_vat | buyer
+     */
+    private static function assertMandatoryParties(array $seller, array $buyer, bool $reverseCharge): void
+    {
+        $blank = fn (mixed $v): bool => trim((string) $v) === '';
+        $errors = [];
+        if ($blank($seller['name'] ?? null) || $blank($seller['address'] ?? null)
+            || ($blank($seller['tax_number'] ?? null) && $blank($seller['vat_id'] ?? null))) {
+            $errors['seller'] = 'document.err_seller_incomplete';
+        } elseif ($reverseCharge && $blank($seller['vat_id'] ?? null)) {
+            $errors['seller_vat'] = 'document.err_seller_vat_required';
+        }
+        if ($blank($buyer['name'] ?? null) || $blank($buyer['address'] ?? null)) {
+            $errors['buyer'] = 'document.err_buyer_incomplete';
+        }
+        if ($errors !== []) {
+            throw new ValidationException($errors);
+        }
     }
 
     /** @param array<string, mixed> $detail ids and flags only, never personal data */

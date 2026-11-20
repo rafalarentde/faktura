@@ -88,10 +88,11 @@ final class ContentSecurityTest extends HttpTestCase
     {
         $u = $this->createUser('inv@example.com');
         $c = $this->createCompany('Inv GmbH');
+        $this->db->exec("UPDATE companies SET address = 'Firmenweg 1', vat_id = 'DE987654321' WHERE id = ?", [$c]);
         $this->addMember($u['id'], $c);
-        $this->db->exec("INSERT INTO customers (company_id, name, country, is_company, vat_id, vies_status, default_currency) VALUES (?, 'Kowalski', 'PL', 1, 'PL1234567890', 'valid', 'PLN')", [$c]);
+        $this->db->exec("INSERT INTO customers (company_id, name, address, country, is_company, vat_id, vies_status, default_currency) VALUES (?, 'Kowalski', 'ul. Długa 12', 'PL', 1, 'PL1234567890', 'valid', 'PLN')", [$c]);
         $pl = $this->db->lastId();
-        $this->db->exec("INSERT INTO customers (company_id, name, country, is_company, vat_id) VALUES (?, 'Nowak', 'PL', 1, 'PL999')", [$c]);
+        $this->db->exec("INSERT INTO customers (company_id, name, address, country, is_company, vat_id) VALUES (?, 'Nowak', 'ul. Krótka 1', 'PL', 1, 'PL999')", [$c]);
         $unverified = $this->db->lastId();
         $this->loginFully($u['secret'], 'inv@example.com');
         $line = ['name' => 'Beratung', 'description' => '', 'qty' => '2', 'unit' => 'hour', 'price' => '450,00', 'discount' => '', 'vat_bp' => '1900', 'item_id' => ''];

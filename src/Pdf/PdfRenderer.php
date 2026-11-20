@@ -85,6 +85,18 @@ final class PdfRenderer
      */
     public function render(int $documentId): string
     {
+        return $this->renderFile($documentId)['content'];
+    }
+
+    /**
+     * The PDF with its download file name (PdfRenderer::filename of the document number), from
+     * one read of the document.
+     *
+     * @return array{content: string, filename: string}
+     * @throws DocumentNotFound|PdfNotAvailable as render()
+     */
+    public function renderFile(int $documentId): array
+    {
         [$doc, $vm] = $this->load($documentId);
         $dompdf = new Dompdf($this->options());
         $metrics = $dompdf->getFontMetrics();
@@ -99,7 +111,8 @@ final class PdfRenderer
         $dompdf->render();
 
         $font = $metrics->getFont(self::BODY_FONT, 'normal');
-        $label = (string) $vm['labels']['page'];
+        // Every page names the document ("RE-2026-001 · Seite 2 von 3"), also a totals-only page.
+        $label = $doc['number'] . ' · ' . $vm['labels']['page'];
         $dompdf->getCanvas()->page_script(
             function (int $page, int $pages, Canvas $canvas, FontMetrics $fm) use ($font, $label): void {
                 $text = strtr($label, ['{page}' => (string) $page, '{pages}' => (string) $pages]);
@@ -114,7 +127,7 @@ final class PdfRenderer
             $dompdf->addInfo('CreationDate', 'D:' . $issued->format('YmdHis') . "+00'00'");
             $dompdf->addInfo('ModDate', 'D:' . $issued->format('YmdHis') . "+00'00'");
         }
-        return (string) $dompdf->output();
+        return ['content' => (string) $dompdf->output(), 'filename' => self::filename((string) $doc['number'])];
     }
 
     /**

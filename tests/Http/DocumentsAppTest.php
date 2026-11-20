@@ -12,7 +12,7 @@ final class DocumentsAppTest extends HttpTestCase
     public function test_documents_service_through_app_issues_a_document(): void
     {
         $user = $this->createUser();
-        $this->db->exec("INSERT INTO companies (name, default_payment_days) VALUES ('App GmbH', 10)");
+        $this->db->exec("INSERT INTO companies (name, address, tax_number, default_payment_days) VALUES ('App GmbH', 'Appweg 1', '27/123/45678', 10)");
         $companyId = $this->db->lastId();
         $this->db->exec('INSERT INTO company_users (company_id, user_id, role) VALUES (?, ?, ?)', [$companyId, $user['id'], 'owner']);
         $this->loginFully($user['secret']);
@@ -22,7 +22,7 @@ final class DocumentsAppTest extends HttpTestCase
         $this->assertNotNull($ctx);
         $svc = $this->app->documents();
         $this->assertSame($svc, $this->app->documents(), 'cached per request');
-        $customer = (new CustomerRepo($this->db, $ctx))->save(['name' => 'Kunde', 'country' => 'DE']);
+        $customer = (new CustomerRepo($this->db, $ctx))->save(['name' => 'Kunde', 'address' => 'Kundenweg 1', 'country' => 'DE']);
         $id = $svc->createDraft('invoice', ['customer_id' => $customer, 'lines' => [
             ['name' => 'Beratung', 'unit' => 'hour', 'qty_milli' => 1000, 'unit_minor' => 10000, 'discount_bp' => 0, 'vat_bp' => 1900],
         ]]);

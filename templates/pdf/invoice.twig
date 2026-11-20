@@ -60,7 +60,8 @@
 
 {% if doc.outro %}<p class="text">{{ doc.outro|join("\n")|nl2br }}</p>{% endif %}
 
-{% if doc.payment or doc.seller.iban %}
+{# Credit notes carry no payment request, so no payment/bank block. #}
+{% if doc.kind != 'credit_note' and (doc.payment or doc.seller.iban) %}
     <div class="payment">
         {%- if doc.payment %}<div class="strong">{{ doc.payment }}</div>{% endif %}
         {%- if doc.seller.iban %}

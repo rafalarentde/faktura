@@ -563,6 +563,7 @@ final class InvoiceController
             'customers' => $this->customerChoices(),
             'customer' => $customer === null ? null : ['id' => (int) $customer['id'], 'name' => (string) $customer['name']],
             'banner' => $this->banner($doc, $vat, $customer),
+            'missing_data' => $this->missingData($errors, $customer),
             'reverse_charge' => $rc,
             'totals' => $totals,
             'paper' => $this->paperForEditor($doc, $form, $customer, $parsed, $rc, $currency),
@@ -576,6 +577,29 @@ final class InvoiceController
             'langs' => DocumentService::LANGS,
             'currencies' => DocumentService::CURRENCIES,
         ], $status);
+    }
+
+    /**
+     * Banners for issue refusals because of missing mandatory data (R29), with a link to the
+     * place where the user fixes it: company settings for the seller, the customer page for the buyer.
+     *
+     * @param array<string, string> $errors field => translation key
+     * @param array<string, mixed>|null $customer
+     * @return list<array{key: string, text: string, link: ?string, label: string}>
+     */
+    private function missingData(array $errors, ?array $customer): array
+    {
+        $out = [];
+        foreach (['seller', 'seller_vat'] as $key) {
+            if (isset($errors[$key])) {
+                $out[] = ['key' => $key, 'text' => $this->app->t($errors[$key]), 'link' => '/settings/company', 'label' => $this->app->t('invoice.fix_company')];
+            }
+        }
+        if (isset($errors['buyer'])) {
+            $out[] = ['key' => 'buyer', 'text' => $this->app->t($errors['buyer']),
+                'link' => $customer === null ? null : '/customers/' . (int) $customer['id'], 'label' => $this->app->t('invoice.fix_customer')];
+        }
+        return $out;
     }
 
     /**

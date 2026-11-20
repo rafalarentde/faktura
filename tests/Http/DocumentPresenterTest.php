@@ -64,7 +64,7 @@ final class DocumentPresenterTest extends TestCase
         $this->assertSame('7 %', $vm['rows'][2]['vat']);
         $this->assertFalse($vm['has_discount']);
         $this->assertSame('1.020,00 €', $vm['net']);
-        $this->assertSame([['label' => 'USt 19 %', 'amount' => '182,40 €'], ['label' => 'USt 7 %', 'amount' => '4,20 €']], $vm['vat']);
+        $this->assertSame([['label' => 'USt 19 % auf 960,00 €', 'amount' => '182,40 €'], ['label' => 'USt 7 % auf 60,00 €', 'amount' => '4,20 €']], $vm['vat']);
         $this->assertSame('1.206,60 €', $vm['gross']);
         $this->assertNull($vm['vat_eur']);
         $this->assertNull($vm['rate']);
@@ -89,7 +89,7 @@ final class DocumentPresenterTest extends TestCase
         $this->assertSame(['pl', 'Faktura', 'Polska'], [$vm['lang'], $vm['title'], $vm['buyer']['country']]);
         $this->assertSame('1 020,00 zł', $vm['net']);
         $this->assertSame($this->f->translator()->t('invoice.reverse_charge_note', 'pl'), $vm['note']);
-        $this->assertSame([['label' => 'VAT 0 %', 'amount' => '0,00 zł']], $vm['vat']);
+        $this->assertSame([], $vm['vat'], 'reverse charge: no VAT rows, the note explains');
         $this->assertSame(['0 %', '0 %', '0 %'], array_column($vm['rows'], 'vat'));
         $this->assertNull($vm['vat_eur'], 'reverse charge: no VAT to convert');
         $this->assertNull($vm['rate'], 'reverse charge in PLN needs no rate');
@@ -99,6 +99,7 @@ final class DocumentPresenterTest extends TestCase
         $vm = $this->present($this->f->issued($this->f->companyA, $en));
         $this->assertSame(['en', 'Invoice', '18/11/2026', 'United Kingdom', ''], [$vm['lang'], $vm['title'], $vm['issue_date'], $vm['buyer']['country'], $vm['buyer']['vat_id']]);
         $this->assertSame('€1,206.60', $vm['gross']);
+        $this->assertSame(['VAT 19 % on €960.00', 'VAT 7 % on €60.00'], array_column($vm['vat'], 'label'));
     }
 
     public function test_foreign_currency_vat_in_eur_and_localised_rate(): void
@@ -127,6 +128,7 @@ final class DocumentPresenterTest extends TestCase
         $this->assertSame('Korrektur zur Rechnung RE-2026-001 vom 18.11.2026', $vm['related']);
         $this->assertSame('60,00 €', $vm['rows'][0]['price'], 'lines stay positive');
         $this->assertSame(['-60,00 €', '-11,40 €', '-71,40 €'], [$vm['net'], $vm['vat'][0]['amount'], $vm['gross']]);
+        $this->assertSame('USt 19 % auf -60,00 €', $vm['vat'][0]['label']);
         $this->assertNull($vm['due_date']);
         $this->assertNull($vm['payment']);
 
@@ -152,7 +154,7 @@ final class DocumentPresenterTest extends TestCase
 
     public function test_discount_column_and_empty_optional_fields(): void
     {
-        $c = $this->f->customer($this->f->companyA, ['name' => 'Privat Person', 'address' => '', 'vat_id' => '', 'is_company' => '0']);
+        $c = $this->f->customer($this->f->companyA, ['name' => 'Privat Person', 'address' => 'Privatweg 1', 'vat_id' => '', 'is_company' => '0']);
         $this->f->db->exec("UPDATE companies SET tax_number = NULL, bic = NULL, bank = NULL WHERE id = ?", [$this->f->companyA]);
         $id = $this->f->issued($this->f->companyA, $c, ['intro_text' => '', 'outro_text' => '', 'lines' => [
             PdfFixture::line(['name' => 'Rabattiert', 'description' => "Zeile 1\nZeile 2", 'discount_bp' => 1000]),
@@ -162,10 +164,20 @@ final class DocumentPresenterTest extends TestCase
         $this->assertTrue($vm['has_discount']);
         $this->assertSame(['10 %', ''], array_column($vm['rows'], 'discount'));
         $this->assertSame("Zeile 1\nZeile 2", $vm['rows'][0]['description']);
-        $this->assertSame([], $vm['buyer']['address']);
+        $this->assertSame(['Privatweg 1'], $vm['buyer']['address']);
         $this->assertSame('', $vm['buyer']['vat_id']);
         $this->assertSame(['', '', ''], [$vm['seller']['tax_number'], $vm['seller']['bic'], $vm['seller']['bank']]);
         $this->assertSame([[], []], [$vm['intro'], $vm['outro']]);
+    }
+
+    public function test_zero_rate_lines_without_reverse_charge_get_their_own_row(): void
+    {
+        $id = $this->f->issued($this->f->companyA, $this->de, ['lines' => [
+            PdfFixture::line(['unit_minor' => 10000]),
+            PdfFixture::line(['name' => 'Porto', 'unit_minor' => 5000, 'vat_bp' => 0]),
+        ]]);
+        $vm = $this->present($id);
+        $this->assertSame([['label' => 'USt 19 % auf 100,00 €', 'amount' => '19,00 €'], ['label' => 'USt 0 % auf 50,00 €', 'amount' => '0,00 €']], $vm['vat']);
     }
 
     public function test_drafts_have_no_issued_view_model(): void
@@ -174,11 +186,5 @@ final class DocumentPresenterTest extends TestCase
         $doc = $this->f->repo($this->f->companyA)->find($id);
         $this->expectException(\LogicException::class);
         $this->f->presenter($this->f->companyA)->issued($doc);
-    }
-
-    public function test_class_lives_where_the_controller_and_pdf_share_it(): void
-    {
-        $this->assertTrue(class_exists(DocumentPresenter::class));
-        $this->assertTrue(method_exists(DocumentPresenter::class, 'present'));
     }
 }

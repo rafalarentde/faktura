@@ -29,7 +29,7 @@ final class DocumentRepoTest extends TestCase
 
     private function company(string $name): int
     {
-        $this->db->exec('INSERT INTO companies (name) VALUES (?)', [$name]);
+        $this->db->exec('INSERT INTO companies (name, address, vat_id) VALUES (?, ?, ?)', [$name, 'Firmenweg 1', 'DE123456789']);
         $id = $this->db->lastId();
         $this->db->exec('INSERT INTO company_users (company_id, user_id, role) VALUES (?, ?, ?)', [$id, $this->userId, 'owner']);
         return $id;
@@ -53,7 +53,7 @@ final class DocumentRepoTest extends TestCase
 
     private function customer(int $cid, string $name): int
     {
-        return (new CustomerRepo($this->db, $this->ctx($cid)))->save(['name' => $name, 'country' => 'DE']);
+        return (new CustomerRepo($this->db, $this->ctx($cid)))->save(['name' => $name, 'address' => 'Kundenweg 1', 'country' => 'DE']);
     }
 
     /** @param list<array<string, mixed>> $lines */

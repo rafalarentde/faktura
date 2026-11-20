@@ -8,8 +8,6 @@ use App\Core\Request;
 use App\Core\Response;
 use App\Domain\DocumentNotFound;
 use App\Pdf\PdfNotAvailable;
-use App\Pdf\PdfRenderer;
-use App\Repo\DocumentRepo;
 
 /**
  * GET /documents/{id}/pdf (Task 17): the PDF of an issued invoice or credit note of the active
@@ -32,18 +30,16 @@ final class PdfController
     {
         $id = (int) $params['id'];
         try {
-            $pdf = $this->app->pdf()->render($id);
+            $file = $this->app->pdf()->renderFile($id);
         } catch (DocumentNotFound) {
             return $this->error(404, 'error.not_found');
         } catch (PdfNotAvailable) {
             return $this->error(409, 'pdf.err_draft');
         }
-        $ctx = $this->app->context() ?? throw new \LogicException('RequireCompany must run first.');
-        $number = (string) ((new DocumentRepo($this->app->db(), $ctx))->row($id)['number'] ?? '');
         $disposition = $request->queryParam('download') === '1' ? 'attachment' : 'inline';
-        return new Response($pdf, 200, [
+        return new Response($file['content'], 200, [
             'Content-Type' => 'application/pdf',
-            'Content-Disposition' => $disposition . '; filename="' . PdfRenderer::filename($number) . '"',
+            'Content-Disposition' => $disposition . '; filename="' . $file['filename'] . '"',
             'X-Content-Type-Options' => 'nosniff',
         ]);
     }

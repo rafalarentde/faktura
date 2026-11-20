@@ -612,4 +612,12 @@ return [
     'pdf.download' => 'PDF herunterladen',
     'pdf.open_label' => 'PDF von {number} öffnen',
     'pdf.err_draft' => 'Für Entwürfe gibt es noch kein PDF. Stell den Beleg zuerst aus.',
+
+    // Task 17 fix round 1: mandatory invoice data (R29), net per VAT rate
+    'document.err_seller_incomplete' => 'Für das Ausstellen fehlen Firmendaten: Name, Anschrift und Steuernummer oder USt-IdNr. Ergänze sie in den Einstellungen unter Firmendaten.',
+    'document.err_seller_vat_required' => 'Für eine Reverse-Charge-Rechnung braucht deine Firma eine USt-IdNr. Ergänze sie in den Einstellungen unter Firmendaten.',
+    'document.err_buyer_incomplete' => 'Beim Kunden fehlen Name oder Anschrift. Ergänze sie auf der Kundenseite.',
+    'invoice.fix_company' => 'Firmendaten ergänzen',
+    'invoice.fix_customer' => 'Kundendaten ergänzen',
+    'invoice.vat_on' => '{label} auf {net}',
 ];

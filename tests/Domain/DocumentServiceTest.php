@@ -101,7 +101,7 @@ final class DocumentServiceTest extends TestCase
     private function customer(int $companyId, array $data = []): int
     {
         return $this->customers($companyId)->save($data + [
-            'name' => 'Kunde GmbH', 'country' => 'DE', 'is_company' => '1', 'payment_days' => '30',
+            'name' => 'Kunde GmbH', 'address' => "Kundenweg 1\n10115 Berlin", 'country' => 'DE', 'is_company' => '1', 'payment_days' => '30',
             'default_lang' => 'de', 'default_currency' => 'EUR',
         ]);
     }
@@ -109,7 +109,7 @@ final class DocumentServiceTest extends TestCase
     private function euCustomer(?ViesStatus $vies, string $currency = 'EUR'): int
     {
         $id = $this->customer($this->companyA, [
-            'name' => 'Société SA', 'country' => 'FR', 'vat_id' => 'FR40303265045', 'default_currency' => $currency,
+            'name' => 'Société SA', 'address' => "1 rue de Rivoli\n75001 Paris", 'country' => 'FR', 'vat_id' => 'FR40303265045', 'default_currency' => $currency,
         ]);
         if ($vies !== null) {
             $this->customers($this->companyA)->recordVies($id, $vies, new \DateTimeImmutable('@' . self::NOW));
@@ -1240,5 +1240,100 @@ final class DocumentServiceTest extends TestCase
         $this->assertSame('Kunde GmbH', $this->doc($cn)['buyer']['name']);
         // invoices for that customer still get the clean 422
         $this->assertSame(['customer_id' => 'document.err_encoding'], $this->errors(fn () => $this->draft()));
+    }
+
+    // ---- R29: mandatory seller and buyer data at issue (Task 17 fix round 1) ----
+
+    /** @param array<string, mixed> $company columns of company A to change before issuing */
+    private function assertIssueRefused(array $company, array $customer, array $expected): void
+    {
+        foreach ($company as $col => $v) {
+            $this->db->exec("UPDATE companies SET $col = ? WHERE id = ?", [$v, $this->companyA]);
+        }
+        $cid = $customer === [] ? $this->customer : $this->customer($this->companyA, $customer);
+        $id = $this->draft(['customer_id' => $cid]);
+        $before = $this->counter('invoice');
+        try {
+            $this->svc->issue($id, $this->at());
+            $this->fail('issue must be refused');
+        } catch (ValidationException $e) {
+            $this->assertSame($expected, $e->errors);
+        }
+        $this->assertSame($before, $this->counter('invoice'), 'no number consumed');
+        $doc = $this->repo($this->companyA)->find($id);
+        $this->assertSame(['draft', null], [$doc['status'], $doc['number']]);
+    }
+
+    public function test_issue_requires_seller_name(): void
+    {
+        $this->assertIssueRefused(['name' => '  '], [], ['seller' => 'document.err_seller_incomplete']);
+    }
+
+    public function test_issue_requires_seller_address(): void
+    {
+        $this->assertIssueRefused(['address' => ''], [], ['seller' => 'document.err_seller_incomplete']);
+    }
+
+    public function test_issue_requires_a_seller_tax_id(): void
+    {
+        $this->assertIssueRefused(['tax_number' => null, 'vat_id' => ' '], [], ['seller' => 'document.err_seller_incomplete']);
+    }
+
+    public function test_issue_requires_buyer_address(): void
+    {
+        $this->assertIssueRefused([], ['name' => 'Ohne Adresse GmbH', 'address' => ''], ['buyer' => 'document.err_buyer_incomplete']);
+    }
+
+    public function test_seller_and_buyer_errors_are_reported_together(): void
+    {
+        $this->assertIssueRefused(['address' => null], ['name' => 'Ohne Adresse GmbH', 'address' => ''],
+            ['seller' => 'document.err_seller_incomplete', 'buyer' => 'document.err_buyer_incomplete']);
+    }
+
+    public function test_reverse_charge_requires_seller_vat_id(): void
+    {
+        $this->db->exec('UPDATE companies SET vat_id = NULL WHERE id = ?', [$this->companyA]);
+        $eu = $this->euCustomer(ViesStatus::Valid);
+        $id = $this->draft(['customer_id' => $eu]);
+        $before = $this->counter('invoice');
+        try {
+            $this->svc->issue($id, $this->at());
+            $this->fail('reverse charge without seller VAT ID');
+        } catch (ValidationException $e) {
+            $this->assertSame(['seller_vat' => 'document.err_seller_vat_required'], $e->errors);
+        }
+        $this->assertSame($before, $this->counter('invoice'));
+        // A domestic invoice is fine with the tax number alone.
+        $this->svc->issue($this->draft(), $this->at());
+    }
+
+    public function test_seller_with_only_vat_id_or_only_tax_number_may_issue(): void
+    {
+        $this->db->exec('UPDATE companies SET tax_number = NULL WHERE id = ?', [$this->companyA]);
+        $this->assertSame('RE-2026-001', $this->svc->issue($this->draft(), $this->at()));
+        $this->db->exec("UPDATE companies SET tax_number = '27/123/45678', vat_id = NULL WHERE id = ?", [$this->companyA]);
+        $this->assertSame('RE-2026-002', $this->svc->issue($this->draft(), $this->at()));
+    }
+
+    public function test_credit_note_checks_the_seller_and_inherits_the_buyer(): void
+    {
+        $inv = $this->draft();
+        $this->svc->issue($inv, $this->at());
+        // The customer row loses its address later: the credit note uses the invoice's buyer snapshot.
+        $this->db->exec("UPDATE customers SET address = '' WHERE id = ?", [$this->customer]);
+        $cn = $this->svc->createCorrection($inv);
+        $this->assertSame('KO-2026-001', $this->svc->issue($cn, $this->at()));
+
+        $cn2 = $this->svc->createCorrection($inv);
+        $this->svc->updateDraft($cn2, ['lines' => [$this->line(['unit_minor' => 1])]]);
+        $this->db->exec('UPDATE companies SET tax_number = NULL, vat_id = NULL WHERE id = ?', [$this->companyA]);
+        $before = $this->counter('credit_note');
+        try {
+            $this->svc->issue($cn2, $this->at());
+            $this->fail('credit note with incomplete seller');
+        } catch (ValidationException $e) {
+            $this->assertSame(['seller' => 'document.err_seller_incomplete'], $e->errors);
+        }
+        $this->assertSame($before, $this->counter('credit_note'));
     }
 }

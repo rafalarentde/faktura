@@ -103,6 +103,18 @@ final class PdfRouteTest extends HttpTestCase
         return $this->app->handle(new Request('GET', $path, query: $query, server: ['REMOTE_ADDR' => self::IP]));
     }
 
+    private function requirePoppler(): void
+    {
+        if (!PdfFixture::hasPoppler()) {
+            $this->markTestSkipped('pdftotext/pdfinfo (poppler-utils) are needed to read the rendered PDF.');
+        }
+    }
+
+    private function t(string $key, string $lang = 'de', array $vars = []): string
+    {
+        return $this->app->translator()->t($key, $lang, $vars);
+    }
+
     private function assertPdf(Response $r): void
     {
         $this->assertSame(200, $r->status, substr($r->body, 0, 500));
@@ -114,17 +126,16 @@ final class PdfRouteTest extends HttpTestCase
 
     public function test_inline_pdf_with_headers(): void
     {
+        $this->requirePoppler();
         $id = $this->issued($this->companyA, $this->customer);
         $this->loginFully($this->secret);
         $r = $this->get("/documents/$id/pdf");
         $this->assertPdf($r);
         $this->assertSame('inline; filename="RE-2026-001.pdf"', $r->headers['Content-Disposition'] ?? null);
-        if (PdfFixture::hasPoppler()) {
-            $t = PdfFixture::text($r->body);
-            $this->assertStringContainsString('RE-2026-001', $t);
-            $this->assertStringContainsString('Bauhaus Logistik GmbH', $t);
-            $this->assertStringContainsString('1.206,60 €', $t);
-        }
+        $t = PdfFixture::text($r->body);
+        $this->assertStringContainsString('RE-2026-001', $t);
+        $this->assertStringContainsString('Bauhaus Logistik GmbH', $t);
+        $this->assertStringContainsString('1.206,60 €', $t);
     }
 
     public function test_download_attachment_and_sanitised_filename(): void
@@ -164,7 +175,7 @@ final class PdfRouteTest extends HttpTestCase
         $r = $this->get("/documents/$id/pdf");
         $this->assertSame(409, $r->status);
         $this->assertStringStartsWith('text/html', $r->headers['Content-Type'] ?? '');
-        $this->assertStringContainsString('Für Entwürfe gibt es noch kein PDF.', $r->body);
+        $this->assertStringContainsString(htmlspecialchars($this->t('pdf.err_draft'), ENT_QUOTES), $r->body);
         $this->assertStringNotContainsString('%PDF', $r->body);
         $this->assertArrayNotHasKey('Content-Disposition', $r->headers);
     }
@@ -192,6 +203,7 @@ final class PdfRouteTest extends HttpTestCase
 
     public function test_pdf_uses_the_document_language_not_the_ui_language(): void
     {
+        $this->requirePoppler();
         $pl = $this->customer($this->companyA, ['name' => 'Kowalski Transport Sp. z o.o.', 'country' => 'PL', 'vat_id' => 'PL1234567890',
             'default_lang' => 'pl', 'default_currency' => 'PLN'], ViesStatus::Valid);
         $id = $this->issued($this->companyA, $pl);
@@ -199,12 +211,10 @@ final class PdfRouteTest extends HttpTestCase
         $this->app->session()->set('lang', 'en');
         $r = $this->get("/documents/$id/pdf");
         $this->assertPdf($r);
-        if (PdfFixture::hasPoppler()) {
-            $t = PdfFixture::flat($r->body);
-            $this->assertStringContainsString('FAKTURA', $t);
-            $this->assertStringContainsString('Odwrotne obciążenie', $t);
-            $this->assertStringContainsString('Strona 1 z 1', $t);
-        }
+        $t = PdfFixture::flat($r->body);
+        $this->assertStringContainsString(mb_strtoupper($this->t('invoice.title', 'pl')), $t);
+        $this->assertStringContainsString((string) preg_replace('/\s+/u', ' ', $this->t('invoice.reverse_charge_note', 'pl')), $t);
+        $this->assertStringContainsString('RE-2026-001 · ' . $this->t('pdf.page', 'pl', ['page' => '1', 'pages' => '1']), $t);
     }
 
     public function test_pdf_links_on_issued_view_and_list_only(): void
@@ -217,7 +227,7 @@ final class PdfRouteTest extends HttpTestCase
         $this->assertSame(200, $view->status);
         $this->assertStringContainsString('href="/documents/' . $issued . '/pdf"', $view->body);
         $this->assertStringContainsString('href="/documents/' . $issued . '/pdf?download=1"', $view->body);
-        $this->assertStringContainsString('PDF von RE-2026-001 öffnen', $view->body);
+        $this->assertStringContainsString(htmlspecialchars($this->t('pdf.open_label', 'de', ['number' => 'RE-2026-001']), ENT_QUOTES), $view->body);
 
         $editor = $this->get("/invoices/$draft");
         $this->assertSame(200, $editor->status);

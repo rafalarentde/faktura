@@ -52,7 +52,7 @@ final class InvoiceControllerTest extends HttpTestCase
     /** @param array<string, mixed> $data */
     private function customer(int $company, array $data = []): int
     {
-        $row = ['company_id' => $company] + $data + ['name' => 'Kunde GmbH', 'country' => 'DE', 'is_company' => 1,
+        $row = ['company_id' => $company] + $data + ['name' => 'Kunde GmbH', 'address' => "Kundenweg 1\n10115 Berlin", 'country' => 'DE', 'is_company' => 1,
             'default_lang' => 'de', 'default_currency' => 'EUR', 'payment_days' => 14];
         $this->db->exec(
             'INSERT INTO customers (' . implode(',', array_keys($row)) . ') VALUES (' . implode(',', array_fill(0, count($row), '?')) . ')',
@@ -875,5 +875,32 @@ final class InvoiceControllerTest extends HttpTestCase
         $this->assertStringContainsString('src="/assets/invoice.js', $body);
         $this->assertStringContainsString('data-recalc="/invoices/recalc"', $body);
         $this->assertStringContainsString('name="document_id" value="' . $id . '"', $body);
+    }
+
+    public function test_issue_with_missing_mandatory_data_shows_banners_with_links_and_draws_no_number(): void
+    {
+        $this->login();
+        $noAddress = $this->customer($this->companyA, ['name' => 'Ohne Adresse GmbH', 'address' => '']);
+        $this->db->exec('UPDATE companies SET vat_id = NULL, tax_number = NULL WHERE id = ?', [$this->companyA]);
+        $id = $this->createDraft($noAddress);
+        $r = $this->issueDraft($id);
+        $this->assertSame(422, $r->status);
+        $tr = $this->app->translator();
+        $this->assertStringContainsString('data-missing="seller"', $r->body);
+        $this->assertStringContainsString(htmlspecialchars($tr->t('document.err_seller_incomplete', 'de'), ENT_QUOTES), $r->body);
+        $this->assertStringContainsString('<a href="/settings/company">' . $tr->t('invoice.fix_company', 'de') . '</a>', $r->body);
+        $this->assertStringContainsString('data-missing="buyer"', $r->body);
+        $this->assertStringContainsString('<a href="/customers/' . $noAddress . '">' . $tr->t('invoice.fix_customer', 'de') . '</a>', $r->body);
+        $doc = $this->doc($id);
+        $this->assertSame(['draft', null], [$doc['status'], $doc['number']]);
+        $this->assertSame(0, (int) $this->db->one('SELECT COALESCE(MAX(last_value), 0) AS c FROM number_counters WHERE company_id = ?', [$this->companyA])['c'], 'no number consumed');
+
+        // Reverse charge without the seller's VAT ID (tax number alone is enough for domestic invoices).
+        $this->db->exec("UPDATE companies SET tax_number = '27/123/45678' WHERE id = ?", [$this->companyA]);
+        $rc = $this->createDraft($this->plValid, ['lang' => 'pl', 'currency' => 'PLN']);
+        $r = $this->issueDraft($rc);
+        $this->assertSame(422, $r->status);
+        $this->assertStringContainsString('data-missing="seller_vat"', $r->body);
+        $this->assertSame(303, $this->issueDraft($this->createDraft($this->de))->status);
     }
 }
