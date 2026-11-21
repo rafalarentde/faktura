@@ -227,6 +227,9 @@ final class Exporter
                     $d['seller'] = $this->decode($d['seller_json'] ?? null);
                     $d['buyer'] = $this->decode($d['buyer_json'] ?? null);
                     unset($d['seller_json'], $d['buyer_json']);
+                    if (is_array($d['seller'])) {
+                        unset($d['seller']['logo_path']); // an internal storage path, not business data
+                    }
                     $d['lines'] = $lines[$docId] ?? [];
                     $d['payments'] = $payments[$docId] ?? [];
                     $docs->add($d);
@@ -340,13 +343,28 @@ final class Exporter
     {
         $out = [];
         foreach ($cells as $i => $cell) {
-            // CSV injection: a text cell that a spreadsheet would read as a formula gets a leading quote.
-            if (!in_array($i, $numeric, true) && $cell !== '' && strpbrk($cell[0], "=+-@\t\r") !== false) {
+            // CSV injection: a text cell that a spreadsheet would read as a formula (also after leading
+            // whitespace, which Excel and Calc skip) gets a leading quote.
+            if (!in_array($i, $numeric, true) && self::isFormula($cell)) {
                 $cell = "'" . $cell;
             }
             $out[] = strpbrk($cell, ";\"\r\n") !== false ? '"' . str_replace('"', '""', $cell) . '"' : $cell;
         }
         return implode(';', $out) . "\r\n";
+    }
+
+    /** True when a spreadsheet could read the cell as a formula: first non-whitespace character is = + - @, or it starts with TAB/CR. */
+    private static function isFormula(string $cell): bool
+    {
+        if ($cell === '') {
+            return false;
+        }
+        $trimmed = ltrim($cell);
+        if (strpbrk($cell[0], "\t\r") !== false || ($trimmed !== '' && strpbrk($trimmed[0], '=+-@') !== false)) {
+            return true;
+        }
+        // Unicode spaces (NBSP, zero-width, BOM ...) before the formula character.
+        return preg_match('/\A[\s\p{Z}\p{Cf}]+[=+\-@]/u', $cell) === 1;
     }
 
     private function readme(string $companyName, string $lang, ?int $year, bool $includePdfs): string

@@ -16,8 +16,9 @@ use App\Tenant\CompanyContext;
  * form, POST builds the ZIP of the ACTIVE company's data and streams it. It works for a suspended
  * company (reading and exporting stay possible, spec 2a): nothing here looks at the access status.
  *
- * POST: CSRF (central), at most 3 exports per hour and company (429 afterwards), options validated
- * before any rate-limit budget is spent, audit row `export.create` (ids and counts only) in the
+ * POST: CSRF (central), at most 3 exports per hour and company (429 afterwards; the budget is spent
+ * before the build, so concurrent requests cannot exceed it), options validated before any budget is
+ * spent, the session is closed before the build, audit row `export.create` (ids and counts only) in the
  * same request; the temp file is a Response::tempFile (streamed and deleted by send()) and is
  * removed right away when anything fails before that.
  */
@@ -52,12 +53,16 @@ final class ExportController
         } catch (ValidationException $e) {
             return $this->page($includePdfs, $year, $this->app->t((string) array_values($e->errors)[0]), 422);
         }
+        // Hit first, then check (RateLimiter::attempt): concurrent requests all record their hit before
+        // any of them builds, so no more than LIMIT can pass. A failed build does not refund the hit.
         $limiter = new RateLimiter($this->app->db(), self::LIMIT, self::WINDOW_SECONDS, fn (): int => $this->app->now());
-        $key = 'export:company:' . $ctx->id();
-        if ($limiter->tooMany($key)) {
+        if (!$limiter->attempt('export:company:' . $ctx->id())) {
             return $this->page($includePdfs, $year, $this->app->t('export.err_rate'), 429);
         }
-        $limiter->hit($key);
+
+        // Everything needed from the session has been read (user, company, language) and CSRF was checked:
+        // release the session lock so the user's other tabs are not blocked while the ZIP is built and streamed.
+        $this->app->session()->close();
 
         $path = $exporter->build($options);
         try {

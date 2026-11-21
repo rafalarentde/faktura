@@ -35,6 +35,21 @@ final class RateLimiter
         $this->db->exec('INSERT INTO login_attempts (`key`, at) VALUES (?, ?)', [$h, ($this->clock)()]);
     }
 
+    /**
+     * Hit first, then check: records this attempt and returns whether it is still within the budget
+     * (at most $max attempts per window, this one included). Concurrent callers each record their hit
+     * before counting, so more than $max of them can never all be accepted. A refused attempt stays recorded.
+     */
+    public function attempt(string $key): bool
+    {
+        $this->hit($key);
+        $row = $this->db->one(
+            'SELECT COUNT(*) AS n FROM login_attempts WHERE `key` = ? AND at > ?',
+            [$this->hash($key), $this->cutoff()]
+        );
+        return (int) ($row['n'] ?? 0) <= $this->max;
+    }
+
     public function clear(string $key): void
     {
         $this->db->exec('DELETE FROM login_attempts WHERE `key` = ?', [$this->hash($key)]);

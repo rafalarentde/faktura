@@ -338,6 +338,43 @@ final class ExportTest extends HttpTestCase
         $this->assertCount(4, $this->audits());
     }
 
+    public function test_the_budget_is_spent_before_the_build_so_concurrent_requests_cannot_exceed_three(): void
+    {
+        $this->login();
+        // Three other requests of this company are already "in flight": their hits are recorded, their builds not finished.
+        $limiter = new \App\Auth\RateLimiter($this->db, 3, 3600, fn (): int => $this->now);
+        for ($i = 0; $i < 3; $i++) {
+            $limiter->hit('export:company:' . $this->a);
+        }
+        $r = $this->export();
+        $this->assertSame(429, $r->status);
+        $this->assertNull($r->file);
+        $this->assertSame([], $this->audits());
+        $this->assertSame([], $this->tmpFiles());
+    }
+
+    public function test_one_hit_per_accepted_export(): void
+    {
+        $this->login();
+        $this->zip($this->export());
+        $this->assertSame(1, $this->exportHits());
+        $this->zip($this->export());
+        $this->assertSame(2, $this->exportHits());
+    }
+
+    public function test_the_session_is_released_before_the_zip_is_streamed_and_not_on_refused_requests(): void
+    {
+        $this->login();
+        $this->assertSame(422, $this->export(['year' => 'abcd'])->status);
+        $this->assertFalse($this->store->isClosed(), 'a refused request still renders a page that needs the session');
+        $this->assertSame(200, $this->get('/settings/export')->status);
+        $this->assertFalse($this->store->isClosed());
+        $this->zip($this->export());
+        $this->assertTrue($this->store->isClosed(), 'session_write_close() was called before the build');
+        $this->assertSame(200, $this->get('/settings/export')->status, 'the next request still has its login');
+        $this->assertFalse($this->store->isClosed(), 'a new request reopens the session');
+    }
+
     public function test_the_limit_is_per_company(): void
     {
         $second = $this->fx->company('Beta GmbH', 'active', 'BETA');

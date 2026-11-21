@@ -13,6 +13,13 @@ interface SessionStore
      */
     public function start(string $name, array $cookieParams, int $maxLifetime): void;
 
+    /**
+     * Releases the session lock (session_write_close): what was written so far is saved, later writes
+     * are NOT persisted and reads keep working. For long responses (downloads) that need nothing more
+     * from the session; the next request opens it again. Idempotent.
+     */
+    public function close(): void;
+
     public function id(): string;
 
     public function get(string $key, mixed $default = null): mixed;

@@ -63,6 +63,12 @@ final class Session
         $this->store->set(self::K_LAST, $now);
     }
 
+    /** Releases the session lock; see SessionStore::close(). Call only when nothing else will be written. */
+    public function close(): void
+    {
+        $this->store->close();
+    }
+
     public function id(): string
     {
         return $this->store->id();

@@ -234,7 +234,11 @@ final class ExporterTest extends TestCase
             }
             $this->assertArrayNotHasKey('company_id', $d);
             $this->assertArrayNotHasKey('seller_json', $d);
-            $this->assertSame($row['seller_json'] === null ? null : json_decode($row['seller_json'], true), $d['seller']);
+            $seller = $row['seller_json'] === null ? null : json_decode($row['seller_json'], true);
+            if (is_array($seller)) {
+                unset($seller['logo_path']);
+            }
+            $this->assertSame($seller, $d['seller']);
             $this->assertSame($row['buyer_json'] === null ? null : json_decode($row['buyer_json'], true), $d['buyer']);
             $lines = $this->db->all('SELECT * FROM document_lines WHERE document_id = ? ORDER BY position, id', [$row['id']]);
             $this->assertCount(count($lines), $d['lines']);
@@ -378,6 +382,50 @@ final class ExporterTest extends TestCase
         // The JSON keeps the original name untouched.
         $buyers = array_column(array_column($this->json($zip, 'documents.json'), 'buyer'), 'name');
         $this->assertContains('=HYPERLINK("http://evil","x")', $buyers);
+    }
+
+    public function test_the_seller_logo_path_is_not_exported_but_the_rest_of_the_seller_is(): void
+    {
+        $id = (int) $this->db->one('SELECT id FROM documents WHERE company_id = ? ORDER BY id LIMIT 1', [$this->a])['id'];
+        $this->db->exec('UPDATE documents SET seller_json = ? WHERE id = ?', [json_encode(['name' => 'Alpha Service GmbH', 'logo_path' => 'logos/7/secret-name.png', 'iban' => 'DE89370400440532013000']), $id]);
+        $zip = $this->build();
+        $this->assertStringNotContainsString('logo_path', $zip['documents.json']);
+        $this->assertStringNotContainsString('secret-name.png', $zip['documents.json']);
+        $doc = array_column($this->json($zip, 'documents.json'), null, 'id')[$id];
+        $this->assertSame(['name' => 'Alpha Service GmbH', 'iban' => 'DE89370400440532013000'], $doc['seller']);
+    }
+
+    /** @return iterable<string, array{0: string}> */
+    public static function spaceBeforeFormula(): iterable
+    {
+        yield 'space equals' => [' =1+1'];
+        yield 'spaces plus' => ['   +CMD()'];
+        yield 'tab then at' => ["\t@SUM(A1)"];
+        yield 'space minus' => [' -2+3'];
+        yield 'newline equals' => ["\n=1+1"];
+        yield 'nbsp equals' => ["\u{00A0}=1+1"];
+        yield 'mixed whitespace' => [" \t =HYPERLINK(\"x\")"];
+        yield 'leading quote is not a formula' => ["'=1+1"];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('spaceBeforeFormula')]
+    public function test_csv_injection_is_neutralised_after_leading_whitespace_too(string $name): void
+    {
+        $id = (int) $this->db->one("SELECT id FROM documents WHERE company_id = ? AND status = 'issued' AND type = 'invoice' ORDER BY id LIMIT 1", [$this->a])['id'];
+        $this->db->exec('UPDATE documents SET buyer_json = ? WHERE id = ?', [json_encode(['name' => $name]), $id]);
+        $customers = array_column($this->csv($this->build()), 4);
+        $expected = str_starts_with($name, "'") ? $name : "'" . $name;
+        $this->assertContains($expected, $customers);
+        if ($expected !== $name) {
+            $this->assertNotContains($name, $customers);
+        }
+    }
+
+    public function test_plain_text_and_inner_formula_characters_are_left_alone(): void
+    {
+        $id = (int) $this->db->one("SELECT id FROM documents WHERE company_id = ? AND status = 'issued' AND type = 'invoice' ORDER BY id LIMIT 1", [$this->a])['id'];
+        $this->db->exec('UPDATE documents SET buyer_json = ? WHERE id = ?', [json_encode(['name' => '  Müller = Söhne - Co']), $id]);
+        $this->assertContains('  Müller = Söhne - Co', array_column($this->csv($this->build()), 4));
     }
 
     // ---- PDFs ----

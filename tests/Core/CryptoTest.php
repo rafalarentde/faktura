@@ -74,6 +74,17 @@ final class CryptoTest extends TestCase
         new Crypto($bad);
     }
 
+    public function test_derive_key_is_deterministic_per_context_and_key(): void
+    {
+        $a = new Crypto(base64_encode(str_repeat('a', 32)));
+        $b = new Crypto(base64_encode(str_repeat('b', 32)));
+        $this->assertSame(32, strlen($a->deriveKey('x')));
+        $this->assertSame($a->deriveKey('x'), $a->deriveKey('x'));
+        $this->assertNotSame($a->deriveKey('x'), $a->deriveKey('y'));
+        $this->assertNotSame($a->deriveKey('x'), $b->deriveKey('x'));
+        $this->assertNotSame(str_repeat('a', 32), $a->deriveKey('x'));
+    }
+
     public static function badKeys(): array
     {
         return [

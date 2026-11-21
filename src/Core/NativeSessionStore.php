@@ -35,6 +35,13 @@ final class NativeSessionStore implements SessionStore
         ]);
     }
 
+    public function close(): void
+    {
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            session_write_close(); // $_SESSION stays readable in this request
+        }
+    }
+
     public function id(): string
     {
         return (string) session_id();

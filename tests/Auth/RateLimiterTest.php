@@ -26,6 +26,25 @@ final class RateLimiterTest extends TestCase
         $this->assertTrue($rl->tooMany('a@b.pl'));
     }
 
+    public function test_attempt_hits_first_and_accepts_at_most_max_per_window(): void
+    {
+        $rl = $this->limiter(\TestDb::fresh(), 3, 3600);
+        $this->assertSame([true, true, true, false, false], array_map(fn (): bool => $rl->attempt('k'), range(1, 5)));
+        $this->assertTrue($rl->attempt('other'), 'keys are independent');
+        $this->now += 3601;
+        $this->assertTrue($rl->attempt('k'), 'a new window starts empty');
+    }
+
+    public function test_attempt_counts_hits_recorded_by_requests_still_in_flight(): void
+    {
+        $db = \TestDb::fresh();
+        $rl = $this->limiter($db, 3, 3600);
+        foreach ([1, 2, 3] as $_) {
+            $rl->hit('k'); // three concurrent requests recorded their hit but have not finished
+        }
+        $this->assertFalse($rl->attempt('k'));
+    }
+
     public function test_keys_are_independent_and_clear_resets(): void
     {
         $rl = $this->limiter(\TestDb::fresh());

@@ -14,6 +14,7 @@ final class ArraySessionStore implements SessionStore
     private string $id;
     private int $regenerations = 0;
     private bool $destroyed = false;
+    private bool $closed = false;
     private ?string $name = null;
 
     /** @var array<string, mixed> */
@@ -28,6 +29,18 @@ final class ArraySessionStore implements SessionStore
     {
         $this->name = $name;
         $this->cookieParams = $cookieParams;
+        $this->closed = false; // every request opens the session afresh
+    }
+
+    /** Like session_write_close(): later writes of this request are not persisted. */
+    public function close(): void
+    {
+        $this->closed = true;
+    }
+
+    public function isClosed(): bool
+    {
+        return $this->closed;
     }
 
     public function id(): string
@@ -42,11 +55,17 @@ final class ArraySessionStore implements SessionStore
 
     public function set(string $key, mixed $value): void
     {
+        if ($this->closed) {
+            return;
+        }
         $this->data[$key] = $value;
     }
 
     public function remove(string $key): void
     {
+        if ($this->closed) {
+            return;
+        }
         unset($this->data[$key]);
     }
 
