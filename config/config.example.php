@@ -11,9 +11,11 @@ return [
     ],
     // base64 of 32 random bytes: php -r 'echo base64_encode(random_bytes(32)), "\n";'
     'app_key' => 'BASE64_32_BYTES_PLACEHOLDER',
-    'debug' => false,
+    'debug' => false,               // never true in production: it shows exception details on the page
     'promo_enabled' => false,
-    'base_url' => 'https://example.com',
+    'base_url' => 'https://example.com', // https => the app also sends Strict-Transport-Security
+    // Optional: writable directory with pdf-cache/, tmp/ and logos/ (default: <app>/storage).
+    // 'storage_path' => '/home/user/faktura-storage',
     // SMTP targets must be public hosts on ports 25, 465, 587 or 2525 (SSRF guard). Set to true only
     // if you run your own relay in a private network; the port list still applies.
     'mail_allow_private_hosts' => false,

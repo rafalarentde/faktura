@@ -8,3 +8,4 @@
 !/storage/pdf-cache/.gitkeep
 /storage/tmp/*
 !/storage/tmp/.gitkeep
+/build/

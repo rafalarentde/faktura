@@ -36,4 +36,12 @@ Dompdf caches font metrics and copies of the fonts in `storage/pdf-cache/`. Afte
 adding a file here, empty `storage/pdf-cache/` (keep `.gitkeep`); the cache is rebuilt on the next
 PDF render.
 
-The OFL licence texts are added next to the fonts by Task 24 (R16).
+## Licences
+
+Both families are licensed under the SIL Open Font License 1.1. The licence texts with the
+copyright lines are `OFL-Barlow.txt` and `OFL-SourceSans3.txt` (copies also sit in
+`public/assets/fonts/` next to the web fonts, because the OFL requires the licence to travel
+with redistributed font files). The static Source Sans 3 instances above are modified versions
+(static instances of the variable font); they are only embedded in generated PDFs and are not
+distributed as a font product. Whether the Reserved Font Name "Source" needs attention for that
+is a licence nit to confirm if the files are ever offered for download.

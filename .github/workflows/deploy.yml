@@ -1,0 +1,51 @@
+name: Deploy
+
+# On every push to main: test, build the release tree and force-push it to the `deploy` branch.
+# Hostinger pulls that branch (Git integration / auto deploy), so no SSH or Composer is needed there.
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: intl, mbstring, dom, gd, sodium, pdo_sqlite
+          coverage: none
+          tools: composer:v2
+
+      - name: Install dependencies (with dev, for the tests)
+        run: composer install --no-interaction --no-progress --prefer-dist
+
+      - name: Run tests
+        run: vendor/bin/phpunit
+
+      - name: Build release (production dependencies, php -l on every file)
+        run: bin/build-release.sh
+
+      - name: Push release to the deploy branch
+        env:
+          REPO_URL: https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          cd build/faktura-release
+          git init -q -b deploy
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # The release tree has no .gitignore, so vendor/ and storage/*/.gitkeep are committed.
+          git add -A -f
+          git commit -q -m "Release ${SOURCE_SHA}"
+          git push --force "$REPO_URL" deploy:deploy
