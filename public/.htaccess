@@ -1,8 +1,28 @@
-RewriteEngine On
+# Apache (Hostinger): public/ is the document root; everything else lives above it.
+Options -Indexes -MultiViews
 
-# Never serve dotfiles (.env, .git, .htpasswd, ...)
-RewriteRule (^|/)\. - [F,L]
+# Never reveal PHP version.
+<IfModule mod_headers.c>
+    Header unset X-Powered-By
+</IfModule>
 
-# Everything that is not an existing file goes to the front controller
-RewriteCond %{REQUEST_FILENAME} !-f
-RewriteRule ^ index.php [L]
+# Dotfiles (.env, .git, .htpasswd, ...) are never served, whatever mod_rewrite does.
+<FilesMatch "^\.">
+    Require all denied
+</FilesMatch>
+
+# Config, data and source-like files are refused should anyone drop them into public/.
+<FilesMatch "(?i)\.(sqlite|sqlite3|db|sql|ini|log|lock|json|env|bak|dist|sh|md|yml|yaml|twig)$">
+    Require all denied
+</FilesMatch>
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Never serve dotfiles, also in sub-directories.
+    RewriteRule (^|/)\. - [F,L]
+
+    # Everything that is not an existing file goes to the front controller.
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteRule ^ index.php [L]
+</IfModule>

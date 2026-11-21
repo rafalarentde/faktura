@@ -532,8 +532,13 @@ final class App
             'X-Content-Type-Options' => 'nosniff',
             'X-Frame-Options' => 'DENY',
             'Referrer-Policy' => 'same-origin',
+            'Permissions-Policy' => 'camera=(), microphone=(), geolocation=(), payment=()',
             'Cache-Control' => 'no-store',
         ];
+        // HSTS only when the app is configured for https (a local http dev server must keep working).
+        if (str_starts_with(strtolower((string) $this->config('base_url', '')), 'https://')) {
+            $r->headers += ['Strict-Transport-Security' => 'max-age=31536000'];
+        }
         if (str_starts_with((string) ($r->headers['Content-Type'] ?? ''), 'text/html')) {
             $r->headers += ['Content-Security-Policy' => self::CSP];
         }
