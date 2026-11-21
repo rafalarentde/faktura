@@ -222,7 +222,8 @@ final class App
     public function auth(): AuthService
     {
         return $this->auth ??= new AuthService(
-            $this->db, $this->rateLimiter(), $this->totp(), $this->backupCodes(), $this->crypto(), $this->clock, $this->audit()
+            $this->db, $this->rateLimiter(), $this->totp(), $this->backupCodes(), $this->crypto(), $this->clock, $this->audit(),
+            is_string($key = $this->config('audit_key')) && $key !== '' ? $key : null
         );
     }
 

@@ -24,6 +24,15 @@ final class Crypto
         sodium_memzero($this->key);
     }
 
+    /**
+     * A 32-byte subkey for one purpose (HMAC-SHA256 of the context under the app key): lets other
+     * code keep a keyed hash without a second secret in the config and without using the app key itself.
+     */
+    public function deriveKey(string $context): string
+    {
+        return hash_hmac('sha256', $context, $this->key, true);
+    }
+
     public function encrypt(string $plain): string
     {
         $nonce = random_bytes(SODIUM_CRYPTO_SECRETBOX_NONCEBYTES);

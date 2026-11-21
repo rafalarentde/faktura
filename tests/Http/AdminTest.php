@@ -268,6 +268,33 @@ final class AdminTest extends HttpTestCase
         }
     }
 
+    public function test_a_150_character_company_name_and_email_are_audited_in_full(): void
+    {
+        $this->admin();
+        $name = str_repeat('Muster ', 21) . 'GmbH'; // 151 characters
+        $this->assertSame(151, mb_strlen($name));
+        $r = $this->post('/admin/companies', ['name' => $name, 'plan' => 'free', 'access_status' => 'suspended']);
+        $this->assertSame(302, $r->status);
+        $c = (int) $this->db->one('SELECT id FROM companies')['id'];
+        $email = str_repeat('a', 60) . '@' . str_repeat('b', 63) . '.' . str_repeat('c', 25) . '.com';
+        $this->assertGreaterThanOrEqual(150, strlen($email));
+        $r = $this->post("/admin/companies/$c/users", ['email' => $email, 'role' => 'owner', 'password' => 'correct horse battery']);
+        $this->assertSame(302, $r->status);
+        $log = $this->audit();
+        $this->assertSame(['admin.company_create', 'admin.user_add'], array_column($log, 'action'));
+        $this->assertSame($name, json_decode($log[0]['detail'], true)['name']);
+        $this->assertSame($email, json_decode($log[1]['detail'], true)['email']);
+    }
+
+    public function test_a_190_character_company_name_and_an_email_like_name_still_work(): void
+    {
+        $this->admin();
+        $name = str_repeat('N', 190);
+        $this->assertSame(302, $this->post('/admin/companies', ['name' => $name, 'plan' => 'free', 'access_status' => 'suspended'])->status);
+        $this->assertSame(302, $this->post('/admin/companies', ['name' => 'Kontakt info@firma.example GmbH', 'plan' => 'free', 'access_status' => 'suspended'])->status);
+        $this->assertCount(2, $this->audit());
+    }
+
     public function test_company_name_is_escaped(): void
     {
         $this->admin();

@@ -123,7 +123,8 @@ final class AdminAuditTest extends HttpTestCase
         $this->assertCount(0, $this->actions($this->page(['company' => (string) $a, 'action' => 'auth'])));
         // the underscore is a literal, not a LIKE wildcard; prefix matching is case-insensitive
         $this->assertSame(['auth.login_failed'], $this->actions($this->page(['action' => 'auth.login_f'])));
-        $this->assertCount(4, $this->actions($this->page(['action' => 'AUTH.LOGIN']))); // the admin's own auth.login plus three seeded rows
+        $this->assertCount(3, $this->actions($this->page(['action' => 'AUTH.LOGIN']))); // three seeded rows (the admin's own sign-in is auth.password_ok)
+        $this->assertContains('auth.password_ok', $this->actions($this->page(['action' => 'AUTH.PASSWORD'])));
         $this->assertSame(['Auth.Login_Other'], array_values(array_filter($this->actions($this->page(['action' => 'auth.login_o'])))));
         $r = $this->page(['company' => (string) $a, 'action' => 'document.is']);
         $this->assertStringContainsString('name="company" value="' . $a . '"', $r->body);
@@ -231,7 +232,7 @@ final class AdminAuditTest extends HttpTestCase
     {
         $this->admin();
         $r = $this->get('/admin/audit');
-        $this->assertContains('auth.login', $this->actions($r));
+        $this->assertContains('auth.password_ok', $this->actions($r));
         $this->assertContains('auth.2fa_ok', $this->actions($r));
         $this->assertStringContainsString('admin@example.com', $r->body, 'the user column shows the address (join), details never do');
         $this->assertDoesNotMatchRegularExpression('#<code>[a-z_]+=[^<]*@[^<]*</code>#', $r->body);

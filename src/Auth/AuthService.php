@@ -20,7 +20,11 @@ final class AuthService
     /** Hash of a random string, verified when the email is unknown so both cases cost the same. */
     private const DUMMY_HASH = '$argon2id$v=19$m=65536,t=4,p=1$S1V0aHh3WFdjSFdtQ1F5TQ$YrMAj7G/+/yjIpBGCWwaMsaZxE2DoFRZ3tdwp6Qs9/A';
 
+    /** Seconds in which a locked login/2FA writes at most one audit row per key. */
+    private const LOCKED_LOG_WINDOW = 900;
+
     private \Closure $clock;
+    private RateLimiter $lockedLog;
 
     public function __construct(
         private Db $db,
@@ -30,8 +34,12 @@ final class AuthService
         private Crypto $crypto,
         ?\Closure $clock = null,
         private ?Audit $audit = null,
+        /** Secret for the HMAC of the audit key (config `audit_key`); null derives one from the app key. */
+        private ?string $auditKey = null,
     ) {
         $this->clock = $clock ?? time(...);
+        // At most one "locked" audit row per key and window, however often a locked account is tried.
+        $this->lockedLog = new RateLimiter($db, 1, self::LOCKED_LOG_WINDOW, $this->clock);
     }
 
     public function attemptPassword(string $email, string $password, string $ip): AuthResult
@@ -40,7 +48,7 @@ final class AuthService
         $keys = $this->loginKeys($email, $ip);
         foreach ($keys as $key) {
             if ($this->limiter->tooMany($key)) {
-                $this->audit?->logSilently('auth.login_failed', ['reason' => 'locked', 'key' => self::emailKey($email)], Audit::NO_COMPANY);
+                $this->auditLocked('login:' . $this->emailKey($email), 'auth.login_failed', ['reason' => 'locked', 'key' => $this->emailKey($email)]);
                 return AuthResult::locked();
             }
         }
@@ -58,7 +66,7 @@ final class AuthService
             }
             $this->audit?->logSilently(
                 'auth.login_failed',
-                ['reason' => $user === null ? 'unknown_user' : 'bad_password', 'key' => self::emailKey($email)],
+                ['reason' => $user === null ? 'unknown_user' : 'bad_password', 'key' => $this->emailKey($email)],
                 Audit::NO_COMPANY
             );
             return AuthResult::invalid();
@@ -67,7 +75,7 @@ final class AuthService
         if (password_needs_rehash($hash, PASSWORD_ARGON2ID)) {
             $this->db->exec('UPDATE users SET password_hash = ? WHERE id = ?', [password_hash($password, PASSWORD_ARGON2ID), $id]);
         }
-        $this->audit?->log('auth.login', [], Audit::NO_COMPANY, $id);
+        $this->audit?->log('auth.password_ok', [], Audit::NO_COMPANY, $id);
         return AuthResult::ok($id, (int) $user['totp_enabled'] === 1);
     }
 
@@ -76,7 +84,7 @@ final class AuthService
     {
         $key = $this->secondFactorKey($userId);
         if ($this->limiter->tooMany($key)) {
-            $this->audit?->logSilently('auth.2fa_failed', ['reason' => 'locked'], Audit::NO_COMPANY, $userId);
+            $this->auditLocked('2fa:' . $userId, 'auth.2fa_failed', ['reason' => 'locked'], $userId);
             return AuthResult::locked();
         }
         $user = $this->db->one('SELECT id, email, totp_secret_enc, totp_enabled FROM users WHERE id = ?', [$userId]);
@@ -94,9 +102,10 @@ final class AuthService
             $this->audit?->logSilently('auth.2fa_failed', ['reason' => 'invalid'], Audit::NO_COMPANY, $userId);
             return AuthResult::invalid();
         }
-        $this->audit?->log('auth.2fa_ok', [], Audit::NO_COMPANY, $userId);
+        // The code is already spent: an audit failure must not turn this into a 500 (hence logSilently).
+        $this->audit?->logSilently('auth.2fa_ok', [], Audit::NO_COMPANY, $userId);
         if ($backup) {
-            $this->audit?->log('auth.backup_code_used', [], Audit::NO_COMPANY, $userId);
+            $this->audit?->logSilently('auth.backup_code_used', [], Audit::NO_COMPANY, $userId);
         }
         $this->limiter->clear($key);
         foreach ($this->loginKeys((string) $user['email'], $ip) as $k) {
@@ -174,10 +183,33 @@ final class AuthService
         return ['login:email:' . $email, 'login:ip:' . $ip];
     }
 
-    /** First 12 hex chars of sha256(email): lets the audit log show brute-force patterns without storing the address. */
-    private static function emailKey(string $email): string
+    /**
+     * First 12 hex chars of HMAC-SHA256(email) under a secret: lets the audit log show brute-force
+     * patterns without storing the address, and without a plain hash that anyone could test a list of
+     * known addresses against.
+     */
+    private function emailKey(string $email): string
     {
-        return substr(hash('sha256', strtolower($email)), 0, 12);
+        $secret = $this->auditKey !== null && $this->auditKey !== '' ? $this->auditKey : $this->crypto->deriveKey('faktura/audit/login-key');
+        return substr(hash_hmac('sha256', strtolower($email), $secret), 0, 12);
+    }
+
+    /** Writes a "locked" audit row unless one was already written for $scope in the last window. @param array<string, mixed> $detail */
+    private function auditLocked(string $scope, string $action, array $detail, ?int $userId = null): void
+    {
+        if ($this->audit === null) {
+            return;
+        }
+        $key = 'audit:locked:' . $scope;
+        try {
+            if ($this->lockedLog->tooMany($key)) {
+                return;
+            }
+            $this->lockedLog->hit($key);
+        } catch (\Throwable) {
+            return; // the marker is best effort; never turn a locked login into a 500
+        }
+        $this->audit->logSilently($action, $detail, Audit::NO_COMPANY, $userId);
     }
 
     private function secondFactorKey(int $userId): string

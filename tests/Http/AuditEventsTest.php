@@ -37,15 +37,16 @@ final class AuditEventsTest extends HttpTestCase
         return $this->db->all('SELECT * FROM audit_log WHERE action = ? ORDER BY id', [$action]);
     }
 
-    private function key(string $email): string
+    private function key(string $email, ?string $secret = null): string
     {
-        return substr(hash('sha256', strtolower($email)), 0, 12);
+        $secret ??= $this->app->crypto()->deriveKey('faktura/audit/login-key');
+        return substr(hash_hmac('sha256', strtolower($email), $secret), 0, 12);
     }
 
     public function test_successful_login_is_recorded_once_per_step_with_the_user(): void
     {
         $this->loginFully($this->secret);
-        $login = $this->rows('auth.login');
+        $login = $this->rows('auth.password_ok');
         $this->assertCount(1, $login);
         $this->assertSame($this->userId, (int) $login[0]['user_id']);
         $this->assertNull($login[0]['company_id']);
@@ -67,19 +68,78 @@ final class AuditEventsTest extends HttpTestCase
         $this->assertSame('unknown_user', json_decode($rows[1]['detail'], true)['reason']);
         $this->assertNull($rows[0]['user_id']);
         $this->assertSame(12, strlen(json_decode($rows[0]['detail'], true)['key']));
-        $this->assertSame([], $this->rows('auth.login'));
+        $this->assertSame([], $this->rows('auth.password_ok'));
     }
 
-    public function test_locked_login_is_recorded_with_reason_locked(): void
+    public function test_login_failed_key_is_an_hmac_not_a_plain_hash_of_the_email(): void
+    {
+        $this->loginPassword(self::EMAIL, 'wrong password!!');
+        $key = json_decode($this->rows('auth.login_failed')[0]['detail'], true)['key'];
+        $this->assertSame($this->key(self::EMAIL), $key);
+        $this->assertNotSame(substr(hash('sha256', self::EMAIL), 0, 12), $key, 'a dictionary of known addresses cannot be hashed without the secret');
+    }
+
+    public function test_login_failed_key_uses_the_configured_audit_secret_when_there_is_one(): void
+    {
+        $this->app = $this->makeApp(['audit_key' => 'a separate secret']);
+        $this->loginPassword(self::EMAIL, 'wrong password!!');
+        $this->assertSame($this->key(self::EMAIL, 'a separate secret'), json_decode($this->rows('auth.login_failed')[0]['detail'], true)['key']);
+        $this->assertNotSame($this->key(self::EMAIL), $this->key(self::EMAIL, 'a separate secret'));
+    }
+
+    public function test_locked_login_is_recorded_once_per_key_and_window(): void
     {
         for ($i = 0; $i < 5; $i++) {
             $this->loginPassword(self::EMAIL, 'wrong password!!');
         }
         $this->assertSame(429, $this->loginPassword(self::EMAIL, self::PASSWORD)->status);
+        for ($i = 0; $i < 4; $i++) {
+            $this->assertSame(429, $this->loginPassword(self::EMAIL, self::PASSWORD)->status);
+        }
         $rows = $this->rows('auth.login_failed');
-        $this->assertCount(6, $rows);
+        $this->assertCount(6, $rows, 'five failures and ONE locked row, however often the locked account is tried');
         $this->assertSame('locked', json_decode($rows[5]['detail'], true)['reason']);
-        $this->assertSame([], $this->rows('auth.login'), 'the locked attempt never logs in');
+        $this->assertSame([], $this->rows('auth.password_ok'), 'the locked attempt never logs in');
+        // another address from the same locked IP has its own key and gets its own single row
+        $this->assertSame(429, $this->loginPassword('other@example.pl', self::PASSWORD)->status);
+        $this->assertSame(429, $this->loginPassword('other@example.pl', self::PASSWORD)->status);
+        $this->assertCount(7, $this->rows('auth.login_failed'));
+    }
+
+    public function test_a_locked_row_is_written_again_after_the_window(): void
+    {
+        for ($i = 0; $i < 5; $i++) {
+            $this->loginPassword(self::EMAIL, 'wrong password!!');
+        }
+        $this->loginPassword(self::EMAIL, self::PASSWORD);
+        $this->assertCount(6, $this->rows('auth.login_failed'));
+        $this->now += 901;
+        for ($i = 0; $i < 5; $i++) {
+            $this->loginPassword(self::EMAIL, 'wrong password!!');
+        }
+        $this->loginPassword(self::EMAIL, self::PASSWORD);
+        $this->loginPassword(self::EMAIL, self::PASSWORD);
+        $this->assertCount(12, $this->rows('auth.login_failed'));
+    }
+
+    public function test_a_failing_audit_write_cannot_break_a_backup_code_login_or_a_company_switch(): void
+    {
+        $second = $this->createCompany('Zweite AG');
+        $this->addMember($this->userId, $second);
+        $codes = $this->app->backupCodes()->generate($this->userId);
+        $this->assertRedirect('/login/2fa', $this->loginPassword());
+        $this->db->exec('DROP TABLE audit_log');
+        $log = tempnam(sys_get_temp_dir(), 'auditlog');
+        $old = ini_set('error_log', $log);
+        try {
+            $this->assertRedirect('/', $this->post('/login/2fa', ['code' => $codes[0]]));
+            $this->assertRedirect('/', $this->post('/company/switch', ['company_id' => (string) $second]));
+        } finally {
+            ini_set('error_log', (string) $old);
+            unlink($log);
+        }
+        $this->assertSame($second, $this->app->session()->companyId(), 'the switch happened');
+        $this->assertFalse($this->app->backupCodes()->consume($this->userId, $codes[0]), 'the code was consumed');
     }
 
     public function test_wrong_second_factor_is_recorded_for_the_user(): void
@@ -179,7 +239,7 @@ final class AuditEventsTest extends HttpTestCase
             'intro_text' => '', 'outro_text' => '', 'footer_text' => '',
         ])->status);
 
-        foreach (['auth.login' => 1, 'auth.2fa_ok' => 1, 'document.issue' => 1, 'document.email_send' => 1, 'settings.company_save' => 1] as $action => $n) {
+        foreach (['auth.password_ok' => 1, 'auth.2fa_ok' => 1, 'document.issue' => 1, 'document.email_send' => 1, 'settings.company_save' => 1] as $action => $n) {
             $rows = $this->rows($action);
             $this->assertCount($n, $rows, $action);
             $this->assertSame($this->userId, (int) $rows[0]['user_id'], $action);

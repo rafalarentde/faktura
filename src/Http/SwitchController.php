@@ -73,7 +73,8 @@ final class SwitchController
             return $this->error(403, 'error.forbidden');
         }
         $this->app->session()->setCompanyId($ctx->id());
-        $this->app->audit()->log('company.switch', ['company_id' => $ctx->id()], $ctx->id(), (int) $user['id']);
+        // Informational and after the state change: a failing audit write must not turn it into a 500.
+        $this->app->audit()->logSilently('company.switch', ['company_id' => $ctx->id()], $ctx->id(), (int) $user['id']);
         // The context is cached per request: redirect so the next request resolves it afresh.
         return Response::redirect(BackPath::sanitize($request->input('back')));
     }
