@@ -6,3 +6,5 @@
 !/storage/logos/.gitkeep
 /storage/pdf-cache/*
 !/storage/pdf-cache/.gitkeep
+/storage/tmp/*
+!/storage/tmp/.gitkeep

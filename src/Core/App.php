@@ -9,6 +9,7 @@ use App\Auth\RateLimiter;
 use App\Auth\Totp;
 use App\Auth\UserService;
 use App\Domain\DocumentService;
+use App\Domain\Exporter;
 use App\Domain\NumberSequences;
 use App\Http\DocumentPresenter;
 use App\Http\Middleware\RequireLogin;
@@ -22,6 +23,7 @@ use App\I18n\Translator;
 use App\Pdf\PdfRenderer;
 use App\Repo\CustomerRepo;
 use App\Repo\DocumentRepo;
+use App\Repo\ExportRepo;
 use App\Storage\LogoStore;
 use App\Tenant\AccessDenied;
 use App\Tenant\CompanyContext;
@@ -62,7 +64,7 @@ final class App
     private ?AuthService $auth = null;
     private ?UserService $users = null;
     private ?Audit $audit = null;
-    private ?\App\Domain\Exporter $exporter = null;
+    private ?Exporter $exporter = null;
     private ?ViesClient $vies = null;
 
     // Per request.
@@ -104,6 +106,9 @@ final class App
         $this->currentUser = null;
         $this->context = null;
         $this->shell = null;
+        // Built on the company of the request: never reuse one from an earlier request of this App.
+        $this->exporter = null;
+        $this->pdf = null;
         $this->lang = Translator::FALLBACK;
         try {
             $this->session()->start();
@@ -293,6 +298,7 @@ final class App
         $this->documents = null;
         $this->pdf = null;
         $this->mailer = null;
+        $this->exporter = null;
         $this->shell = null;
     }
 
@@ -354,6 +360,26 @@ final class App
             );
         }
         return $this->mailer;
+    }
+
+    /**
+     * Data exporter of the active company (cached per request, like pdf()). Temp files go to
+     * <storage_path>/tmp; config `export_max_pdfs` lowers the PDF limit (tests).
+     *
+     * @throws \LogicException when no company is selected (use RequireCompany on the route)
+     */
+    public function exporter(): Exporter
+    {
+        if ($this->exporter === null) {
+            $ctx = $this->context() ?? throw new \LogicException('No company selected.');
+            $storage = rtrim((string) $this->config('storage_path', $this->root . '/storage'), '/');
+            $this->exporter = new Exporter(
+                $ctx, new ExportRepo($this->db, $ctx), $this->translator(),
+                fn (int $id): array => $this->pdf()->renderFile($id),
+                $storage . '/tmp', $this->clock, (int) $this->config('export_max_pdfs', Exporter::MAX_PDFS)
+            );
+        }
+        return $this->exporter;
     }
 
     /**

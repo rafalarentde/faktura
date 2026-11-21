@@ -1,0 +1,30 @@
+{% extends 'layout.twig' %}
+{% block title %}{{ t('settings.title') }}{% endblock %}
+{% block subtitle %}{{ company_name }}{% endblock %}
+{% block content %}
+    {% include 'settings/_tabs.twig' %}
+    <section class="panel">
+        <div class="panel-head"><h2>{{ t('export.heading') }}</h2></div>
+        <form class="form-grid" method="post" action="/settings/export">
+            {{ csrf_field() }}
+            {% if error %}<p class="warn" role="alert">{{ error }}</p>{% endif %}
+            <p>{{ t('export.intro') }}</p>
+            <p class="warn-soft">{{ t('export.warning') }}</p>
+            <label class="toggle">
+                <input type="checkbox" name="include_pdfs" value="1"{% if include_pdfs %} checked{% endif %}>
+                <span><b>{{ t('export.include_pdfs') }}</b><span>{{ t('export.include_pdfs_hint', {max: max_pdfs}) }}</span></span>
+            </label>
+            <div class="field">
+                <label for="export-year">{{ t('export.year') }}</label>
+                <select id="export-year" name="year">
+                    <option value=""{% if selected_year == '' %} selected{% endif %}>{{ t('export.year_all') }}</option>
+                    {% for y in years %}
+                        <option value="{{ y }}"{% if selected_year == (y ~ '') %} selected{% endif %}>{{ t('export.year_option', {year: y}) }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <p class="hint">{{ last_export is not null ? t('export.last', {date: last_export}) : t('export.last_none') }} {{ t('export.limit_hint') }}</p>
+            <div class="form-actions"><button class="btn btn-primary" type="submit">{{ t('export.submit') }}</button></div>
+        </form>
+    </section>
+{% endblock %}

@@ -17,5 +17,6 @@ return [
     ['key' => 'numbers', 'label' => 'settings.tab_numbering', 'path' => '/settings/numbers', 'owner_only' => true],
     ['key' => 'dunning', 'label' => 'settings.tab_dunning', 'path' => '/settings/dunning', 'owner_only' => true],
     ['key' => 'mail', 'label' => 'settings.tab_mail', 'path' => '/settings/mail', 'owner_only' => true],
+    ['key' => 'export', 'label' => 'settings.tab_export', 'path' => '/settings/export', 'owner_only' => true],
     ['key' => 'security', 'label' => 'settings.tab_security', 'path' => '/settings/security', 'owner_only' => false],
 ];

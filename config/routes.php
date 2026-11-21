@@ -7,6 +7,7 @@ use App\Http\AuthController;
 use App\Http\CustomerController;
 use App\Http\DashboardController;
 use App\Http\DunningController;
+use App\Http\ExportController;
 use App\Http\InvoiceController;
 use App\Http\ItemController;
 use App\Http\MailController;
@@ -131,4 +132,8 @@ return function (App $app, RouteCollector $r): void {
     $r->addRoute('GET', '/settings/security', $settings('security'));
     $r->addRoute('POST', '/settings/security/backup-codes', $settings('regenerateCodes'));
     $r->addRoute('POST', '/settings/security/password', $settings('changePassword'));
+
+    // Company data export as a ZIP (Task 23): owner-only, also for a suspended company (reading and exporting stay possible).
+    $r->addRoute('GET', '/settings/export', $app->protect([ExportController::class, 'index'], [RequireCompany::class]));
+    $r->addRoute('POST', '/settings/export', $app->protect([ExportController::class, 'create'], [RequireCompany::class]));
 };

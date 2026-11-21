@@ -6,12 +6,32 @@ namespace App\Core;
 /** HTTP response value; App::handle() returns one and only send() writes to the client. */
 final class Response
 {
-    /** @param array<string, string> $headers */
+    /**
+     * @param array<string, string> $headers
+     * @param string|null $file a temp file streamed as the body by send() and deleted afterwards
+     *                          (never loaded into memory); $body is then empty
+     */
     public function __construct(
         public string $body = '',
         public int $status = 200,
         public array $headers = [],
+        public ?string $file = null,
     ) {
+    }
+
+    /**
+     * A download of a temp file: send() streams it with readfile() and unlinks it in a finally,
+     * even when the client goes away. Content-Length is set from the file size.
+     *
+     * @param array<string, string> $headers
+     */
+    public static function tempFile(string $path, array $headers = []): self
+    {
+        $size = filesize($path);
+        if ($size === false) {
+            throw new \RuntimeException('Cannot read the download file.');
+        }
+        return new self('', 200, $headers + ['Content-Length' => (string) $size], $path);
     }
 
     public static function redirect(string $to, int $status = 302): self
@@ -54,6 +74,25 @@ final class Response
                 header($name . ': ' . $value);
             }
         }
-        echo $this->body;
+        if ($this->file === null) {
+            echo $this->body;
+            return;
+        }
+        ignore_user_abort(true); // the finally below must run even when the browser disconnects
+        try {
+            readfile($this->file);
+        } finally {
+            @unlink($this->file);
+            $this->file = null;
+        }
+    }
+
+    /** Deletes the temp file of a response that will not be sent (error paths, tests). */
+    public function discard(): void
+    {
+        if ($this->file !== null) {
+            @unlink($this->file);
+            $this->file = null;
+        }
     }
 }
