@@ -31,6 +31,20 @@ final class Formatter
         return $date->format(self::DATE_FORMATS[$lang]);
     }
 
+    /**
+     * Month name of $date in the language ('LLLL', standalone form: November / listopad / November),
+     * or with $withYear 'LLLL y' (November 2026). $date is formatted in its own timezone.
+     */
+    public function month(\DateTimeInterface $date, string $lang, bool $withYear = false): string
+    {
+        $fmt = new \IntlDateFormatter(self::locale($lang), \IntlDateFormatter::NONE, \IntlDateFormatter::NONE, $date->getTimezone(), \IntlDateFormatter::GREGORIAN, $withYear ? 'LLLL y' : 'LLLL');
+        $out = $fmt->format($date);
+        if ($out === false) {
+            throw new \RuntimeException('Month formatting failed: ' . $fmt->getErrorMessage());
+        }
+        return $out;
+    }
+
     /** Quantity in thousandths, up to 3 decimals, no trailing zeros. */
     public function decimal(int $qtyMilli, string $lang): string
     {

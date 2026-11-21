@@ -237,6 +237,10 @@ img, svg { max-width: 100%; }
     content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%;
     margin-right: 6px; vertical-align: 1px; background: var(--side-m);
 }
+.plan-usage { display: block; color: var(--side-m); margin-top: 4px; }
+.plan-bar { display: block; width: 100%; height: 6px; margin-top: 6px; accent-color: var(--y); }
+.plan-upgrade { display: inline-block; margin-top: 6px; color: var(--y); font-weight: 700; text-decoration: none; }
+.plan-upgrade:hover { text-decoration: underline; }
 .plan-active::before { background: #3fbf6a; }
 .plan-trial::before { background: var(--y); }
 .plan-suspended::before { background: #e5553c; }
@@ -321,6 +325,8 @@ img, svg { max-width: 100%; }
 .stat small { font-size: 15px; font-weight: 700; color: var(--m); margin-left: 4px; }
 .stat-late { color: var(--late); }
 .card-sub { color: var(--m); font-size: 13px; margin-top: 6px; }
+.card-other { margin-top: 3px; font-variant-numeric: tabular-nums; }
+.card-other + .card-sub:not(.card-other) { margin-top: 8px; }
 .empty-state { padding: 40px 28px; text-align: center; border-top: 4px solid var(--y); }
 .empty-state h2 { font-size: 28px; margin-bottom: 10px; }
 .empty-state p { color: var(--m); max-width: 52ch; margin: 0 auto; }

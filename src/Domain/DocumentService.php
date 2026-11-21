@@ -500,15 +500,7 @@ final class DocumentService
      */
     public function offerStatus(array $document, \DateTimeImmutable $today): string
     {
-        if (($document['status'] ?? null) !== 'issued') {
-            return 'draft';
-        }
-        $stored = in_array($document['offer_status'] ?? null, self::OFFER_STATUSES, true) ? (string) $document['offer_status'] : self::OFFER_OPEN;
-        $validUntil = $document['valid_until'] ?? null;
-        if (in_array($stored, [self::OFFER_OPEN, 'sent'], true) && $validUntil !== null && $validUntil < $this->berlin($today)->format('Y-m-d')) {
-            return 'expired';
-        }
-        return $stored;
+        return OfferStatus::of($document, $today);
     }
 
     /**

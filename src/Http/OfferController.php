@@ -28,8 +28,6 @@ final class OfferController extends AbstractDocumentController
 {
     /** Filter values of the list: the visible statuses (expired is computed from valid_until). */
     private const STATUS_FILTERS = ['draft', 'open', 'sent', 'accepted', 'rejected', 'expired'];
-    private const CHIPS = ['draft' => 'chip-draft', 'open' => 'chip-sent', 'sent' => 'chip-sent', 'accepted' => 'chip-ok',
-        'rejected' => 'chip-late', 'expired' => 'chip-soon'];
     /** Status each action button posts. */
     private const ACTIONS = ['sent' => 'offer.mark_sent', 'accepted' => 'offer.mark_accepted', 'rejected' => 'offer.mark_rejected', 'open' => 'offer.reopen'];
 
@@ -85,7 +83,7 @@ final class OfferController extends AbstractDocumentController
                 'valid_until' => $this->date($doc['valid_until']),
                 'amount' => $this->money((int) $doc['gross_minor'], (string) $doc['currency']),
                 'status' => $status,
-                'chip' => self::CHIPS[$status],
+                'chip' => StatusChips::offer($status),
                 'invoiced' => ($invoiced[$id] ?? 0) > 0,
                 'can_accept' => in_array($status, ['open', 'sent', 'expired'], true),
                 'can_convert' => $status === 'accepted',
@@ -143,7 +141,7 @@ final class OfferController extends AbstractDocumentController
             'type_label' => $this->app->t('invoice.type_offer'),
             'status' => $status,
             'status_label' => $this->app->t('offer.status_' . $status),
-            'chip' => self::CHIPS[$status],
+            'chip' => StatusChips::offer($status),
             'actions' => $actions,
             'locked_accepted' => $invoices !== [] && $status === 'accepted',
             'can_convert' => $status === 'accepted',

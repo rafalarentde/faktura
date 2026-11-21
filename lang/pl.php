@@ -795,4 +795,14 @@ return [
     'dunning.send_short' => 'E-mail',
     'dunning.send_label' => 'Wyślij {number} e-mailem',
     'dunning.type_label' => 'Wezwanie',
+    // Task 22: dashboard data, plan box
+    'nav.plan_standard' => 'Plan Standard',
+    'nav.plan_pro' => 'Plan Pro',
+    'nav.plan_month_docs' => 'Dokumenty ({month}): {count}',
+    'nav.upgrade' => 'Przejdź na Standard →',
+    'dash.invoices_count' => 'Faktury: {count}',
+    'dash.payments_count' => 'Wpłaty: {count}',
+    'dash.tabs_label' => 'Rodzaj dokumentu',
+    'dash.recent_empty' => 'Brak dokumentów w tym widoku.',
+    'dash.col_type' => 'Rodzaj',
 ];

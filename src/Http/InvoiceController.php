@@ -24,8 +24,6 @@ final class InvoiceController extends AbstractDocumentController
 {
     private const LIST_TYPES = [DocType::INVOICE, DocType::CREDIT_NOTE];
     private const STATUS_FILTERS = ['draft', 'open', 'partial', 'overdue', 'paid', 'credited', 'issued'];
-    private const CHIPS = ['draft' => 'chip-draft', 'open' => 'chip-sent', 'partial' => 'chip-soon', 'overdue' => 'chip-late',
-        'paid' => 'chip-ok', 'credited' => 'chip-draft', 'issued' => 'chip-sent'];
 
     protected function docType(): string
     {
@@ -100,7 +98,7 @@ final class InvoiceController extends AbstractDocumentController
                 'due_date' => $doc['type'] === DocType::INVOICE ? $this->date($doc['due_date']) : null,
                 'amount' => $this->money((int) $doc['gross_minor'], (string) $doc['currency']),
                 'status' => $summary['status'],
-                'chip' => self::CHIPS[$summary['status']] ?? 'chip-draft',
+                'chip' => StatusChips::invoice($summary['status']),
                 'reverse_charge' => (int) $doc['reverse_charge'] === 1,
                 'currency' => (string) $doc['currency'],
             ];
@@ -228,7 +226,7 @@ final class InvoiceController extends AbstractDocumentController
             'type_label' => $this->app->t('invoice.type_' . $doc['type']),
             'status' => $summary['status'],
             'status_label' => $this->app->t('invoice.status_' . $summary['status']),
-            'chip' => self::CHIPS[$summary['status']] ?? 'chip-draft',
+            'chip' => StatusChips::invoice($summary['status']),
             'summary' => $isInvoice ? [
                 'gross' => $this->money($summary['gross_minor'], $currency), 'paid' => $this->money($summary['paid_minor'], $currency),
                 'credited' => $this->money($summary['credited_minor'], $currency), 'balance' => $this->money($summary['balance_minor'], $currency),

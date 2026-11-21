@@ -795,4 +795,14 @@ return [
     'dunning.send_short' => 'Email',
     'dunning.send_label' => 'Send {number} by email',
     'dunning.type_label' => 'Reminder',
+    // Task 22: dashboard data, plan box
+    'nav.plan_standard' => 'Standard plan',
+    'nav.plan_pro' => 'Pro plan',
+    'nav.plan_month_docs' => 'Documents in {month}: {count}',
+    'nav.upgrade' => 'Upgrade to Standard →',
+    'dash.invoices_count' => 'Invoices: {count}',
+    'dash.payments_count' => 'Payments: {count}',
+    'dash.tabs_label' => 'Document type',
+    'dash.recent_empty' => 'No documents in this view.',
+    'dash.col_type' => 'Type',
 ];

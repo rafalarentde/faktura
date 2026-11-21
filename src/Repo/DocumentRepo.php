@@ -96,7 +96,7 @@ final class DocumentRepo extends BaseRepo
      * Drafts, offers, credit notes and dunning letters are never rows themselves.
      *
      * Filters: status (one of PAYMENT_STATUSES; anything else matches nothing), q (number or buyer
-     * name, as list()). Order: 'due' = due_date ASC, id ASC (dunning list, dashboard) or 'issued' =
+     * name, as list()), ids (non-empty list of at most 500 document ids: only those invoices). Order: 'due' = due_date ASC, id ASC (dunning list, dashboard) or 'issued' =
      * issue_date DESC, id DESC (invoice list). Every table is company-scoped (BaseRepo::scopedReport).
      *
      * Row keys: id, number, type, status, buyer_name, customer_id, currency, lang, reverse_charge,
@@ -146,6 +146,15 @@ final class DocumentRepo extends BaseRepo
             $outerParams = [$filter['status']];
         }
         [$where, $params] = $this->filterWhere(['q' => $filter['q'] ?? null]);
+        if (array_key_exists('ids', $filter)) {
+            $ids = $filter['ids'];
+            if (!is_array($ids) || $ids === [] || count($ids) > 500) {
+                return null;
+            }
+            $ids = array_values(array_unique(array_map('intval', $ids)));
+            $where = "($where) AND id IN (" . implode(', ', array_fill(0, count($ids), '?')) . ')';
+            array_push($params, ...$ids);
+        }
         $balance = 'CASE WHEN gross_minor - paid_minor - credited_minor > 0 THEN gross_minor - paid_minor - credited_minor ELSE 0 END';
         return [
             'table' => self::DOCS,

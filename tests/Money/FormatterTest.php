@@ -88,4 +88,15 @@ final class FormatterTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
         (new Formatter())->decimal(1000, 'fr');
     }
+
+    public function test_month_name_in_each_language_in_the_dates_own_timezone(): void
+    {
+        $f = new Formatter();
+        $nov = new \DateTimeImmutable('2026-11-24 12:00', new \DateTimeZone('Europe/Berlin'));
+        $this->assertSame(['November', 'listopad', 'November'], [$f->month($nov, 'de'), $f->month($nov, 'pl'), $f->month($nov, 'en')]);
+        $this->assertSame(['November 2026', 'listopad 2026', 'November 2026'], [$f->month($nov, 'de', true), $f->month($nov, 'pl', true), $f->month($nov, 'en', true)]);
+        $this->assertSame('Dezember', $f->month((new \DateTimeImmutable('2026-11-30 23:30', new \DateTimeZone('UTC')))->setTimezone(new \DateTimeZone('Europe/Berlin')), 'de'));
+        $this->expectException(\InvalidArgumentException::class);
+        $f->month($nov, 'fr');
+    }
 }

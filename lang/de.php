@@ -795,4 +795,14 @@ return [
     'dunning.send_short' => 'E-Mail',
     'dunning.send_label' => '{number} per E-Mail senden',
     'dunning.type_label' => 'Mahnschreiben',
+    // Task 22: dashboard data, plan box
+    'nav.plan_standard' => 'Standard-Plan',
+    'nav.plan_pro' => 'Pro-Plan',
+    'nav.plan_month_docs' => 'Belege im {month}: {count}',
+    'nav.upgrade' => 'Auf Standard upgraden →',
+    'dash.invoices_count' => 'Rechnungen: {count}',
+    'dash.payments_count' => 'Zahlungen: {count}',
+    'dash.tabs_label' => 'Belegart',
+    'dash.recent_empty' => 'Keine Belege in dieser Ansicht.',
+    'dash.col_type' => 'Art',
 ];

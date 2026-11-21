@@ -5,6 +5,8 @@ namespace App\Http;
 
 use App\Core\App;
 use App\Core\Db;
+use App\Money\Formatter;
+use App\Repo\ReportRepo;
 
 /**
  * Data for the application shell (templates/layout.twig): navigation, user, active company,
@@ -39,9 +41,33 @@ final class Shell
                 'plan' => (string) $company['plan'],
                 'access_status' => (string) $company['access_status'],
                 'access_until' => $company['access_until'] === null ? null : substr((string) $company['access_until'], 0, 10),
-            ],
+            ] + $this->planBox((string) $company['plan']),
             'company_count' => $user === null ? 0 : count(self::companiesOf($this->app->db(), (int) $user['id'])),
             'promo' => (bool) $this->app->config('promo_enabled', false),
+        ];
+    }
+
+    /**
+     * Plan box data: the plan's label, the documents issued in the current Berlin month (ONE count
+     * query; invoices, credit notes, offers and dunning letters by issue_date; informational), an
+     * optional limit (config plan_limits, plan => int; default none, nothing is enforced) and an
+     * optional upgrade link (config upgrade_url, https only; shown for the free plan).
+     *
+     * @return array{plan_label: string, docs_month: int, docs_month_name: string, plan_limit: int|null, upgrade_url: string|null}
+     */
+    private function planBox(string $plan): array
+    {
+        $today = new \DateTimeImmutable('@' . $this->app->now());
+        $limits = $this->app->config('plan_limits', []);
+        $limit = is_array($limits) && isset($limits[$plan]) && is_int($limits[$plan]) && $limits[$plan] > 0 ? $limits[$plan] : null;
+        $url = $this->app->config('upgrade_url', '');
+        $url = is_string($url) && preg_match('#\Ahttps://[^\s"<>\'\\\\]+\z#', $url) === 1 ? $url : null;
+        return [
+            'plan_label' => in_array($plan, ['free', 'standard', 'pro'], true) ? $this->app->t('nav.plan_' . $plan) : $this->app->t('nav.plan_named', ['plan' => $plan]),
+            'docs_month' => (new ReportRepo($this->app->db(), $this->app->context() ?? throw new \LogicException('No company.')))->issuedInMonth($today),
+            'docs_month_name' => (new Formatter())->month($today->setTimezone(new \DateTimeZone('Europe/Berlin')), $this->app->lang()),
+            'plan_limit' => $limit,
+            'upgrade_url' => $plan === 'free' ? $url : null,
         ];
     }
 

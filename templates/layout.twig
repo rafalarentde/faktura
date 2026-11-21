@@ -68,13 +68,19 @@
 
             {% if s.company %}
                 <div class="plan-box">
-                    <b>{{ s.company.plan == 'free' ? t('nav.plan_free') : t('nav.plan_named', {plan: s.company.plan}) }}</b>
+                    <b>{{ s.company.plan_label }}</b>
                     <span class="plan-status plan-{{ s.company.access_status }}">
                         {% if s.company.access_status == 'active' %}{{ t('admin.status_active') }}
                         {% elseif s.company.access_status == 'trial' %}{{ t('admin.status_trial') }}
                         {% else %}{{ t('admin.status_suspended') }}{% endif %}
                         {%- if s.company.access_until and s.company.access_status != 'suspended' %} · {{ t('nav.access_until', {date: s.company.access_until}) }}{% endif %}
                     </span>
+                    <span class="plan-usage" data-plan-usage>{{ t('nav.plan_month_docs', {count: s.company.docs_month, month: s.company.docs_month_name}) }}</span>
+                    {% if s.company.plan_limit %}
+                        <progress class="plan-bar" max="{{ s.company.plan_limit }}" value="{{ min(s.company.docs_month, s.company.plan_limit) }}" aria-label="{{ t('nav.plan_usage', {used: s.company.docs_month, limit: s.company.plan_limit}) }}"></progress>
+                        <span class="plan-usage">{{ t('nav.plan_usage', {used: s.company.docs_month, limit: s.company.plan_limit}) }}</span>
+                    {% endif %}
+                    {% if s.company.upgrade_url %}<a class="plan-upgrade" href="{{ s.company.upgrade_url }}" target="_blank" rel="noopener noreferrer">{{ t('nav.upgrade') }}</a>{% endif %}
                 </div>
             {% endif %}
 

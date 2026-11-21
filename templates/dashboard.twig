@@ -1,11 +1,68 @@
 {% extends 'layout.twig' %}
+{% import '_icons.twig' as icons %}
 {% block title %}{{ t('dash.title') }}{% endblock %}
-{% block subtitle %}{{ shell().company.name }}{% endblock %}
+{% block subtitle %}{{ t('dash.subtitle', {period: period, company: shell().company.name}) }}{% endblock %}
+{% block actions %}
+    <a class="btn btn-ghost" href="/offers/new">{{ icons.icon('plus') }}{{ t('dash.new_offer') }}</a>
+    <a class="btn btn-primary" href="/invoices/new">{{ icons.icon('plus') }}{{ t('dash.new_invoice') }}</a>
+{% endblock %}
 {% block content %}
+{% if empty %}
     <section class="card empty-state">
         <h2>{{ t('dash.welcome_title') }}</h2>
         <p>{{ t('dash.welcome_text') }}</p>
     </section>
+{% else %}
+    <section class="cards" aria-label="{{ t('dash.title') }}">
+        {% for c in cards %}
+            <article class="card {{ c.class }}" data-card="{{ c.key }}">
+                <h3>{{ c.label }}</h3>
+                <div class="stat{{ c.late ? ' stat-late' : '' }}">{{ c.amount }}</div>
+                {% for o in c.others %}<div class="card-sub card-other">{{ o }}</div>{% endfor %}
+                <div class="card-sub">{% if c.link %}<a class="strong-link" href="{{ c.link }}">{{ c.sub }}</a>{% else %}{{ c.sub }}{% endif %}</div>
+            </article>
+        {% endfor %}
+    </section>
+
+    <section class="panel">
+        <div class="panel-head">
+            <h2>{{ t('dash.recent_documents') }}</h2>
+            <nav class="tabs" aria-label="{{ t('dash.tabs_label') }}">
+                {% for k in tabs %}<a href="/?tab={{ k }}"{% if k == tab %} class="is-on" aria-current="page"{% endif %}>{{ t('dash.tab_' ~ k) }}</a>{% endfor %}
+            </nav>
+        </div>
+        <div class="tbl-wrap">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>{{ t('table.number') }}</th>
+                        <th>{{ t('table.customer') }}</th>
+                        <th>{{ t('dash.col_type') }}</th>
+                        <th>{{ t('table.date') }}</th>
+                        <th>{{ t('table.due') }}</th>
+                        <th class="r">{{ t('table.amount') }}</th>
+                        <th>{{ t('table.status') }}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for r in rows %}
+                    <tr data-doc-row>
+                        <td><a class="strong-link" href="{{ r.href }}">{{ r.number ?: t('invoice.draft_number') }}</a></td>
+                        <td class="wrap">{{ r.buyer }}</td>
+                        <td><span class="chip chip-outline">{{ r.type_label }}</span></td>
+                        <td>{{ r.issue_date ?? '—' }}</td>
+                        <td>{{ r.due_date ?? '—' }}</td>
+                        <td class="r num">{{ r.amount }}</td>
+                        <td><span class="chip {{ r.chip }}">{{ r.status_label }}</span></td>
+                    </tr>
+                {% else %}
+                    <tr><td colspan="7" class="empty-row">{{ t('dash.recent_empty') }}</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+{% endif %}
 {% endblock %}
 {% block promo %}
     <aside class="promo" aria-label="{{ t('dash.partner_label') }}">

@@ -234,4 +234,38 @@ final class ContentSecurityTest extends HttpTestCase
             $this->assertMatchesRegularExpression('/\ssrc="\/[^"]+"/', $attrs, "$name: inline <script>");
         }
     }
+
+    /** Dashboard (Task 22) with documents in every state, in all three languages, tabs and plan box with a bar and upgrade link. */
+    public function test_dashboard_pages_have_no_inline_markup(): void
+    {
+        $u = $this->createUser('dash@example.com');
+        $c = $this->createCompany('Dash GmbH');
+        $this->addMember($u['id'], $c);
+        $this->db->exec("UPDATE companies SET plan = 'free' WHERE id = ?", [$c]);
+        $this->db->exec("INSERT INTO customers (company_id, name, address, country, is_company) VALUES (?, 'Kunde <b>&</b>', 'Weg 1', 'DE', 1)", [$c]);
+        $cust = $this->db->lastId();
+        $this->db->exec("INSERT INTO documents (company_id, type, status, number, customer_id, buyer_name, issue_date, due_date, lang, currency, net_minor, vat_minor, gross_minor) VALUES (?, 'invoice', 'issued', 'RE-1', ?, 'Kunde <b>&</b>', '2026-11-01', '2026-11-05', 'de', 'EUR', 10000, 1900, 11900)", [$c, $cust]);
+        $this->db->exec("INSERT INTO documents (company_id, type, status, number, customer_id, buyer_name, issue_date, valid_until, offer_status, lang, currency, net_minor, vat_minor, gross_minor) VALUES (?, 'offer', 'issued', 'AN-1', ?, 'Kunde', '2026-11-02', '2026-11-30', 'open', 'de', 'PLN', 10000, 1900, 11900)", [$c, $cust]);
+        $this->db->exec("INSERT INTO documents (company_id, type, status, customer_id, buyer_name, lang, currency) VALUES (?, 'invoice', 'draft', ?, 'Kunde', 'de', 'EUR')", [$c, $cust]);
+        $this->loginFully($u['secret'], 'dash@example.com');
+        $this->app = $this->makeApp(['plan_limits' => ['free' => 3], 'upgrade_url' => 'https://example.com/upgrade', 'promo_enabled' => true]);
+
+        $pages = [];
+        foreach (['de', 'pl', 'en'] as $lang) {
+            $this->post('/lang', ['lang' => $lang, 'back' => '/']);
+            foreach (['all', 'invoices', 'offers', 'bogus'] as $tab) {
+                $pages["dashboard_{$lang}_{$tab}"] = $this->app->handle(new \App\Core\Request('GET', '/', query: ['tab' => $tab], server: ['REMOTE_ADDR' => self::IP]));
+            }
+        }
+        foreach ($pages as $name => $r) {
+            $this->assertSame(200, $r->status, $name);
+            $this->assertSame(self::CSP, $r->headers['Content-Security-Policy'] ?? null, $name);
+            $this->assertNoInlineMarkup($name, $r->body);
+            $this->assertStringContainsString('<progress', $r->body, $name);
+        }
+        $this->db->exec('DELETE FROM documents');
+        $r = $this->get('/');
+        $this->assertSame(self::CSP, $r->headers['Content-Security-Policy'] ?? null);
+        $this->assertNoInlineMarkup('dashboard_empty', $r->body);
+    }
 }
