@@ -23,7 +23,7 @@
                     {% endfor %}
                 </select>
             </div>
-            <p class="hint">{{ last_export is not null ? t('export.last', {date: last_export}) : t('export.last_none') }} {{ t('export.limit_hint') }}</p>
+            <p class="hint">{{ last_export is not null ? t('export.last', {date: last_export}) : t('export.last_none') }} · {{ t('export.limit_hint') }}</p>
             <div class="form-actions"><button class="btn btn-primary" type="submit">{{ t('export.submit') }}</button></div>
         </form>
     </section>

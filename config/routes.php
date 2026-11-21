@@ -43,6 +43,7 @@ return function (App $app, RouteCollector $r): void {
 
     // Administration: every route is admin-only; admins need no company.
     $admin = fn (string $method) => $app->protect([AdminController::class, $method], [RequireAdmin::class]);
+    $r->addRoute('GET', '/admin/audit', $admin('auditLog'));
     $r->addRoute('GET', '/admin/companies', $admin('index'));
     $r->addRoute('GET', '/admin/companies/new', $admin('newForm'));
     $r->addRoute('POST', '/admin/companies', $admin('create'));

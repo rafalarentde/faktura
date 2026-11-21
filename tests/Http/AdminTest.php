@@ -62,9 +62,10 @@ final class AdminTest extends HttpTestCase
         return $this->db->lastId();
     }
 
+    /** Audit rows of the admin actions (the login events of the test's own sign-in are not part of it). */
     private function audit(): array
     {
-        return $this->db->all('SELECT * FROM audit_log ORDER BY id');
+        return $this->db->all("SELECT * FROM audit_log WHERE action NOT LIKE 'auth.%' ORDER BY id");
     }
 
     public function test_non_admin_gets_403(): void

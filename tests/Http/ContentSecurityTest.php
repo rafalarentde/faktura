@@ -66,6 +66,9 @@ final class ContentSecurityTest extends HttpTestCase
         $pages['admin_list'] = $this->get('/admin/companies');
         $pages['admin_new'] = $this->get('/admin/companies/new');
         $pages['admin_show'] = $this->get("/admin/companies/$a");
+        $pages['admin_audit'] = $this->get('/admin/audit');
+        $pages['admin_audit_filtered'] = $this->app->handle(new \App\Core\Request('GET', '/admin/audit', query: ['company' => (string) $a, 'action' => 'auth.'], server: ['REMOTE_ADDR' => self::IP]));
+        $pages['export_form'] = $this->get('/settings/export');
         $pages['forbidden_switch'] = $this->post('/company/switch', ['company_id' => '999']);
         $pages['bad_lang'] = $this->post('/lang', ['lang' => 'xx']);
 
@@ -80,6 +83,9 @@ final class ContentSecurityTest extends HttpTestCase
         $this->assertSame(200, $pages['dashboard']->status);
         $this->assertSame(200, $pages['chooser']->status);
         $this->assertSame(200, $pages['admin_show']->status);
+        $this->assertSame(200, $pages['admin_audit']->status);
+        $this->assertSame(200, $pages['admin_audit_filtered']->status);
+        $this->assertSame(200, $pages['export_form']->status);
         $this->assertSame(403, $pages['no_company']->status);
     }
 

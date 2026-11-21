@@ -1,0 +1,4 @@
+<nav class="tabs-pill" aria-label="{{ t('admin.nav_label') }}">
+    <a href="/admin/companies"{% if active == 'companies' %} aria-current="page"{% endif %}>{{ t('admin.nav_companies') }}</a>
+    <a href="/admin/audit"{% if active == 'audit' %} aria-current="page"{% endif %}>{{ t('admin.nav_audit') }}</a>
+</nav>

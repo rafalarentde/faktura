@@ -11,6 +11,9 @@ use App\Repo\CompanyRepo;
 /** Admin screens for companies, their users and access status. Routes are gated by RequireAdmin. */
 final class AdminController
 {
+    private const AUDIT_MAX = 200;
+    private const AUDIT_PER_PAGE = 50;
+
     private CompanyRepo $companies;
 
     public function __construct(private App $app)
@@ -22,6 +25,94 @@ final class AdminController
     public function index(Request $request, array $params): Response
     {
         return $this->list();
+    }
+
+    /**
+     * Read-only audit log viewer: the latest 200 events, 50 per page, newest first, with the
+     * optional GET filters `company` (id) and `action` (prefix of the action name). Like the rest of
+     * this controller it deliberately reads across companies (the admin is the one non-tenant-scoped
+     * reader): audit_log is joined read-only to companies and users for the display names. Filter input
+     * never reaches SQL as anything but a `?` parameter: the company id must be plain digits, the action
+     * prefix keeps only [a-z0-9_.] and its `_` is escaped for LIKE.
+     *
+     * @param array<string, string> $params
+     */
+    public function auditLog(Request $request, array $params): Response
+    {
+        $companyRaw = $request->queryParam('company');
+        $company = preg_match('/\A[1-9][0-9]{0,17}\z/', $companyRaw) === 1 ? (int) $companyRaw : null;
+        $prefix = substr((string) preg_replace('/[^a-z0-9_.]/', '', strtolower($request->queryParam('action'))), 0, 64);
+
+        $where = [];
+        $args = [];
+        if ($company !== null) {
+            $where[] = 'a.company_id = ?';
+            $args[] = $company;
+        }
+        if ($prefix !== '') {
+            $where[] = "a.action LIKE ? ESCAPE '!'";
+            $args[] = str_replace('_', '!_', $prefix) . '%';
+        }
+        $cond = $where === [] ? '1=1' : implode(' AND ', $where);
+        $db = $this->app->db();
+        $total = min(self::AUDIT_MAX, (int) ($db->one("SELECT COUNT(*) AS c FROM audit_log a WHERE $cond", $args)['c'] ?? 0));
+        $pages = max(1, (int) ceil($total / self::AUDIT_PER_PAGE));
+        $pageRaw = $request->queryParam('page');
+        $page = min($pages, ctype_digit($pageRaw) && strlen($pageRaw) < 6 ? max(1, (int) $pageRaw) : 1);
+        $rows = $db->all(
+            'SELECT a.id, a.at, a.action, a.detail, a.company_id, c.name AS company_name, u.email AS user_email '
+            . 'FROM audit_log a LEFT JOIN companies c ON c.id = a.company_id LEFT JOIN users u ON u.id = a.user_id '
+            . "WHERE $cond ORDER BY a.id DESC LIMIT " . self::AUDIT_PER_PAGE . ' OFFSET ' . (($page - 1) * self::AUDIT_PER_PAGE),
+            $args
+        );
+        $berlin = new \DateTimeZone('Europe/Berlin');
+        $entries = array_map(fn (array $r): array => [
+            'time' => (new \DateTimeImmutable((string) $r['at'], new \DateTimeZone('UTC')))->setTimezone($berlin)->format('Y-m-d H:i:s'),
+            'company_id' => $r['company_id'] === null ? null : (int) $r['company_id'],
+            'company' => $r['company_name'],
+            'user' => $r['user_email'],
+            'action' => (string) $r['action'],
+            'detail' => self::detailPairs($r['detail']),
+        ], array_slice($rows, 0, self::AUDIT_PER_PAGE));
+
+        $filters = ['company' => $company === null ? '' : (string) $company, 'action' => $prefix];
+        $link = fn (int $p): string => '/admin/audit?' . http_build_query(array_filter($filters, fn (string $v): bool => $v !== '') + ['page' => $p]);
+        return $this->app->render('admin/audit.twig', [
+            'entries' => $entries,
+            'filters' => $filters,
+            'page' => $page,
+            'pages' => $pages,
+            'prev' => $page > 1 ? $link($page - 1) : null,
+            'next' => $page < $pages ? $link($page + 1) : null,
+        ]);
+    }
+
+    /**
+     * A stored detail as "key=value" strings (lists joined by commas, booleans as true/false); an
+     * undecodable value is shown as a cut-off raw string. Escaping is left to Twig.
+     *
+     * @return list<string>
+     */
+    private static function detailPairs(mixed $json): array
+    {
+        if (!is_string($json) || $json === '') {
+            return [];
+        }
+        $data = json_decode($json, true);
+        if (!is_array($data)) {
+            return [mb_substr($json, 0, 200)];
+        }
+        $out = [];
+        foreach ($data as $key => $value) {
+            $text = match (true) {
+                is_bool($value) => $value ? 'true' : 'false',
+                $value === null => 'null',
+                is_array($value) => implode(',', array_map(fn (mixed $v): string => is_scalar($v) ? (string) $v : '?', $value)),
+                default => (string) $value,
+            };
+            $out[] = $key . '=' . mb_substr($text, 0, 120);
+        }
+        return $out;
     }
 
     /** @param array<string, string> $params */

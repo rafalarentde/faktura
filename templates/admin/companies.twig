@@ -4,6 +4,7 @@
 {% block subtitle %}{{ t('admin.subtitle') }}{% endblock %}
 {% block actions %}<a class="btn btn-primary" href="/admin/companies/new">{{ icons.icon('plus') }}{{ t('admin.new_company') }}</a>{% endblock %}
 {% block content %}
+    {% include 'admin/_nav.twig' with {active: 'companies'} only %}
     {% if error %}<p class="warn" role="alert">{{ error }}</p>{% endif %}
     <div class="panel">
         <div class="tbl-wrap">
