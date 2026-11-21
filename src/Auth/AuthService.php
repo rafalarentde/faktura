@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace App\Auth;
 
+use App\Core\Audit;
 use App\Core\Crypto;
 use App\Core\Db;
 
@@ -28,6 +29,7 @@ final class AuthService
         private BackupCodes $backupCodes,
         private Crypto $crypto,
         ?\Closure $clock = null,
+        private ?Audit $audit = null,
     ) {
         $this->clock = $clock ?? time(...);
     }
@@ -38,6 +40,7 @@ final class AuthService
         $keys = $this->loginKeys($email, $ip);
         foreach ($keys as $key) {
             if ($this->limiter->tooMany($key)) {
+                $this->audit?->logSilently('auth.login_failed', ['reason' => 'locked', 'key' => self::emailKey($email)], Audit::NO_COMPANY);
                 return AuthResult::locked();
             }
         }
@@ -53,12 +56,18 @@ final class AuthService
             foreach ($keys as $key) {
                 $this->limiter->hit($key);
             }
+            $this->audit?->logSilently(
+                'auth.login_failed',
+                ['reason' => $user === null ? 'unknown_user' : 'bad_password', 'key' => self::emailKey($email)],
+                Audit::NO_COMPANY
+            );
             return AuthResult::invalid();
         }
         $id = (int) $user['id'];
         if (password_needs_rehash($hash, PASSWORD_ARGON2ID)) {
             $this->db->exec('UPDATE users SET password_hash = ? WHERE id = ?', [password_hash($password, PASSWORD_ARGON2ID), $id]);
         }
+        $this->audit?->log('auth.login', [], Audit::NO_COMPANY, $id);
         return AuthResult::ok($id, (int) $user['totp_enabled'] === 1);
     }
 
@@ -67,19 +76,27 @@ final class AuthService
     {
         $key = $this->secondFactorKey($userId);
         if ($this->limiter->tooMany($key)) {
+            $this->audit?->logSilently('auth.2fa_failed', ['reason' => 'locked'], Audit::NO_COMPANY, $userId);
             return AuthResult::locked();
         }
         $user = $this->db->one('SELECT id, email, totp_secret_enc, totp_enabled FROM users WHERE id = ?', [$userId]);
         $code = trim($code);
         $ok = false;
+        $backup = false;
         if ($user !== null && (int) $user['totp_enabled'] === 1) {
-            $ok = preg_match('/\A[0-9]{3} ?[0-9]{3}\z/', $code) === 1
-                ? $this->acceptTotp($userId, $this->secret($user), $code)
-                : $this->backupCodes->consume($userId, $code);
+            $backup = preg_match('/\A[0-9]{3} ?[0-9]{3}\z/', $code) !== 1;
+            $ok = $backup
+                ? $this->backupCodes->consume($userId, $code)
+                : $this->acceptTotp($userId, $this->secret($user), $code);
         }
         if (!$ok) {
             $this->limiter->hit($key);
+            $this->audit?->logSilently('auth.2fa_failed', ['reason' => 'invalid'], Audit::NO_COMPANY, $userId);
             return AuthResult::invalid();
+        }
+        $this->audit?->log('auth.2fa_ok', [], Audit::NO_COMPANY, $userId);
+        if ($backup) {
+            $this->audit?->log('auth.backup_code_used', [], Audit::NO_COMPANY, $userId);
         }
         $this->limiter->clear($key);
         foreach ($this->loginKeys((string) $user['email'], $ip) as $k) {
@@ -124,6 +141,7 @@ final class AuthService
         }
         $codes = $this->db->transaction(function (Db $db) use ($userId): array {
             $db->exec('UPDATE users SET totp_enabled = 1 WHERE id = ?', [$userId]);
+            $this->audit?->log('auth.2fa_enabled', [], Audit::NO_COMPANY, $userId);
             return $this->backupCodes->generate($userId);
         });
         $this->limiter->clear($key);
@@ -154,6 +172,12 @@ final class AuthService
     private function loginKeys(string $email, string $ip): array
     {
         return ['login:email:' . $email, 'login:ip:' . $ip];
+    }
+
+    /** First 12 hex chars of sha256(email): lets the audit log show brute-force patterns without storing the address. */
+    private static function emailKey(string $email): string
+    {
+        return substr(hash('sha256', strtolower($email)), 0, 12);
     }
 
     private function secondFactorKey(int $userId): string

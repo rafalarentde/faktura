@@ -220,21 +220,12 @@ final class AdminController
     }
 
     /**
-     * Direct audit_log insert for now; the Audit service wraps this later.
+     * Audit row for a change to $companyId made by the signed-in admin (user id from the session).
      *
      * @param array<string, mixed> $detail must never contain secrets
      */
     private function audit(int $companyId, string $action, array $detail): void
     {
-        $this->app->db()->exec(
-            'INSERT INTO audit_log (company_id, user_id, action, detail, at) VALUES (?, ?, ?, ?, ?)',
-            [
-                $companyId,
-                (int) ($this->app->currentUser()['id'] ?? 0) ?: null,
-                $action,
-                json_encode($detail, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
-                gmdate('Y-m-d H:i:s', $this->app->now()),
-            ]
-        );
+        $this->app->audit()->log($action, $detail, $companyId);
     }
 }

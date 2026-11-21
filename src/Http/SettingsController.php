@@ -421,10 +421,7 @@ final class SettingsController
     private function audit(string $action, array $detail): void
     {
         $ctx = $this->ctx();
-        $this->app->db()->exec(
-            'INSERT INTO audit_log (company_id, user_id, action, detail, at) VALUES (?, ?, ?, ?, ?)',
-            [$ctx->id(), $ctx->userId(), $action, json_encode($detail === [] ? new \stdClass() : $detail, JSON_THROW_ON_ERROR), gmdate('Y-m-d H:i:s', $this->app->now())]
-        );
+        $this->app->audit()->log($action, $detail, $ctx->id(), $ctx->userId());
     }
 
     /** @param array<string, mixed> $row @return array<string, string> */

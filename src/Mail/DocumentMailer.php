@@ -5,6 +5,7 @@ namespace App\Mail;
 
 use App\Auth\RateLimiter;
 use App\Core\Crypto;
+use App\Core\Audit;
 use App\Core\Db;
 use App\Domain\DocType;
 use App\Domain\DocumentNotFound;
@@ -58,6 +59,7 @@ final class DocumentMailer
     private EmailLogRepo $log;
     private Environment $text;
     private \Closure $clock;
+    private ?Audit $audit = null;
 
     /**
      * @param string $templateDir directory with the <type>.<lang>.twig plain-text bodies
@@ -320,10 +322,8 @@ final class DocumentMailer
     /** @param array<string, mixed> $detail */
     private function audit(string $action, array $detail, int $at): void
     {
-        $this->db->exec(
-            'INSERT INTO audit_log (company_id, user_id, action, detail, at) VALUES (?, ?, ?, ?, ?)',
-            [$this->ctx->id(), $this->ctx->userId(), $action, json_encode($detail, JSON_THROW_ON_ERROR), gmdate('Y-m-d H:i:s', $at)]
-        );
+        $this->audit ??= new Audit($this->db, $this->clock);
+        $this->audit->log($action, $detail, $this->ctx->id(), $this->ctx->userId(), $at);
     }
 
     /** Single-line plain string: control characters and line separators become spaces. */

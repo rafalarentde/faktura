@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace App\Domain;
 
+use App\Core\Audit;
 use App\Core\Db;
 use App\Repo\BaseRepo;
 use App\Tenant\CompanyContext;
@@ -76,6 +77,7 @@ use App\Tenant\CompanyContext;
 final class NumberSequences extends BaseRepo
 {
     private \Closure $clock;
+    private ?Audit $audit = null;
 
     public function __construct(Db $db, CompanyContext $ctx, ?\Closure $clock = null)
     {
@@ -336,15 +338,7 @@ final class NumberSequences extends BaseRepo
     /** @param list<string> $fields */
     private function audit(string $docType, array $fields): void
     {
-        $this->db->exec(
-            'INSERT INTO audit_log (company_id, user_id, action, detail, at) VALUES (?, ?, ?, ?, ?)',
-            [
-                $this->ctx->id(),
-                $this->ctx->userId(),
-                'settings.numbers_save',
-                json_encode(['doc_type' => $docType, 'fields' => $fields], JSON_THROW_ON_ERROR),
-                gmdate('Y-m-d H:i:s', ($this->clock)()),
-            ]
-        );
+        $this->audit ??= new Audit($this->db, $this->clock);
+        $this->audit->log('settings.numbers_save', ['doc_type' => $docType, 'fields' => $fields], $this->ctx->id(), $this->ctx->userId());
     }
 }

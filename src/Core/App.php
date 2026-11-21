@@ -61,6 +61,8 @@ final class App
     private ?BackupCodes $backupCodes = null;
     private ?AuthService $auth = null;
     private ?UserService $users = null;
+    private ?Audit $audit = null;
+    private ?\App\Domain\Exporter $exporter = null;
     private ?ViesClient $vies = null;
 
     // Per request.
@@ -215,7 +217,22 @@ final class App
     public function auth(): AuthService
     {
         return $this->auth ??= new AuthService(
-            $this->db, $this->rateLimiter(), $this->totp(), $this->backupCodes(), $this->crypto(), $this->clock
+            $this->db, $this->rateLimiter(), $this->totp(), $this->backupCodes(), $this->crypto(), $this->clock, $this->audit()
+        );
+    }
+
+    /**
+     * The audit log writer. User and company ids default to the session user and the active
+     * company of the current request; see Audit for the rules (log() propagates failures,
+     * logSilently() never throws).
+     */
+    public function audit(): Audit
+    {
+        return $this->audit ??= new Audit(
+            $this->db,
+            $this->clock,
+            fn (): ?int => ($id = $this->currentUser()['id'] ?? null) === null ? null : (int) $id,
+            fn (): ?int => $this->context()?->id(),
         );
     }
 

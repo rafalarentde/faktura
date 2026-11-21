@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace App\Domain;
 
+use App\Core\Audit;
 use App\Core\Db;
 use App\Money\Money;
 use App\Repo\CustomerRepo;
@@ -90,6 +91,7 @@ final class DocumentService
         'intro_text', 'outro_text', 'footer_text'];
 
     private \Closure $clock;
+    private ?Audit $audit = null;
 
     public function __construct(
         private Db $db,
@@ -1178,10 +1180,8 @@ final class DocumentService
     /** @param array<string, mixed> $detail ids and flags only, never personal data */
     private function audit(string $action, array $detail): void
     {
-        $this->db->exec(
-            'INSERT INTO audit_log (company_id, user_id, action, detail, at) VALUES (?, ?, ?, ?, ?)',
-            [$this->ctx->id(), $this->ctx->userId(), $action, self::json($detail), $this->nowUtc()]
-        );
+        $this->audit ??= new Audit($this->db, $this->clock);
+        $this->audit->log($action, $detail, $this->ctx->id(), $this->ctx->userId());
     }
 
     private function nowUtc(): string

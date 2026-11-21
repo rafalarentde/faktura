@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace App\Repo;
 
 use App\Core\Crypto;
+use App\Core\Audit;
 use App\Core\Db;
 use App\Domain\Iban;
 use App\Domain\Percent;
@@ -36,6 +37,7 @@ final class CompanySettingsRepo
     private const MAX_FEE_MINOR = 100000; // 1000 EUR
 
     private \Closure $clock;
+    private ?Audit $audit = null;
 
     public function __construct(
         private Db $db,
@@ -330,16 +332,8 @@ final class CompanySettingsRepo
             }
             $sets = implode(', ', array_map(fn (string $c): string => "`$c` = ?", array_keys($values)));
             $this->db->exec("UPDATE companies SET $sets WHERE id = ?", [...array_values($values), $this->ctx->id()]);
-            $this->db->exec(
-                'INSERT INTO audit_log (company_id, user_id, action, detail, at) VALUES (?, ?, ?, ?, ?)',
-                [
-                    $this->ctx->id(),
-                    $this->ctx->userId(),
-                    $action,
-                    json_encode(['fields' => $changed], JSON_THROW_ON_ERROR),
-                    gmdate('Y-m-d H:i:s', ($this->clock)()),
-                ]
-            );
+            $this->audit ??= new Audit($this->db, $this->clock);
+            $this->audit->log($action, ['fields' => $changed], $this->ctx->id(), $this->ctx->userId());
         });
     }
 

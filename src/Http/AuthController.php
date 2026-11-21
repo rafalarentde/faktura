@@ -98,7 +98,11 @@ final class AuthController
     /** @param array<string, string> $params */
     public function logout(Request $request, array $params): Response
     {
+        $userId = $this->app->session()->userId();
         $this->app->session()->logout();
+        if ($userId !== null) {
+            $this->app->audit()->logSilently('auth.logout', [], \App\Core\Audit::NO_COMPANY, $userId);
+        }
         return Response::redirect('/login');
     }
 
