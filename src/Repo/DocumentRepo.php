@@ -262,7 +262,7 @@ final class DocumentRepo extends BaseRepo
     public function payments(int $documentId, bool $lock = false): array
     {
         return array_map(
-            fn (array $r): array => $this->ints($r, ['id', 'company_id', 'document_id', 'amount_minor'], ['created_by']),
+            fn (array $r): array => $this->ints($r, ['id', 'company_id', 'document_id', 'amount_minor'], ['created_by', 'reverses_payment_id']),
             $this->scopedAll(self::PAYMENTS, 'document_id = ?', [$documentId], 'paid_on ASC, id ASC', null, 0, $lock)
         );
     }

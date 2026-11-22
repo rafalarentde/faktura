@@ -72,10 +72,17 @@ final class ReportRepo extends BaseRepo
         [$from, $to] = $this->month($day);
         // Payments are read on their own (no join, so no fan-out); the currency comes from the invoice.
         // A payment whose document is not an issued invoice of this company is skipped.
+        // The amount is the NET sum (a reversal row is negative); the count is the number of real payments
+        // not reversed since (neither a reversal row nor a reversed payment counts as a payment).
+        $reversed = [];
+        foreach ($this->scopedAll(self::PAYMENTS, 'reverses_payment_id IS NOT NULL') as $r) {
+            $reversed[(int) $r['reverses_payment_id']] = true;
+        }
         foreach ($this->scopedAll(self::PAYMENTS, 'paid_on >= ? AND paid_on <= ?', [$from, $to]) as $p) {
             $cur = $currency[(int) $p['document_id']] ?? null;
             if ($cur !== null) {
-                self::add($out['paid_month'], $cur, (int) $p['amount_minor']);
+                $real = (int) $p['amount_minor'] > 0 && !isset($reversed[(int) $p['id']]);
+                self::add($out['paid_month'], $cur, (int) $p['amount_minor'], $real ? 1 : 0);
             }
         }
         $primary = (string) ($this->ctx->company()['default_currency'] ?? 'EUR');
@@ -179,9 +186,9 @@ final class ReportRepo extends BaseRepo
     }
 
     /** @param array<string, array{minor: int, count: int}> $card */
-    private static function add(array &$card, string $currency, int $minor): void
+    private static function add(array &$card, string $currency, int $minor, int $count = 1): void
     {
-        $card[$currency] = ['minor' => ($card[$currency]['minor'] ?? 0) + $minor, 'count' => ($card[$currency]['count'] ?? 0) + 1];
+        $card[$currency] = ['minor' => ($card[$currency]['minor'] ?? 0) + $minor, 'count' => ($card[$currency]['count'] ?? 0) + $count];
     }
 
     private function berlinDay(\DateTimeImmutable $today): string

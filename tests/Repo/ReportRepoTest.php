@@ -111,9 +111,20 @@ final class ReportRepoTest extends TestCase
         return $cn;
     }
 
+    /** Payments dated after the fixed clock ("today") cannot go through the service (M6): insert the row directly. */
     private function pay(int $invoice, int $amount, string $day = '2026-11-02', ?DocumentService $svc = null): void
     {
+        if ($day > '2026-11-24') {
+            $this->payRaw($invoice, $amount, $day);
+            return;
+        }
         ($svc ?? $this->svc)->addPayment($invoice, $amount, $this->day($day));
+    }
+
+    private function payRaw(int $invoice, int $amount, string $day): void
+    {
+        $row = $this->db->one('SELECT company_id FROM documents WHERE id = ?', [$invoice]);
+        $this->db->exec('INSERT INTO payments (company_id, document_id, amount_minor, paid_on) VALUES (?, ?, ?, ?)', [$row['company_id'], $invoice, $amount, $day]);
     }
 
     private int $dunningSeq = 0;
@@ -273,7 +284,7 @@ final class ReportRepoTest extends TestCase
     {
         $inv = $this->invoice('2027-01-31');
         $this->svc->addPayment($inv, 300, new \DateTimeImmutable('2026-10-31 23:30:00', new \DateTimeZone('UTC')));  // 1 Nov Berlin
-        $this->svc->addPayment($inv, 500, new \DateTimeImmutable('2026-11-30 23:30:00', new \DateTimeZone('UTC')));  // 1 Dec Berlin
+        $this->payRaw($inv, 500, (new \DateTimeImmutable('2026-11-30 23:30:00', new \DateTimeZone('UTC')))->setTimezone(new \DateTimeZone('Europe/Berlin'))->format('Y-m-d')); // 1 Dec Berlin (future: direct row)
         $this->assertSame(['minor' => 300, 'count' => 1], $this->eur('paid_month'));
     }
 

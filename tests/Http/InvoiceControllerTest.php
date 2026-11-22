@@ -724,11 +724,75 @@ final class InvoiceControllerTest extends HttpTestCase
         $this->assertSame(422, $r->status);
         $this->assertSame(1, $this->counts()[2]);
 
-        $this->assertRedirect("/invoices/$id", $this->post("/invoices/$id/payments", ['amount' => '206,60', 'paid_on' => '2026-11-19']));
+        $this->assertRedirect("/invoices/$id", $this->post("/invoices/$id/payments", ['amount' => '206,60', 'paid_on' => '2026-11-18']));
         $view = $this->get("/invoices/$id");
         $this->assertStringNotContainsString("action=\"/invoices/$id/payments\"", $view->body, 'form gone after full payment');
         $this->assertStringContainsString('chip chip-ok', $view->body);
         $this->assertStringContainsString($this->app->t('invoice.status_paid'), $view->body);
+    }
+
+    public function test_payment_in_the_future_is_refused_in_the_form(): void
+    {
+        $this->login();
+        $id = $this->issued();
+        $r = $this->post("/invoices/$id/payments", ['amount' => '1,00', 'paid_on' => '2026-11-19']);
+        $this->assertSame(422, $r->status);
+        $this->assertStringContainsString(htmlspecialchars($this->app->t('document.err_paid_on_future'), ENT_QUOTES), $r->body);
+        $this->assertSame(0, $this->counts()[2]);
+    }
+
+    public function test_payment_reversal_flow(): void
+    {
+        $this->login();
+        $id = $this->issued();
+        $this->assertRedirect("/invoices/$id", $this->post("/invoices/$id/payments", ['amount' => '1.206,60', 'paid_on' => '2026-11-18', 'note' => 'Überweisung']));
+        $pid = (int) $this->db->one('SELECT id FROM payments')['id'];
+        $view = $this->get("/invoices/$id");
+        $this->assertStringContainsString($this->app->t('invoice.status_paid'), $view->body);
+        $this->assertStringContainsString("action=\"/invoices/$id/payments/$pid/reverse\"", $view->body);
+        $this->assertStringContainsString('data-confirm="' . htmlspecialchars($this->app->t('invoice.reverse_payment_confirm'), ENT_QUOTES) . '"', $view->body);
+        $this->assertStringContainsString('name="_csrf"', substr($view->body, (int) strpos($view->body, "/payments/$pid/reverse")));
+
+        $this->assertSame(419, $this->post("/invoices/$id/payments/$pid/reverse", [], false)->status, 'CSRF is required');
+        $this->assertSame(1, $this->counts()[2]);
+
+        $this->assertRedirect("/invoices/$id", $this->post("/invoices/$id/payments/$pid/reverse"));
+        $this->assertSame(2, $this->counts()[2]);
+        $view = $this->get("/invoices/$id");
+        $this->assertStringNotContainsString($this->app->t('invoice.status_paid') . '</span>', $view->body);
+        $this->assertStringContainsString('1.206,60', $this->plain($view->body), 'balance is open again');
+        $this->assertStringContainsString('-1.206,60', $this->plain($view->body), 'the reversal row is listed');
+        $this->assertStringNotContainsString("/payments/$pid/reverse", $view->body, 'a reversed payment has no button');
+        $row = $this->db->one('SELECT * FROM payments WHERE reverses_payment_id = ?', [$pid]);
+        $this->assertSame('2026-11-18', $row['paid_on']);
+        $this->assertStringNotContainsString("/payments/{$row['id']}/reverse", $view->body, 'a reversal row has no button');
+
+        // a second try is refused with a warning, nothing is written
+        $r = $this->post("/invoices/$id/payments/$pid/reverse");
+        $this->assertRedirect("/invoices/$id", $r);
+        $this->assertStringContainsString(htmlspecialchars($this->app->t('document.err_reverse_not_allowed'), ENT_QUOTES), $this->get("/invoices/$id")->body);
+        $this->assertSame(2, $this->counts()[2]);
+        $this->assertSame(1, (int) $this->db->one("SELECT COUNT(*) AS c FROM audit_log WHERE action = 'document.payment_reverse'")['c']);
+    }
+
+    public function test_payment_reversal_of_another_companys_invoice_is_404(): void
+    {
+        $this->login();
+        $foreignCustomer = $this->customer($this->companyB, ['name' => 'Geheim GmbH']);
+        $this->db->exec("INSERT INTO documents (company_id, type, status, number, issue_date, due_date, customer_id, buyer_name, gross_minor) VALUES (?, 'invoice', 'issued', 'RE-9', '2026-11-01', '2026-11-15', ?, 'Geheim GmbH', 5000)", [$this->companyB, $foreignCustomer]);
+        $foreign = $this->db->lastId();
+        $this->db->exec('INSERT INTO payments (company_id, document_id, amount_minor, paid_on) VALUES (?, ?, 5000, ?)', [$this->companyB, $foreign, '2026-11-02']);
+        $fp = $this->db->lastId();
+        $mine = $this->issued();
+        $this->post("/invoices/$mine/payments", ['amount' => '1,00', 'paid_on' => '2026-11-18']);
+        $r = $this->post("/invoices/$foreign/payments/$fp/reverse");
+        $unknown = $this->post('/invoices/999999/payments/999999/reverse');
+        $this->assertSame(404, $r->status);
+        $this->assertSame(str_replace('999999', (string) $foreign, $unknown->body), $r->body);
+        // and another company's payment id through my own invoice changes nothing either
+        $this->post("/invoices/$mine/payments/$fp/reverse");
+        $this->assertSame(1, (int) $this->db->one('SELECT COUNT(*) AS c FROM payments WHERE document_id = ?', [$foreign])['c']);
+        $this->assertSame(0, (int) $this->db->one('SELECT COUNT(*) AS c FROM payments WHERE reverses_payment_id IS NOT NULL')['c']);
     }
 
     public function test_correction_flow(): void

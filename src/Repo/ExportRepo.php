@@ -26,7 +26,7 @@ final class ExportRepo extends BaseRepo
         'vat_eur_minor', 'created_by', 'dunning_level', 'dunning_outstanding_minor', 'dunning_interest_minor', 'dunning_interest_days',
         'dunning_interest_rate_bp', 'dunning_flat_fee_minor', 'dunning_fee_minor', 'dunning_claim_minor'];
     private const LINE_INTS = ['id', 'document_id', 'position', 'item_id', 'qty_milli', 'unit_minor', 'discount_bp', 'vat_bp', 'net_minor'];
-    private const PAYMENT_INTS = ['id', 'document_id', 'amount_minor', 'created_by'];
+    private const PAYMENT_INTS = ['id', 'document_id', 'amount_minor', 'created_by', 'reverses_payment_id'];
     private const EMAIL_INTS = ['id', 'document_id', 'sent_by'];
     private const CUSTOMER_INTS = ['id', 'is_company', 'payment_days'];
     private const ITEM_INTS = ['id', 'price_minor', 'vat_bp', 'is_active'];

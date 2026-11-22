@@ -7,7 +7,7 @@
 
 {% block head_meta %}
     {%- if doc.issue_date %}<tr><th>{{ doc.labels.issue_date }}</th><td>{{ doc.issue_date }}</td></tr>{% endif %}
-    {%- if doc.service_date %}<tr><th>{{ doc.labels.service_date }}</th><td>{{ doc.service_date }}</td></tr>{% endif %}
+    {%- if doc.service_same %}<tr><td colspan="2">{{ doc.labels.service_same }}</td></tr>{% elseif doc.service_date %}<tr><th>{{ doc.labels.service_date }}</th><td>{{ doc.service_date }}</td></tr>{% endif %}
     {%- if doc.due_date %}<tr><th>{{ doc.labels.due_date }}</th><td>{{ doc.due_date }}</td></tr>{% endif %}
 {% endblock %}
 

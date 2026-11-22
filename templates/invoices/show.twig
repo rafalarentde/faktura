@@ -45,12 +45,18 @@
                 </dl>
                 <div class="tbl-wrap">
                     <table class="table">
-                        <thead><tr><th>{{ t('invoice.payment_date') }}</th><th class="r">{{ t('invoice.payment_amount') }}</th><th>{{ t('invoice.payment_remark') }}</th></tr></thead>
+                        <thead><tr><th>{{ t('invoice.payment_date') }}</th><th class="r">{{ t('invoice.payment_amount') }}</th><th>{{ t('invoice.payment_remark') }}</th><th></th></tr></thead>
                         <tbody>
                         {% for p in payments %}
-                            <tr><td>{{ p.date }}</td><td class="r num">{{ p.amount }}</td><td class="wrap">{{ p.note }}</td></tr>
+                            <tr{% if p.storno or p.reversed %} class="payment-reversed"{% endif %}><td>{{ p.date }}</td><td class="r num">{{ p.amount }}</td>
+                                <td class="wrap">{% if p.storno %}<span class="chip chip-outline">{{ t('invoice.payment_reversal') }}</span> {{ p.storno_of }}{% if p.note %} · {% endif %}{% endif %}{{ p.note }}</td>
+                                <td>{% if p.can_reverse %}
+                                    <form class="inline-form" method="post" action="/invoices/{{ doc.id }}/payments/{{ p.id }}/reverse" data-confirm="{{ t('invoice.reverse_payment_confirm') }}">
+                                        {{ csrf_field() }}
+                                        <button class="btn btn-sm btn-ghost" type="submit">{{ t('invoice.reverse_payment') }}</button>
+                                    </form>{% endif %}</td></tr>
                         {% else %}
-                            <tr><td colspan="3" class="empty-row">{{ t('invoice.no_payments') }}</td></tr>
+                            <tr><td colspan="4" class="empty-row">{{ t('invoice.no_payments') }}</td></tr>
                         {% endfor %}
                         </tbody>
                     </table>

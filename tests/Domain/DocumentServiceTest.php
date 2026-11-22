@@ -274,7 +274,7 @@ final class DocumentServiceTest extends TestCase
         $this->assertSame(11900, $this->svc->balanceMinor($id));
         $this->assertSame('open', $this->svc->paymentStatus($id, $this->day('2026-11-25')));
 
-        $this->svc->addPayment($id, 5000, $this->day('2026-11-25'), 'Teilzahlung');
+        $this->svc->addPayment($id, 5000, $this->day('2026-11-24'), 'Teilzahlung');
         $this->assertSame(6900, $this->svc->balanceMinor($id));
         $this->assertSame('partial', $this->svc->paymentStatus($id, $this->day('2026-11-25')));
         $this->assertSame('partial', $this->svc->paymentStatus($id, $this->day('2026-12-10')), 'due today is not overdue');
@@ -284,7 +284,7 @@ final class DocumentServiceTest extends TestCase
             'balance_minor' => 6900, 'due_date' => '2026-12-10',
         ], $this->svc->paymentSummary($id, $this->day('2026-11-30')));
 
-        $this->svc->addPayment($id, 6900, $this->day('2026-12-20'));
+        $this->svc->addPayment($id, 6900, $this->day('2026-11-24'));
         $this->assertSame(0, $this->svc->balanceMinor($id));
         $this->assertSame('paid', $this->svc->paymentStatus($id, $this->day('2027-01-30')));
     }
@@ -304,10 +304,10 @@ final class DocumentServiceTest extends TestCase
     {
         $id = $this->draft();
         $this->svc->issue($id, $this->at());
-        $this->assertSame(['amount' => 'document.err_overpayment'], $this->errors(fn () => $this->svc->addPayment($id, 11901, $this->day('2026-11-25'))));
-        $this->svc->addPayment($id, 11900, $this->day('2026-11-25'));
-        $this->assertSame(['amount' => 'document.err_overpayment'], $this->errors(fn () => $this->svc->addPayment($id, 1, $this->day('2026-11-25'))));
-        $this->assertSame(['amount' => 'document.err_amount'], $this->errors(fn () => $this->svc->addPayment($id, 0, $this->day('2026-11-25'))));
+        $this->assertSame(['amount' => 'document.err_overpayment'], $this->errors(fn () => $this->svc->addPayment($id, 11901, $this->day('2026-11-24'))));
+        $this->svc->addPayment($id, 11900, $this->day('2026-11-24'));
+        $this->assertSame(['amount' => 'document.err_overpayment'], $this->errors(fn () => $this->svc->addPayment($id, 1, $this->day('2026-11-24'))));
+        $this->assertSame(['amount' => 'document.err_amount'], $this->errors(fn () => $this->svc->addPayment($id, 0, $this->day('2026-11-24'))));
         $this->assertCount(1, $this->db->all('SELECT id FROM payments'));
     }
 
@@ -315,9 +315,9 @@ final class DocumentServiceTest extends TestCase
     {
         $id = $this->draft(['issue_date' => '2026-11-20']);
         $this->svc->issue($id, $this->at());
-        $this->assertSame(['amount' => 'document.err_amount'], $this->errors(fn () => $this->svc->addPayment($id, -5, $this->day('2026-11-25'))));
+        $this->assertSame(['amount' => 'document.err_amount'], $this->errors(fn () => $this->svc->addPayment($id, -5, $this->day('2026-11-24'))));
         $this->assertSame(['paid_on' => 'document.err_paid_on'], $this->errors(fn () => $this->svc->addPayment($id, 5, $this->day('2026-11-19'))));
-        $this->assertSame(['note' => 'document.err_note'], $this->errors(fn () => $this->svc->addPayment($id, 5, $this->day('2026-11-25'), str_repeat('ä', 191))));
+        $this->assertSame(['note' => 'document.err_note'], $this->errors(fn () => $this->svc->addPayment($id, 5, $this->day('2026-11-24'), str_repeat('ä', 191))));
         $this->svc->addPayment($id, 5, $this->day('2026-11-20'));
         $row = $this->db->one('SELECT * FROM payments');
         $this->assertSame('2026-11-20', $row['paid_on']);
@@ -341,12 +341,12 @@ final class DocumentServiceTest extends TestCase
                     $other->exec("INSERT INTO payments (company_id, document_id, amount_minor, paid_on) VALUES ({$this->companyA}, $id, 11000, '2026-11-25')");
                 }
             };
-            $this->assertSame(['amount' => 'document.err_overpayment'], $this->errors(fn () => $this->svc->addPayment($id, 1000, $this->day('2026-11-25'))));
+            $this->assertSame(['amount' => 'document.err_overpayment'], $this->errors(fn () => $this->svc->addPayment($id, 1000, $this->day('2026-11-24'))));
             $this->assertFalse($armed, 'the concurrent payment was committed during addPayment');
             $this->pdo->onPrepare = null;
             $this->assertSame(900, $this->svc->balanceMinor($id), 'the other connection\'s payment is committed and counted');
-            $this->svc->addPayment($id, 900, $this->day('2026-11-25'));
-            $this->assertSame(['amount' => 'document.err_overpayment'], $this->errors(fn () => $this->svc->addPayment($id, 1, $this->day('2026-11-25'))));
+            $this->svc->addPayment($id, 900, $this->day('2026-11-24'));
+            $this->assertSame(['amount' => 'document.err_overpayment'], $this->errors(fn () => $this->svc->addPayment($id, 1, $this->day('2026-11-24'))));
             $this->assertSame(0, $this->svc->balanceMinor($id));
             $this->assertSame(2, (int) $other->query('SELECT COUNT(*) FROM payments')->fetchColumn());
         } finally {
@@ -360,18 +360,18 @@ final class DocumentServiceTest extends TestCase
     public function test_payment_only_on_issued_invoices(): void
     {
         $draft = $this->draft();
-        $this->assertSame(['document' => 'document.err_payment_not_allowed'], $this->errors(fn () => $this->svc->addPayment($draft, 100, $this->day('2026-11-25'))));
+        $this->assertSame(['document' => 'document.err_payment_not_allowed'], $this->errors(fn () => $this->svc->addPayment($draft, 100, $this->day('2026-11-24'))));
 
         $offer = $this->draft([], null, 'offer');
         $this->svc->issue($offer, $this->at());
-        $this->assertSame(['document' => 'document.err_payment_not_allowed'], $this->errors(fn () => $this->svc->addPayment($offer, 100, $this->day('2026-11-25'))));
+        $this->assertSame(['document' => 'document.err_payment_not_allowed'], $this->errors(fn () => $this->svc->addPayment($offer, 100, $this->day('2026-11-24'))));
 
         $inv = $this->draft();
         $this->svc->issue($inv, $this->at());
         $cn = $this->svc->createCorrection($inv);
-        $this->assertSame(['document' => 'document.err_payment_not_allowed'], $this->errors(fn () => $this->svc->addPayment($cn, 100, $this->day('2026-11-25'))));
+        $this->assertSame(['document' => 'document.err_payment_not_allowed'], $this->errors(fn () => $this->svc->addPayment($cn, 100, $this->day('2026-11-24'))));
         $this->svc->issue($cn, $this->at());
-        $this->assertSame(['document' => 'document.err_payment_not_allowed'], $this->errors(fn () => $this->svc->addPayment($cn, 100, $this->day('2026-11-25'))));
+        $this->assertSame(['document' => 'document.err_payment_not_allowed'], $this->errors(fn () => $this->svc->addPayment($cn, 100, $this->day('2026-11-24'))));
         $this->assertSame([], $this->db->all('SELECT id FROM payments'));
     }
 
@@ -510,7 +510,7 @@ final class DocumentServiceTest extends TestCase
             'update' => fn () => $this->svc->updateDraft($idB, ['notes' => 'hacked']),
             'delete' => fn () => $this->svc->deleteDraft($idB),
             'issue' => fn () => $this->svc->issue($idB, $this->at()),
-            'payment' => fn () => $this->svc->addPayment($issuedB, 100, $this->day('2026-11-25')),
+            'payment' => fn () => $this->svc->addPayment($issuedB, 100, $this->day('2026-11-24')),
             'correction' => fn () => $this->svc->createCorrection($issuedB),
             'status' => fn () => $this->svc->paymentStatus($issuedB, $this->day('2026-11-25')),
             'summary' => fn () => $this->svc->paymentSummary($issuedB, $this->day('2026-11-25')),
@@ -903,7 +903,7 @@ final class DocumentServiceTest extends TestCase
         $this->assertSame(118_999_999_999, $doc['gross_minor']);
         $this->assertSame(99_999_999_999, $doc['lines'][0]['unit_minor']);
         $this->assertConsistent($doc);
-        $this->svc->addPayment($id, 118_999_999_998, $this->day('2026-11-25'));
+        $this->svc->addPayment($id, 118_999_999_998, $this->day('2026-11-24'));
         $this->assertSame(1, $this->svc->balanceMinor($id));
     }
 
@@ -913,7 +913,7 @@ final class DocumentServiceTest extends TestCase
     {
         $inv = $this->draft();
         $this->svc->issue($inv, $this->at());
-        $this->svc->addPayment($inv, 100, $this->day('2026-11-25'), 'Max Mustermann, IBAN DE…');
+        $this->svc->addPayment($inv, 100, $this->day('2026-11-24'), 'Max Mustermann, IBAN DE…');
         $cn = $this->svc->createCorrection($inv);
 
         $issue = $this->audit('document.issue');
@@ -950,7 +950,9 @@ final class DocumentServiceTest extends TestCase
             // Task 21: createDunning creates AND issues a new dunning letter (never changes an existing
             // document); dunningContext/dunningQuote only read.
             'addPayment', 'balanceMinor', 'convertOffer', 'createCorrection', 'createDraft', 'createDunning', 'deleteDraft', 'dunningContext',
-            'dunningQuote', 'issue', 'markOfferSent', 'offerStatus', 'paymentStatus', 'paymentSummary', 'setOfferStatus', 'totalsFor', 'updateDraft',
+            'dunningQuote', 'issue', 'markOfferSent', 'offerStatus', 'paymentStatus', 'paymentSummary',
+            // Payment reversal: inserts a NEGATIVE payment row that points at the original (never updates or deletes one).
+            'reversePayment', 'setOfferStatus', 'totalsFor', 'updateDraft',
         ], $svc);
         foreach ($methods(DocumentRepo::class) as $name) {
             $this->assertDoesNotMatchRegularExpression('/payment.*(update|delete|remove|edit)|(update|delete|remove|edit).*payment/i', $name);
@@ -1053,7 +1055,7 @@ final class DocumentServiceTest extends TestCase
         }
 
         RecordingStatement::$log = [];
-        $svc->addPayment($inv, 100, $this->day('2026-11-25'));
+        $svc->addPayment($inv, 100, $this->day('2026-11-24'));
         $locks = $this->locks();
         $this->assertSame(0, $this->lockAt($locks, '(id = ?)', $inv), 'addPayment locks the invoice first');
         $this->assertGreaterThan(0, $this->lockAt($locks, 'related_document_id = ?'));
@@ -1227,8 +1229,8 @@ final class DocumentServiceTest extends TestCase
     {
         $id = $this->draft();
         $this->svc->issue($id, $this->at());
-        $this->assertSame(['note' => 'document.err_note'], $this->errors(fn () => $this->svc->addPayment($id, 100, $this->day('2026-11-25'), "Zahlung \xff")));
-        $this->svc->addPayment($id, 100, $this->day('2026-11-25'), str_repeat('ü', 190));
+        $this->assertSame(['note' => 'document.err_note'], $this->errors(fn () => $this->svc->addPayment($id, 100, $this->day('2026-11-24'), "Zahlung \xff")));
+        $this->svc->addPayment($id, 100, $this->day('2026-11-24'), str_repeat('ü', 190));
         $this->assertSame(str_repeat('ü', 190), $this->db->one('SELECT note FROM payments')['note']);
     }
 

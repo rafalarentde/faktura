@@ -83,6 +83,7 @@ return function (App $app, RouteCollector $r): void {
     $r->addRoute('POST', '/invoices/{id:\d+}/issue', $invoice('issue'));
     $r->addRoute('POST', '/invoices/{id:\d+}/delete', $invoice('delete'));
     $r->addRoute('POST', '/invoices/{id:\d+}/payments', $invoice('payments'));
+    $r->addRoute('POST', '/invoices/{id:\d+}/payments/{pid:\d+}/reverse', $invoice('reversePayment'));
     $r->addRoute('POST', '/invoices/{id:\d+}/correct', $invoice('correct'));
 
     // Offers (Task 19): the same editor as invoices (shared AbstractDocumentController), plus the

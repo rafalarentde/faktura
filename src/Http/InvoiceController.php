@@ -153,6 +153,29 @@ final class InvoiceController extends AbstractDocumentController
         return $this->view($doc, $typed, $errors, 422);
     }
 
+    /**
+     * POST /invoices/{id}/payments/{pid}/reverse: books a "Storno" (negative counter payment, today) for
+     * one payment of an issued invoice. Unknown ids and other companies' invoices are 404; a payment that
+     * cannot be reversed (already reversed, a reversal row, not of this invoice) gives a warning.
+     *
+     * @param array<string, string> $params
+     */
+    public function reversePayment(Request $request, array $params): Response
+    {
+        $id = (int) $params['id'];
+        $doc = $this->load($id);
+        if ($doc === null) {
+            return $this->notFound();
+        }
+        try {
+            $this->service()->reversePayment($id, (int) $params['pid'], $this->now());
+            $this->flash('invoice.payment_reversed');
+        } catch (ValidationException $e) {
+            $this->flash($e->errors['payment'] ?? $e->errors['paid_on'] ?? 'document.err_payment_not_allowed', [], 'warn');
+        }
+        return Response::redirect('/invoices/' . $id, 303);
+    }
+
     /** @param array<string, string> $params */
     public function correct(Request $request, array $params): Response
     {
@@ -190,9 +213,25 @@ final class InvoiceController extends AbstractDocumentController
         $summary = $this->service()->paymentSummary($id, $now);
         $currency = (string) $doc['currency'];
         $isInvoice = $doc['type'] === DocType::INVOICE;
+        $rows = $this->docs()->payments($id);
+        $reversed = [];
+        $dates = [];
+        foreach ($rows as $p) {
+            $dates[$p['id']] = $this->date($p['paid_on']);
+            if ($p['reverses_payment_id'] !== null) {
+                $reversed[$p['reverses_payment_id']] = true;
+            }
+        }
         $payments = [];
-        foreach ($this->docs()->payments($id) as $p) {
-            $payments[] = ['date' => $this->date($p['paid_on']), 'amount' => $this->money((int) $p['amount_minor'], $currency), 'note' => (string) ($p['note'] ?? '')];
+        foreach ($rows as $p) {
+            $storno = $p['reverses_payment_id'] !== null;
+            $payments[] = [
+                'id' => $p['id'], 'date' => $this->date($p['paid_on']), 'amount' => $this->money((int) $p['amount_minor'], $currency),
+                'note' => (string) ($p['note'] ?? ''), 'storno' => $storno,
+                'storno_of' => $storno ? $this->app->t('invoice.payment_reversal_of', ['date' => (string) ($dates[$p['reverses_payment_id']] ?? '')]) : null,
+                'reversed' => isset($reversed[$p['id']]),
+                'can_reverse' => $isInvoice && !$storno && !isset($reversed[$p['id']]) && $p['amount_minor'] > 0,
+            ];
         }
         $creditNotes = [];
         if ($isInvoice) {

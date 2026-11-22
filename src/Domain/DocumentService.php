@@ -235,6 +235,9 @@ final class DocumentService
             }
             $isOffer = $type === DocType::OFFER;
             $dueDate = $isOffer ? null : $doc['due_date']; // offers have no payment terms
+            // § 14 Abs. 4 Nr. 6 UStG: the supply date is mandatory on an invoice; empty = the issue date
+            // (the document then says so, see DocumentPresenter 'service_same'). Offers carry none.
+            $serviceDate = $isOffer ? $doc['service_date'] : ($doc['service_date'] ?? $issueDate);
             $confirmed = false;
 
             if ($type === DocType::CREDIT_NOTE) {
@@ -315,6 +318,7 @@ final class DocumentService
                 'status' => 'issued',
                 'issued_at' => $at->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d H:i:s'),
                 'issue_date' => $issueDate,
+                'service_date' => $serviceDate,
                 'due_date' => $dueDate,
                 'seller_json' => self::json($seller),
                 'buyer_json' => self::json($buyer),
@@ -356,6 +360,8 @@ final class DocumentService
             $paidOn = $this->berlin($on)->format('Y-m-d');
             if ($paidOn < (string) $doc['issue_date']) {
                 $errors['paid_on'] = 'document.err_paid_on';
+            } elseif ($paidOn > $this->berlinToday()) {
+                $errors['paid_on'] = 'document.err_paid_on_future'; // M6: a payment cannot have happened yet
             }
             $note = $note === null ? '' : trim(str_replace(["\r", "\n"], ' ', $note));
             if (!mb_check_encoding($note, 'UTF-8') || mb_strlen($note, 'UTF-8') > self::NOTE_MAX) {
@@ -372,6 +378,62 @@ final class DocumentService
                 'note' => $note === '' ? null : $note, 'created_by' => $this->ctx->userId(), 'created_at' => $this->nowUtc(),
             ]);
             $this->audit('document.payment_add', ['document_id' => $docId, 'payment_id' => $paymentId]);
+        });
+    }
+
+    /**
+     * Reverses ("Storno") one payment of an issued invoice: inserts a NEGATIVE payment of exactly the
+     * original amount that points at it (reverses_payment_id). Nothing is updated or deleted, every
+     * sum over the payments is the net sum, so the invoice is re-opened when the net drops below the
+     * total. Each payment can be reversed once (checked under the invoice lock and by a UNIQUE index),
+     * a reversal row itself cannot be reversed, the date lies between the original payment and today.
+     *
+     * @return int id of the reversal row
+     * @throws DocumentNotFound unknown or another company's invoice
+     * @throws ValidationException document (not an issued invoice), payment (unknown, of another document,
+     *         itself a reversal or already reversed), paid_on, note
+     */
+    public function reversePayment(int $docId, int $paymentId, \DateTimeImmutable $on, ?string $note = null): int
+    {
+        return $this->db->transaction(function () use ($docId, $paymentId, $on, $note): int {
+            $doc = $this->docs->lockedFind($docId) ?? throw new DocumentNotFound();
+            if ($doc['type'] !== DocType::INVOICE || $doc['status'] !== 'issued') {
+                throw new ValidationException(['document' => 'document.err_payment_not_allowed']);
+            }
+            $original = null;
+            $reversed = false;
+            foreach ($this->docs->payments($docId, true) as $p) {
+                if ($p['id'] === $paymentId) {
+                    $original = $p;
+                }
+                if ($p['reverses_payment_id'] === $paymentId) {
+                    $reversed = true;
+                }
+            }
+            if ($original === null || $original['amount_minor'] <= 0 || $original['reverses_payment_id'] !== null || $reversed) {
+                throw new ValidationException(['payment' => 'document.err_reverse_not_allowed']);
+            }
+            $errors = [];
+            $paidOn = $this->berlin($on)->format('Y-m-d');
+            if ($paidOn < (string) $original['paid_on']) {
+                $errors['paid_on'] = 'document.err_paid_on';
+            } elseif ($paidOn > $this->berlinToday()) {
+                $errors['paid_on'] = 'document.err_paid_on_future';
+            }
+            $note = $note === null ? '' : trim(str_replace(["\r", "\n"], ' ', $note));
+            if (!mb_check_encoding($note, 'UTF-8') || mb_strlen($note, 'UTF-8') > self::NOTE_MAX) {
+                $errors['note'] = 'document.err_note';
+            }
+            if ($errors !== []) {
+                throw new ValidationException($errors);
+            }
+            $reversalId = $this->docs->insertPayment([
+                'document_id' => $docId, 'amount_minor' => -$original['amount_minor'], 'paid_on' => $paidOn,
+                'note' => $note === '' ? null : $note, 'reverses_payment_id' => $paymentId,
+                'created_by' => $this->ctx->userId(), 'created_at' => $this->nowUtc(),
+            ]);
+            $this->audit('document.payment_reverse', ['document_id' => $docId, 'payment_id' => $paymentId, 'reversal_id' => $reversalId]);
+            return $reversalId;
         });
     }
 
@@ -807,6 +869,12 @@ final class DocumentService
             'claim_minor' => $claim->minor(),
             'issue_date' => (string) $base['today'],
         ];
+    }
+
+    /** Today's Berlin calendar date by the service clock ('Y-m-d'). */
+    private function berlinToday(): string
+    {
+        return $this->berlin($this->clockNow())->format('Y-m-d');
     }
 
     private function clockNow(): \DateTimeImmutable
