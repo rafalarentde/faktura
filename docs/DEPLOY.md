@@ -128,8 +128,13 @@ zdarzenia biznesowe zostają):
   `2001::/23`, `2001:db8::/32`, `2002::/16` i `3fff::/20` (formy IPv4-mapped/compatible, NAT64, SIIT i
   zakresy lokalne odpadają razem z całym zakresem poza `2000::/3`). Test z prawdziwym serwerem SMTP
   (wysłanie wiadomości na własny adres) pozostaje obowiązkowy.
-- [ ] **Smoke test na prawdziwym MySQL:** cały zestaw testów działał wyłącznie na SQLite. Przed
-  produkcją uruchom raz na MySQL ścieżki współbieżne: równoległe wystawianie faktur w jednej firmie
+- [ ] **Smoke test na prawdziwym MySQL:** zestaw testów domyślnie działa na SQLite. Zestaw przeszedł
+  też na MariaDB 10.11 (`FAKTURA_TEST_MYSQL='host|user|pass' vendor/bin/phpunit`, każdy test dostaje
+  świeżą bazę), a równoległe wystawianie faktur i płatności sprawdza skrypt `bin/smoke-concurrency.php`.
+  Uruchom go raz na bazie Hostingera (pusta lub testowa baza po `bin/migrate.php`, nigdy produkcyjna):
+  `FAKTURA_CONFIG=/ścieżka/config.php FAKTURA_SMOKE_CONFIRM=yes php bin/smoke-concurrency.php 40 8`
+  (40 faktur, 8 procesów; po sukcesie sam sprząta; wynik `ALL CHECKS PASSED`). Jeśli Hostinger blokuje
+  `proc_open`, uruchom go z własnego komputera na zdalnej bazie. Ścieżki współbieżne objęte kontrolą: równoległe wystawianie faktur w jednej firmie
   (numeracja bez duplikatów, kolejność blokad: format, potem kubełki rosnąco), równoległe płatności
   do jednej faktury, wystawienie podczas edycji szkicu, zmiana „zerowanie co rok" w trakcie wystawiania.
   Sprawdź też UNIQUE `(company_id, type, number)` i ponowienie po duplikacie (R24).

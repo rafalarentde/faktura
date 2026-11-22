@@ -42,7 +42,7 @@ final class DbTest extends TestCase
         }
     }
 
-    public function test_retry_happens_only_once_and_only_for_lock_errors(): void
+    public function test_retry_is_bounded_and_only_for_lock_errors(): void
     {
         $db = $this->makeDb('mysql');
         $calls = 0;
@@ -51,11 +51,11 @@ final class DbTest extends TestCase
                 $calls++;
                 throw self::mysqlError(1213);
             });
-            $this->fail('the second failure propagates');
+            $this->fail('the last failure propagates');
         } catch (\PDOException $e) {
             $this->assertSame(1213, $e->errorInfo[1]);
         }
-        $this->assertSame(2, $calls);
+        $this->assertSame(\App\Core\Db::LOCK_RETRY_ATTEMPTS, $calls);
 
         foreach ([self::mysqlError(1062), new \RuntimeException('x'), new \PDOException('no error info')] as $other) {
             $calls = 0;

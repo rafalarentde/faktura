@@ -102,8 +102,9 @@ final class MailRouteTest extends HttpTestCase
         $member = $this->db->one('SELECT user_id FROM company_users WHERE company_id = ? LIMIT 1', [$company]);
         if ($member === null) {
             $this->db->exec("INSERT INTO users (email, password_hash) VALUES (?, 'x')", ['b' . $company . '@example.com']);
-            $this->addMember($this->db->lastId(), $company);
-            $member = ['user_id' => $this->db->lastId()];
+            $uid = $this->db->lastId();
+            $this->addMember($uid, $company);
+            $member = ['user_id' => $uid];
         }
         $ctx = CompanyContext::forUser($this->db, (int) $member['user_id'], $company);
         $clock = fn (): int => $this->now;

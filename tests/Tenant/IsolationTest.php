@@ -41,7 +41,8 @@ final class IsolationTest extends TestCase
     protected function setUp(): void
     {
         $this->db = \TestDb::fresh();
-        $this->db->exec('CREATE TABLE scoped_items (id INTEGER PRIMARY KEY AUTOINCREMENT, company_id INTEGER NOT NULL, name VARCHAR(50) NOT NULL, qty BIGINT NOT NULL DEFAULT 0)');
+        $pk = $this->db->driver() === 'mysql' ? 'BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT';
+        $this->db->exec("CREATE TABLE scoped_items (id $pk, company_id INTEGER NOT NULL, name VARCHAR(50) NOT NULL, qty BIGINT NOT NULL DEFAULT 0)");
         $this->companyA = $this->company('A');
         $this->companyB = $this->company('B');
         $this->userA = $this->user('a@example.pl', $this->companyA);

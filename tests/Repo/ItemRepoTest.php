@@ -211,9 +211,17 @@ final class ItemRepoTest extends TestCase
         $this->assertSame([$this->companyA], array_map('intval', array_column($this->db->all('SELECT DISTINCT company_id FROM item_names'), 'company_id')));
     }
 
+    /** A trigger on item_names that aborts the statement (portable across SQLite and MySQL/MariaDB). */
+    private function failTrigger(string $name, string $event): void
+    {
+        $this->db->exec($this->db->driver() === 'mysql'
+            ? "CREATE TRIGGER $name BEFORE $event ON item_names FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'boom'"
+            : "CREATE TRIGGER $name BEFORE $event ON item_names BEGIN SELECT RAISE(ABORT, 'boom'); END");
+    }
+
     public function test_save_is_transactional(): void
     {
-        $this->db->exec("CREATE TRIGGER fail_names BEFORE INSERT ON item_names BEGIN SELECT RAISE(ABORT, 'boom'); END");
+        $this->failTrigger('fail_names', 'INSERT');
         try {
             $this->repo->save($this->valid());
             $this->fail('Expected failure');
@@ -226,7 +234,7 @@ final class ItemRepoTest extends TestCase
     public function test_failed_update_rolls_back_everything(): void
     {
         $id = $this->repo->save($this->valid());
-        $this->db->exec("CREATE TRIGGER fail_del BEFORE DELETE ON item_names BEGIN SELECT RAISE(ABORT, 'boom'); END");
+        $this->failTrigger('fail_del', 'DELETE');
         try {
             $this->repo->save(['price' => '1,00', 'name_pl' => ''], $id);
             $this->fail('Expected failure');

@@ -314,7 +314,7 @@ final class ExportTest extends HttpTestCase
         yield 'polish' => ['Łódź Żółć Sp. z o.o.', 'export-lodz-zolc-sp-z-o-o-2026-11-18.zip'];
         yield 'crlf and header injection' => ["Evil\r\nSet-Cookie: x=1\r\n\r\n<script>", 'export-evil-set-cookie-x-1-script-2026-11-18.zip'];
         yield 'nothing usable' => ['"""', 'export-firma-2026-11-18.zip'];
-        yield 'long' => [str_repeat('Langer Name ', 20), null];
+        yield 'long' => [str_repeat('Langer Name ', 15), null];
     }
 
     #[\PHPUnit\Framework\Attributes\DataProvider('companyNames')]

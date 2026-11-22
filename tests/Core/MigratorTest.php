@@ -33,7 +33,9 @@ final class MigratorTest extends TestCase
         $db = \TestDb::fresh();
         foreach (['users', 'backup_codes', 'companies', 'company_users', 'login_attempts', 'audit_log'] as $t) {
             $this->assertNotNull(
-                $db->one("SELECT name FROM sqlite_master WHERE type='table' AND name = ?", [$t]),
+                $db->driver() === 'mysql'
+                    ? $db->one('SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?', [$t])
+                    : $db->one("SELECT name FROM sqlite_master WHERE type='table' AND name = ?", [$t]),
                 "Table $t missing"
             );
         }
