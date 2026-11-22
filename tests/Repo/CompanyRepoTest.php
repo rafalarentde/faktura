@@ -151,7 +151,7 @@ final class CompanyRepoTest extends TestCase
     {
         $c = $this->repo->create(['name' => 'A']);
         $d = $this->repo->create(['name' => 'D']);
-        $u = $this->repo->addUser($c, 'a@example.com', 'owner', 'correct horse battery');
+        $u = $this->repo->addUser($c, 'a@example.com', 'user', 'correct horse battery');
         $this->repo->addUser($d, 'a@example.com', 'user');
         $this->repo->removeUser($c, $u);
         $this->assertSame([], $this->repo->members($c));
@@ -175,6 +175,35 @@ final class CompanyRepoTest extends TestCase
         $this->assertSame(0, (int) $this->db->one('SELECT COUNT(*) c FROM backup_codes WHERE user_id = ?', [$a])['c']);
         $this->assertSame(1, (int) $this->db->one('SELECT totp_enabled t FROM users WHERE id = ?', [$b])['t']);
         $this->assertSame(8, (int) $this->db->one('SELECT COUNT(*) c FROM backup_codes WHERE user_id = ?', [$b])['c']);
+    }
+
+    public function test_the_last_owner_cannot_be_removed(): void
+    {
+        $c = $this->repo->create(['name' => 'Acme']);
+        $owner = $this->repo->addUser($c, 'owner@example.com', 'owner', 'correct horse battery');
+        $user = $this->repo->addUser($c, 'user@example.com', 'user', 'correct horse battery');
+        try {
+            $this->repo->removeUser($c, $owner);
+            $this->fail('expected the last owner to be protected');
+        } catch (\InvalidArgumentException $e) {
+            $this->assertSame('admin.err_last_owner', $e->getMessage());
+        }
+        $this->assertTrue($this->repo->isMember($c, $owner));
+        $this->repo->removeUser($c, $user); // an ordinary member can go
+        $this->assertFalse($this->repo->isMember($c, $user));
+        $second = $this->repo->addUser($c, 'second@example.com', 'owner', 'correct horse battery');
+        $this->repo->removeUser($c, $owner); // two owners: one may go
+        $this->assertFalse($this->repo->isMember($c, $owner));
+        $this->expectException(\InvalidArgumentException::class);
+        $this->repo->removeUser($c, $second); // now the last one
+    }
+
+    public function test_removing_a_non_member_is_a_noop(): void
+    {
+        $c = $this->repo->create(['name' => 'Acme']);
+        $this->repo->addUser($c, 'owner@example.com', 'owner', 'correct horse battery');
+        $this->repo->removeUser($c, 99999);
+        $this->assertCount(1, $this->repo->members($c));
     }
 
     public function test_is_member(): void

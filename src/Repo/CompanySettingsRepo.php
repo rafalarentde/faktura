@@ -243,7 +243,7 @@ final class CompanySettingsRepo
      * encrypted before storing. Port 465 means implicit TLS, any other port STARTTLS (see
      * App\Mail\SmtpSecurity); there is no plaintext option.
      *
-     * @param array<string, string> $in smtp_host, smtp_port, smtp_user, smtp_pass, smtp_from_name, smtp_from_addr
+     * @param array<string, string> $in smtp_host, smtp_port, smtp_user, smtp_pass, smtp_pass_clear ('1' removes the stored password when smtp_pass is blank), smtp_from_name, smtp_from_addr
      * @throws ValidationException
      */
     public function saveMail(array $in): void
@@ -295,6 +295,8 @@ final class CompanySettingsRepo
         if ($pass !== '') {
             $crypto = $this->crypto ?? throw new \LogicException('Crypto is required to store an SMTP password.');
             $values['smtp_pass_enc'] = $crypto->encrypt($pass);
+        } elseif ($this->str($in, 'smtp_pass_clear') === '1') {
+            $values['smtp_pass_enc'] = null; // explicit "remove the stored password" (blank alone keeps it)
         }
         $this->update('settings.mail_save', $values);
     }

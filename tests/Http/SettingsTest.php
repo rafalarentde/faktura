@@ -345,6 +345,17 @@ final class SettingsTest extends HttpTestCase
         $this->assertStringContainsString('chip-draft', $this->get('/settings/mail')->body);
     }
 
+    public function test_the_mail_form_can_clear_the_stored_smtp_password(): void
+    {
+        $this->loginOwner();
+        $this->post('/settings/mail', $this->mailForm());
+        $page = $this->get('/settings/mail')->body;
+        $this->assertStringContainsString('name="smtp_pass_clear"', $page);
+        $this->assertRedirect('/settings/mail?saved=1', $this->post('/settings/mail', $this->mailForm(['smtp_pass' => '', 'smtp_pass_clear' => '1'])));
+        $this->assertNull($this->companyRow()['smtp_pass_enc']);
+        $this->assertStringNotContainsString('name="smtp_pass_clear"', $this->get('/settings/mail')->body, 'nothing left to clear');
+    }
+
     public function test_smtp_password_never_in_html_or_audit_and_kept_when_blank(): void
     {
         $this->loginOwner();

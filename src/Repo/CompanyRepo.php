@@ -121,9 +121,25 @@ final class CompanyRepo
         });
     }
 
+    /**
+     * Removes the membership. The last owner of a company cannot be removed (the company would be left
+     * without anybody who may change its settings): add another owner first.
+     *
+     * @throws \InvalidArgumentException `admin.err_last_owner`
+     */
     public function removeUser(int $companyId, int $userId): void
     {
-        $this->db->exec('DELETE FROM company_users WHERE company_id = ? AND user_id = ?', [$companyId, $userId]);
+        $this->db->transaction(function () use ($companyId, $userId): void {
+            // Lock the owner rows: two admins removing two different owners at once cannot leave none.
+            $owners = array_map('intval', array_column($this->db->all(
+                "SELECT user_id FROM company_users WHERE company_id = ? AND role = 'owner'" . $this->db->forUpdate(),
+                [$companyId]
+            ), 'user_id'));
+            if (in_array($userId, $owners, true) && count($owners) === 1) {
+                throw new \InvalidArgumentException('admin.err_last_owner');
+            }
+            $this->db->exec('DELETE FROM company_users WHERE company_id = ? AND user_id = ?', [$companyId, $userId]);
+        });
     }
 
     /**

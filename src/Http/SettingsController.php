@@ -225,7 +225,7 @@ final class SettingsController
         if ($denied = $this->gate()) {
             return $denied;
         }
-        $in = $this->fields($request, ['smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass', 'smtp_from_name', 'smtp_from_addr']);
+        $in = $this->fields($request, ['smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass', 'smtp_pass_clear', 'smtp_from_name', 'smtp_from_addr']);
         try {
             $this->repo()->saveMail($in);
         } catch (ValidationException $e) {

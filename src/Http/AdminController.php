@@ -236,10 +236,14 @@ final class AdminController
         if (!$this->companies->isMember($id, $uid)) {
             return $this->notFound();
         }
-        $this->app->db()->transaction(function () use ($id, $uid): void {
-            $this->companies->removeUser($id, $uid);
-            $this->audit($id, 'admin.user_remove', ['company_id' => $id, 'user_id' => $uid]);
-        });
+        try {
+            $this->app->db()->transaction(function () use ($id, $uid): void {
+                $this->companies->removeUser($id, $uid);
+                $this->audit($id, 'admin.user_remove', ['company_id' => $id, 'user_id' => $uid]);
+            });
+        } catch (\InvalidArgumentException $e) {
+            return $this->detail((array) $this->companies->find($id), $this->message($e), 422);
+        }
         return Response::redirect('/admin/companies/' . $id);
     }
 

@@ -246,6 +246,19 @@ final class AdminTest extends HttpTestCase
         $this->assertSame(['company_id' => $c, 'user_id' => $uid], json_decode($last[0]['detail'], true));
     }
 
+    public function test_removing_the_last_owner_is_refused_with_a_message_and_no_audit_row(): void
+    {
+        $this->admin();
+        $c = $this->company();
+        $this->post("/admin/companies/$c/users", ['email' => 'o@example.com', 'role' => 'owner', 'password' => 'correct horse battery']);
+        $uid = (int) $this->db->one('SELECT id FROM users WHERE email = ?', ['o@example.com'])['id'];
+        $r = $this->post("/admin/companies/$c/users/$uid/remove");
+        $this->assertSame(422, $r->status);
+        $this->assertStringContainsString($this->app->t('admin.err_last_owner'), $r->body);
+        $this->assertSame(1, (int) $this->db->one('SELECT COUNT(*) c FROM company_users')['c']);
+        $this->assertSame([], array_filter($this->audit(), fn ($x) => $x['action'] === 'admin.user_remove'));
+    }
+
     public function test_audit_rows_for_create_and_add_never_contain_password(): void
     {
         $this->admin();

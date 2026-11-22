@@ -39,7 +39,13 @@
                 <div class="field">
                     <label for="m-pass">{{ t('settings.mail_password') }}</label>
                     <input id="m-pass" type="password" name="smtp_pass" value="" maxlength="1024" autocomplete="new-password"{% if pass_set %} placeholder="{{ t('settings.mail_password_saved') }}"{% endif %}>
-                    {% if pass_set %}<p class="hint">{{ t('settings.mail_password_keep') }}</p>{% endif %}
+                    {% if pass_set %}
+                        <p class="hint">{{ t('settings.mail_password_keep') }}</p>
+                        <label class="toggle" for="m-pass-clear">
+                            <input type="checkbox" id="m-pass-clear" name="smtp_pass_clear" value="1">
+                            <span><b>{{ t('settings.mail_password_clear') }}</b></span>
+                        </label>
+                    {% endif %}
                     {% if errors.smtp_pass is defined %}<p class="warn" role="alert">{{ errors.smtp_pass }}</p>{% endif %}
                 </div>
                 <div class="field">

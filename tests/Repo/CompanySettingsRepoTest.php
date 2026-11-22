@@ -271,6 +271,25 @@ final class CompanySettingsRepoTest extends TestCase
         $this->assertNotSame($before, $this->db->one('SELECT smtp_pass_enc FROM companies WHERE id = ?', [$id])['smtp_pass_enc']);
     }
 
+    public function test_the_clear_checkbox_removes_the_stored_password_and_is_audited_by_field_name(): void
+    {
+        $id = $this->company();
+        $repo = $this->repo($id);
+        $repo->saveMail($this->mailInput());
+        $this->assertTrue($repo->get()['smtp_pass_set']);
+        $repo->saveMail($this->mailInput(['smtp_pass' => '', 'smtp_pass_clear' => '1']));
+        $this->assertNull($this->db->one('SELECT smtp_pass_enc FROM companies WHERE id = ?', [$id])['smtp_pass_enc']);
+        $this->assertFalse($repo->get()['smtp_pass_set']);
+        $last = $this->db->one("SELECT detail FROM audit_log WHERE action = 'settings.mail_save' ORDER BY id DESC LIMIT 1");
+        $this->assertContains('smtp_pass', json_decode((string) $last['detail'], true)['fields']);
+        // Without the checkbox a blank field still keeps whatever is stored; a typed password wins over the checkbox.
+        $repo->saveMail($this->mailInput(['smtp_pass' => 'New-Secret-12']));
+        $repo->saveMail($this->mailInput(['smtp_pass' => '']));
+        $this->assertTrue($repo->get()['smtp_pass_set']);
+        $repo->saveMail($this->mailInput(['smtp_pass' => 'Other-Secret-34', 'smtp_pass_clear' => '1']));
+        $this->assertTrue($repo->get()['smtp_pass_set'], 'a typed password is stored even when the box is ticked');
+    }
+
     public function test_mail_validation_and_partial_save(): void
     {
         $repo = $this->repo($this->company());
