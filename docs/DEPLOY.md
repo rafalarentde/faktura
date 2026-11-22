@@ -1,5 +1,79 @@
 # Wdrożenie (Hostinger, subdomena faktury.panbehapowiec.pl)
 
+## 0. Hostinger (Business Web Hosting): sprawdzona procedura krok po kroku
+
+To jest dokładna kolejność, którą przeszliśmy przy pierwszym wdrożeniu na `faktury.panbehapowiec.pl`.
+Szczegóły i uzasadnienia są w sekcjach 1 do 8 poniżej. Przykładowe wartości (`u961125328`, host SSH) zamień
+na swoje z hPanelu (Zaawansowane, Dostęp SSH).
+
+1. **Kod na GitHubie.** Zmerguj do `main`. Workflow `Deploy` (zakładka Actions) buduje paczkę i wypycha ją na
+   gałąź `deploy`. Poczekaj, aż będzie zielony.
+2. **Subdomena.** hPanel: Domeny, Subdomeny, utwórz `faktury`. W kreatorze strony wybierz pustą stronę
+   (nie WordPress, nie kreator AI). Hostinger zakłada folder `~/domains/faktury.panbehapowiec.pl/public_html`
+   z plikiem `default.php`.
+3. **PHP.** hPanel: Zaawansowane, Konfiguracja PHP: wersja **8.3**; rozszerzenia opcjonalne: zaznacz
+   **`sodium`** (obowiązkowe, szyfrowanie sekretów 2FA i haseł SMTP), `intl`, `zip`, `mbstring`, `pdo_mysql`
+   (jako `nd_pdo_mysql`). `gd`, `curl`, `openssl` są wbudowane.
+4. **Terminal ma inny PHP niż strona.** Domyślne `php` w SSH to 8.2. Wszystkie skrypty z `bin/` uruchamiaj binarką
+   8.3: `/opt/alt/php83/usr/bin/php bin/migrate.php`. Sprawdzenie:
+   `/opt/alt/php83/usr/bin/php -m | grep -i -E "sodium|gd|intl|pdo_mysql"` (muszą być wszystkie cztery).
+5. **Klucz do prywatnego repo.** W SSH: `ssh-keygen -t ed25519 -f ~/.ssh/faktura_deploy -N ""`, wypisz
+   `cat ~/.ssh/faktura_deploy.pub` i dodaj ten klucz na GitHubie jako **Deploy key** (Settings, Deploy keys,
+   bez zapisu). Potem wpis w `~/.ssh/config` (`Host github-faktura`, `HostName github.com`, `User git`,
+   `IdentityFile ~/.ssh/faktura_deploy`, `IdentitiesOnly yes`, `chmod 600`) i test:
+   `ssh -T -o StrictHostKeyChecking=accept-new git@github-faktura` (odpowiedź "successfully authenticated").
+6. **Klon poza katalogiem publicznym:**
+   `git clone --branch deploy --single-branch git@github-faktura:<owner>/faktura.git ~/faktura-app`
+7. **Katalog subdomeny wskazuje na `public/`.** `public_html` subdomeny nie jest pusty (jest w nim `default.php`),
+   więc `rmdir` nie zadziała, a `ln -s` na istniejący katalog założyłoby link *wewnątrz* niego. Zrób:
+   ```bash
+   mv ~/domains/faktury.panbehapowiec.pl/public_html ~/domains/faktury.panbehapowiec.pl/public_html.old
+   ln -s ~/faktura-app/public ~/domains/faktury.panbehapowiec.pl/public_html
+   ls -la ~/domains/faktury.panbehapowiec.pl    # public_html -> /home/.../faktura-app/public
+   ```
+   Nie ruszaj `~/domains/panbehapowiec.pl/public_html`: to osobna strona główna domeny.
+8. **Baza.** hPanel: Bazy danych, utwórz bazę i użytkownika (Hostinger dodaje przedrostek, np. `u961125328_`).
+   Host to `localhost`. Zapisz hasło w menedżerze haseł.
+9. **Konfiguracja.** Wygeneruj `app_key` i zapisz `config/config.php` z danymi bazy (wzór: `config/config.example.php`),
+   `chmod 600`. Plik leży w `~/faktura-app/config/`, czyli nad `public/`, więc nie jest widoczny z sieci i nie jest
+   nadpisywany przy aktualizacji (nie ma go w gałęzi `deploy`). **`app_key` skopiuj do menedżera haseł.**
+10. **Migracje i pierwszy użytkownik** (binarką 8.3):
+    ```bash
+    cd ~/faktura-app
+    /opt/alt/php83/usr/bin/php bin/migrate.php          # Applied 13 migration(s).
+    chmod -R u+rwX storage
+    /opt/alt/php83/usr/bin/php bin/create-user.php twoj@email.pl --admin    # hasło pytane bez echa
+    ```
+11. **Pierwsze logowanie** na `https://faktury.panbehapowiec.pl`: konfiguracja 2FA (kod QR) i kody zapasowe.
+    Zakładanie firm i użytkowników: menu Verwaltung. Nowa firma jest widoczna w przełączniku dopiero po
+    **przypisaniu do niej użytkownika** (Verwaltung, firma, "Nutzer hinzufügen": podaj e-mail istniejącego konta,
+    rolę właściciela, hasło początkowe zostaw puste).
+12. **Test na firmie "TEST"**, nie na prawdziwej: wystawiony dokument jest niezmienny i zużywa numer, którego
+    nie da się cofnąć. Dane firmy (adres, Steuernummer lub USt-IdNr., IBAN) są wymagane do wystawienia faktury.
+    Format numeracji i numer początkowy (np. kontynuacja z poprzedniego programu) ustaw w Einstellungen,
+    Nummernkreise **przed pierwszą prawdziwą fakturą**; numer można tylko podnosić.
+13. **Wysyłka mailem jest opcjonalna.** Bez ustawienia SMTP faktury wystawiasz i pobierasz jako PDF, a wysyłasz
+    z własnej poczty. Dla Gmaila potrzebne jest hasło aplikacji (nie zwykłe hasło konta): `smtp.gmail.com`,
+    port 465 (SSL) lub 587 (STARTTLS), użytkownik = pełny adres Gmail.
+
+### Aktualizacja po wdrożeniu nowej wersji
+
+Po zmergowaniu zmian do `main` i zielonym workflow:
+
+```bash
+cd ~/faktura-app
+git fetch origin deploy && git reset --hard origin/deploy
+/opt/alt/php83/usr/bin/php bin/migrate.php
+```
+
+`config/config.php` i zawartość `storage/` (w tym `storage/archive`) nie są w gałęzi `deploy`, więc zostają nietknięte.
+Nie używaj `git clean -x`. Po zmianie plików w `resources/fonts/` opróżnij `storage/pdf-cache/`.
+
+### Czego nie robić na produkcyjnej bazie
+
+`bin/smoke-concurrency.php` zakłada i usuwa własne dane testowe. Uruchamiaj go wyłącznie na osobnej, pustej bazie
+testowej (druga baza w hPanelu), nigdy na bazie z prawdziwymi fakturami.
+
 ## 1. Co jest wdrażane
 
 Po każdym pushu na `main` GitHub Actions (`.github/workflows/deploy.yml`) uruchamia testy, buduje
@@ -79,7 +153,7 @@ tabeli `document_archives` (UNIQUE po `document_id`) oraz, dla każdej wysyłki,
 ## 5. Baza danych i pierwszy użytkownik
 
 ```bash
-php bin/migrate.php                       # nakłada brakujące migracje 001..011 (idempotentne)
+php bin/migrate.php                       # nakłada brakujące migracje 001..013 (idempotentne)
 php bin/create-user.php admin@example.com --admin     # hasło z STDIN; 2FA ustawiane przy pierwszym logowaniu
 ```
 
