@@ -15,6 +15,7 @@ use App\Http\Middleware\RequireAdmin;
 use App\Http\Middleware\RequireCompany;
 use App\Http\OfferController;
 use App\Http\PdfController;
+use App\Http\SecurityController;
 use App\Http\SettingsController;
 use App\Http\SwitchController;
 use FastRoute\RouteCollector;
@@ -52,6 +53,7 @@ return function (App $app, RouteCollector $r): void {
     $r->addRoute('POST', '/admin/companies/{id:\d+}/users', $admin('addUser'));
     $r->addRoute('POST', '/admin/companies/{id:\d+}/users/{uid:\d+}/remove', $admin('removeUser'));
     $r->addRoute('POST', '/admin/companies/{id:\d+}/users/{uid:\d+}/reset-2fa', $admin('reset2fa'));
+    $r->addRoute('POST', '/admin/companies/{id:\d+}/users/{uid:\d+}/temp-password', $admin('tempPassword'));
 
     // Customers (no delete route in v1).
     $customer = fn (string $method) => $app->protect([CustomerController::class, $method], [RequireCompany::class]);
@@ -130,9 +132,12 @@ return function (App $app, RouteCollector $r): void {
     $r->addRoute('GET', '/settings/mail', $settings('mail'));
     $r->addRoute('POST', '/settings/mail', $settings('saveMail'));
     $r->addRoute('POST', '/settings/mail/test', $settings('mailTest'));
-    $r->addRoute('GET', '/settings/security', $settings('security'));
-    $r->addRoute('POST', '/settings/security/backup-codes', $settings('regenerateCodes'));
-    $r->addRoute('POST', '/settings/security/password', $settings('changePassword'));
+
+    // Personal security (password, backup codes): login only, NO company needed (an admin without a company
+    // must be able to change the password); password reset for others is the admin action in /admin.
+    $r->addRoute('GET', '/settings/security', $app->protect([SecurityController::class, 'security']));
+    $r->addRoute('POST', '/settings/security/backup-codes', $app->protect([SecurityController::class, 'regenerateCodes']));
+    $r->addRoute('POST', '/settings/security/password', $app->protect([SecurityController::class, 'changePassword']));
 
     // Company data export as a ZIP (Task 23): owner-only, also for a suspended company (reading and exporting stay possible).
     $r->addRoute('GET', '/settings/export', $app->protect([ExportController::class, 'index'], [RequireCompany::class]));

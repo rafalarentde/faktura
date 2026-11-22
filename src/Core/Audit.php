@@ -55,6 +55,7 @@ final class Audit
         'admin.user_add' => ['company_id', 'user_id', 'email', 'role'],
         'admin.user_remove' => ['company_id', 'user_id'],
         'admin.user_reset_2fa' => ['company_id', 'user_id'],
+        'admin.user_temp_password' => ['company_id', 'user_id'],
         'document.issue' => ['document_id', 'type', 'number', 'vat_confirmed'],
         'document.payment_add' => ['document_id', 'payment_id'],
         'document.correction_create' => ['document_id', 'invoice_id'],

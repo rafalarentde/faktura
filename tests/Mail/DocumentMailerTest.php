@@ -635,6 +635,35 @@ final class DocumentMailerTest extends TestCase
         $this->assertCount(21, $this->transport->sent);
     }
 
+    public function test_the_limit_check_is_hit_first_so_a_racing_request_cannot_overshoot(): void
+    {
+        $this->fx = new PdfFixture(\Tests\Support\HookPdo::class);
+        $this->customer = $this->fx->customer($this->fx->companyA, ['email' => 'buchhaltung@bauhaus.example']);
+        $this->doc = $this->fx->issued($this->fx->companyA, $this->customer);
+        $this->configureSmtp($this->fx->companyA);
+        $m = $this->mailer();
+        $limiter = new \App\Auth\RateLimiter($this->fx->db, 20, 600, fn (): int => $this->now);
+        for ($i = 0; $i < 19; $i++) {
+            $limiter->hit('mail:company:' . $this->fx->companyA);
+        }
+        // A second request records its hit between our check and our own hit (the race of check-then-hit).
+        $raced = false;
+        $pdo = (new \ReflectionProperty($this->fx->db, 'pdo'))->getValue($this->fx->db);
+        $pdo->onPrepare = function (string $sql) use ($limiter, &$raced): void {
+            if (!$raced && str_starts_with($sql, 'INSERT INTO login_attempts')) {
+                $raced = true;
+                $limiter->hit('mail:company:' . $this->fx->companyA);
+            }
+        };
+        try {
+            $m->send($this->doc, 'kunde@example.de', 'Betreff', 'Text');
+            $this->fail('the 21st attempt in the window must be refused');
+        } catch (ValidationException $e) {
+            $this->assertSame('mail.err_rate', $e->errors['rate'] ?? null);
+        }
+        $this->assertCount(0, $this->transport->sent);
+    }
+
     public function test_failed_attempts_count_towards_the_limit(): void
     {
         $this->transport->failWith = 'connect';

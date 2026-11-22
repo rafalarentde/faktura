@@ -258,7 +258,8 @@ final class App
     }
 
     /**
-     * Fully logged-in user's row (id, email, totp_enabled, ui_lang, is_admin) or null.
+     * Fully logged-in user's row (id, email, totp_enabled, ui_lang, is_admin, session_epoch, must_change_password) or null.
+     * A session whose stored epoch differs from users.session_epoch is logged out (password change etc.).
      * Null at the password_ok stage: a non-null result always means password AND second
      * factor passed (or, with totp_enabled = 0, a session that RequireLogin pins to /2fa/setup).
      *
@@ -269,9 +270,14 @@ final class App
         if ($this->currentUser === null) {
             $id = $this->session()->loginStage() === 'full' ? $this->session()->userId() : null;
             $row = $id === null ? null : $this->db->one(
-                'SELECT id, email, totp_enabled, ui_lang, is_admin FROM users WHERE id = ?',
+                'SELECT id, email, totp_enabled, ui_lang, is_admin, session_epoch, must_change_password FROM users WHERE id = ?',
                 [$id]
             );
+            if ($row !== null && $this->session()->epoch() !== (int) $row['session_epoch']) {
+                // A credential changed since this session logged in (or it predates the epoch): end it.
+                $this->session()->logout();
+                $row = null;
+            }
             $this->currentUser = $row ?? false;
         }
         return $this->currentUser === false ? null : $this->currentUser;

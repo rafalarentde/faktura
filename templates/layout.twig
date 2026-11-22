@@ -86,7 +86,7 @@
 
             {% if s.user %}
                 <div class="side-user">
-                    <span class="side-email" title="{{ s.user.email }}">{{ s.user.email }}</span>
+                    <a class="side-email" href="/settings/security" title="{{ s.user.email }} · {{ t('settings.tab_security') }}">{{ s.user.email }}</a>
                     <form method="post" action="/logout">
                         {{ csrf_field() }}
                         <button type="submit" class="side-logout" title="{{ t('login.logout') }}">{{ icons.icon('logout') }}<span class="sr-only">{{ t('login.logout') }}</span></button>

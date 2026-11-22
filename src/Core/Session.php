@@ -18,6 +18,8 @@ final class Session
     private const K_CREATED = '_created';
     private const K_LAST = '_last';
     private const K_COMPANY = '_company';
+    private const K_EPOCH = '_epoch';
+    private const K_PW_AT = '_pw_at';
 
     private \Closure $clock;
     private bool $started = false;
@@ -100,15 +102,33 @@ final class Session
         $this->store->set(self::K_CREATED, ($this->clock)());
     }
 
-    /** Second factor passed (or account still has to set it up): new session id. */
-    public function fullLogin(): void
+    /**
+     * Second factor passed (or account still has to set it up): new session id.
+     *
+     * @param int $epoch the user's users.session_epoch at this moment; App::currentUser() compares it on every request
+     */
+    public function fullLogin(int $epoch = 0): void
     {
         if ($this->loginStage() !== 'password_ok') {
             throw new \LogicException('Full login requires the password stage first.');
         }
         $this->store->regenerate();
         $this->store->set(self::K_STAGE, 'full');
+        $this->store->set(self::K_EPOCH, $epoch);
         $this->store->remove(self::K_COMPANY);
+    }
+
+    /** The users.session_epoch stored at login, or null (session from before the epoch existed). */
+    public function epoch(): ?int
+    {
+        $e = $this->store->get(self::K_EPOCH);
+        return is_int($e) ? $e : null;
+    }
+
+    /** Re-stores the epoch after this session itself changed a credential, so it stays logged in. */
+    public function setEpoch(int $epoch): void
+    {
+        $this->store->set(self::K_EPOCH, $epoch);
     }
 
     /** Company selected for this login (only a candidate: App::context() re-checks membership). */

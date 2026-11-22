@@ -33,9 +33,10 @@ final class PdfFixture
     public int $companyB;
     public string $storage;
 
-    public function __construct()
+    /** @param class-string<\PDO> $pdoClass e.g. HookPdo to intercept statements */
+    public function __construct(string $pdoClass = \PDO::class)
     {
-        $this->db = \TestDb::fresh();
+        $this->db = \TestDb::fresh($pdoClass);
         $this->storage = sys_get_temp_dir() . '/faktura-pdf-' . bin2hex(random_bytes(6));
         mkdir($this->storage . '/logos', 0775, true);
         $this->db->exec('INSERT INTO users (email, password_hash) VALUES (?, ?)', ['o@example.com', 'x']);

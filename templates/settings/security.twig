@@ -1,8 +1,9 @@
 {% extends 'layout.twig' %}
 {% block title %}{{ t('settings.title') }}{% endblock %}
-{% block subtitle %}{{ company_name }}{% endblock %}
+{% block subtitle %}{{ company_name ?: shell().user.email }}{% endblock %}
 {% block content %}
-    {% include 'settings/_tabs.twig' %}
+    {% if tabs %}{% include 'settings/_tabs.twig' %}{% endif %}
+    {% if must_change %}<p class="warn" role="alert">{{ t('security.must_change') }}</p>{% endif %}
     {% if new_codes %}
         <section class="panel">
             <div class="panel-head"><h2>{{ t('security.new_codes_title') }}</h2></div>

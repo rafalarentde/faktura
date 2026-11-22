@@ -41,7 +41,7 @@ final class AuthController
         }
         if (!$result->totpEnabled) {
             // Nothing to verify yet: RequireLogin keeps the user on /2fa/setup until it is done.
-            $session->fullLogin();
+            $session->fullLogin($this->app->users()->sessionEpoch((int) $result->userId));
             return Response::redirect('/2fa/setup');
         }
         return Response::redirect('/login/2fa');
@@ -64,7 +64,7 @@ final class AuthController
         if (!$result->isOk()) {
             return $this->app->render('login_2fa.twig', ['error' => $this->errorKey($result, 'login.error_code')], $this->status($result));
         }
-        $session->fullLogin();
+        $session->fullLogin($this->app->users()->sessionEpoch((int) $session->userId()));
         $this->app->csrf()->rotate();
         return Response::redirect('/');
     }
@@ -86,6 +86,11 @@ final class AuthController
         if (!$result->isOk()) {
             return $this->setupPage($this->errorKey($result, 'login.error_code'), $this->status($result));
         }
+        // 2FA is on now (the epoch was bumped, which ends the user's other sessions): this session keeps
+        // its login with the new epoch, gets a fresh id and CSRF token, and the codes are rendered below.
+        $this->app->session()->setEpoch($this->app->users()->sessionEpoch((int) $user['id']));
+        $this->app->session()->regenerate();
+        $this->app->csrf()->rotate();
         // Rendered directly (not stored anywhere): the plain backup codes are shown exactly once.
         return $this->app->render('2fa_setup.twig', [
             'backup_codes' => $result->backupCodes,

@@ -449,6 +449,12 @@ return [
     'security.err_locked' => 'Too many attempts. Please try again in 15 minutes.',
     'admin.reset_2fa' => 'Reset 2FA',
     'admin.reset_2fa_hint' => 'Removes two-factor sign-in and the backup codes. The person sets it up again at the next sign-in.',
+    'security.must_change' => 'An administrator set a temporary password for you. Please choose a new password now.',
+    'admin.temp_password' => 'Temporary password',
+    'admin.temp_password_hint' => 'Sets a random password that must be changed at the next page view and ends all sessions of the person.',
+    'admin.temp_password_title' => 'Temporary password',
+    'admin.temp_password_intro' => 'New password for {email}. It is shown only once, now; hand it over securely. The person has to change it when signing in.',
+    'admin.err_temp_admin' => 'Administrator accounts get no temporary password; administrators change their password under Settings > Security.',
     // Task 13: numbering
     'settings.err_num_no_counter' => 'A counter is missing, e.g. {NNN}. Without it, numbers would repeat.',
     'settings.err_num_multiple_counters' => 'Only one counter is allowed ({N}, {NN}, {NNN} …).',

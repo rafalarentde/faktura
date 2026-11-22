@@ -19,6 +19,22 @@ final class UserService
         return mb_strtolower(trim($email), 'UTF-8');
     }
 
+    /**
+     * Ends every other session of the user: increments users.session_epoch (sessions carry the value
+     * they logged in with). Call inside the transaction of the credential change. The acting session
+     * re-stores the returned value (Session::setEpoch) to stay logged in.
+     */
+    public function bumpSessionEpoch(int $userId): int
+    {
+        $this->db->exec('UPDATE users SET session_epoch = session_epoch + 1 WHERE id = ?', [$userId]);
+        return $this->sessionEpoch($userId);
+    }
+
+    public function sessionEpoch(int $userId): int
+    {
+        return (int) ($this->db->one('SELECT session_epoch AS e FROM users WHERE id = ?', [$userId])['e'] ?? 0);
+    }
+
     /** @throws \InvalidArgumentException for an invalid/duplicate email or a weak password */
     public function create(string $email, string $password, bool $isAdmin): int
     {

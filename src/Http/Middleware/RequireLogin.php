@@ -14,6 +14,8 @@ use App\Core\Response;
 final class RequireLogin
 {
     public const SETUP_PATH = '/2fa/setup';
+    /** @var list<string> */
+    private const CHANGE_PASSWORD_PATHS = ['/settings/security', '/settings/security/password', '/2fa/setup'];
 
     public function __construct(private App $app)
     {
@@ -36,6 +38,10 @@ final class RequireLogin
         }
         if ((int) $user['totp_enabled'] !== 1 && $request->path !== self::SETUP_PATH) {
             return Response::redirect(self::SETUP_PATH);
+        }
+        // A temporary password set by an admin must be replaced first (only this page, its form, logout and language stay reachable).
+        if ((int) ($user['must_change_password'] ?? 0) === 1 && !in_array($request->path, self::CHANGE_PASSWORD_PATHS, true)) {
+            return Response::redirect('/settings/security');
         }
         return $next($request);
     }

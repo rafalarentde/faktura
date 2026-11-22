@@ -288,10 +288,10 @@ final class DocumentMailer
     private function throttle(string $key, int $max): void
     {
         $limiter = new RateLimiter($this->db, $max, self::WINDOW_SEC, $this->clock);
-        if ($limiter->tooMany($key)) {
+        // Hit first (RateLimiter::attempt): concurrent sends all record their hit before any is checked.
+        if (!$limiter->attempt($key)) {
             throw new ValidationException(['rate' => 'mail.err_rate']);
         }
-        $limiter->hit($key);
     }
 
     /**

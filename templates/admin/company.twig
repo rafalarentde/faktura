@@ -11,6 +11,15 @@
 {% block actions %}<a class="btn btn-ghost" href="/admin/companies">← {{ t('admin.back') }}</a>{% endblock %}
 {% block content %}
     {% if error %}<p class="warn" role="alert">{{ error }}</p>{% endif %}
+    {% if temp %}
+        <section class="panel" role="status">
+            <div class="panel-head"><h2>{{ t('admin.temp_password_title') }}</h2></div>
+            <div class="panel-body">
+                <p class="hint">{{ t('admin.temp_password_intro', {email: temp.email}) }}</p>
+                <p><code>{{ temp.password }}</code></p>
+            </div>
+        </section>
+    {% endif %}
     <div class="stack">
         <section class="panel">
             <div class="panel-head"><h2>{{ t('admin.users_title') }}</h2></div>
@@ -30,6 +39,10 @@
                                     <form class="inline-form" method="post" action="/admin/companies/{{ company.id }}/users/{{ m.user_id }}/reset-2fa">
                                         {{ csrf_field() }}
                                         <button class="btn btn-ghost btn-sm" type="submit" title="{{ t('admin.reset_2fa_hint') }}">{{ t('admin.reset_2fa') }}</button>
+                                    </form>
+                                    <form class="inline-form" method="post" action="/admin/companies/{{ company.id }}/users/{{ m.user_id }}/temp-password">
+                                        {{ csrf_field() }}
+                                        <button class="btn btn-ghost btn-sm" type="submit" title="{{ t('admin.temp_password_hint') }}">{{ t('admin.temp_password') }}</button>
                                     </form>
                                     <form class="inline-form" method="post" action="/admin/companies/{{ company.id }}/users/{{ m.user_id }}/remove">
                                         {{ csrf_field() }}

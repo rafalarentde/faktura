@@ -249,7 +249,7 @@ img, svg { max-width: 100%; }
     display: flex; align-items: center; justify-content: space-between; gap: 8px;
     margin: 8px 4px 0; padding: 6px 4px 0 8px; font-size: 13px; color: var(--side-m);
 }
-.side-email { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.side-email { color: inherit; text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .side-user form { margin: 0; flex: none; }
 .side-logout {
     display: inline-flex; align-items: center; gap: 6px;

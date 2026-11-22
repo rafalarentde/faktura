@@ -17,14 +17,13 @@ use App\Mail\MailNotConfigured;
 use App\Mail\MailSendFailed;
 use App\Money\Formatter;
 use App\Repo\CompanySettingsRepo;
-use App\Auth\UserService;
 use App\Storage\LogoStore;
 use App\Tenant\CompanyContext;
 
 /**
  * Settings area. Tabs are defined in config/settings_tabs.php. Company, dunning and mail tabs
  * (and the logo routes) are for the 'owner' role of the active company only (403 for 'user');
- * the security tab is personal and open to every member. All routes sit behind RequireCompany;
+ * the security tab is personal (SecurityController, no company needed). All routes here sit behind RequireCompany;
  * the company is always the context company, no id is ever read from the request.
  *
  * Logo upload: the temp file must come from PHP's upload handling (is_uploaded_file). Tests set
@@ -32,8 +31,6 @@ use App\Tenant\CompanyContext;
  */
 final class SettingsController
 {
-    /** Failed password checks (backup codes and password change share it) per user and window. */
-    private const PASSWORD_LIMIT_KEY = 'security:user:';
     /** Session key of the one-shot result of the test mail (secret-free text). */
     private const TEST_FLASH = 'mail_test_flash';
 
@@ -274,62 +271,6 @@ final class SettingsController
         return is_array($f) && is_bool($f['ok'] ?? null) && is_string($f['text'] ?? null) ? ['ok' => $f['ok'], 'text' => $f['text']] : null;
     }
 
-    // ---- security (personal) ----
-
-    /** @param array<string, string> $params */
-    public function security(Request $request, array $params): Response
-    {
-        return $this->securityPage(passwordChanged: $request->queryParam('pw') === '1');
-    }
-
-    /** @param array<string, string> $params */
-    public function regenerateCodes(Request $request, array $params): Response
-    {
-        $userId = $this->ctx()->userId();
-        $problem = $this->checkCurrentPassword($request->input('current_password'), $userId);
-        if ($problem !== null) {
-            return $this->securityPage(codesErrors: ['current_password' => $problem[0]], status: $problem[1]);
-        }
-        $codes = $this->app->backupCodes()->generate($userId);
-        $this->app->rateLimiter()->clear(self::PASSWORD_LIMIT_KEY . $userId);
-        $this->audit('security.backup_codes_regenerate', []);
-        // Rendered directly like the 2FA setup page: the plain codes are shown exactly once.
-        return $this->securityPage(newCodes: $codes)->withHeader('Cache-Control', 'no-store');
-    }
-
-    /** @param array<string, string> $params */
-    public function changePassword(Request $request, array $params): Response
-    {
-        $userId = $this->ctx()->userId();
-        $current = $request->input('current_password');
-        $problem = $this->checkCurrentPassword($current, $userId);
-        if ($problem !== null) {
-            return $this->securityPage(passwordErrors: ['current_password' => $problem[0]], status: $problem[1]);
-        }
-        $new = $request->input('new_password');
-        $errors = [];
-        if (mb_strlen($new, 'UTF-8') < UserService::MIN_PASSWORD_LENGTH || strlen($new) > 1024) {
-            $errors['new_password'] = 'security.err_password_short';
-        } elseif (hash_equals($current, $new)) {
-            $errors['new_password'] = 'security.err_password_same';
-        }
-        if (!hash_equals($new, $request->input('new_password_confirm'))) {
-            $errors['new_password_confirm'] = 'security.err_password_mismatch';
-        }
-        if ($errors !== []) {
-            return $this->securityPage(passwordErrors: $errors, status: 422);
-        }
-        $this->app->db()->transaction(function () use ($userId, $new): void {
-            $this->app->db()->exec('UPDATE users SET password_hash = ? WHERE id = ?', [password_hash($new, PASSWORD_ARGON2ID), $userId]);
-            $this->audit('security.password_change', []);
-        });
-        $this->app->rateLimiter()->clear(self::PASSWORD_LIMIT_KEY . $userId);
-        // Stay logged in, but a stolen old session id or form token is worthless from now on.
-        $this->app->session()->regenerate();
-        $this->app->csrf()->rotate();
-        return Response::redirect('/settings/security?pw=1');
-    }
-
     // ---- helpers ----
 
     /** @return list<array{key: string, label: string, path: string, owner_only: bool}> tabs the current role may use */
@@ -395,26 +336,6 @@ final class SettingsController
             throw new ValidationException(['logo' => 'settings.err_logo_invalid']);
         }
         return $tmp;
-    }
-
-    /**
-     * Current-password check with a per-user failure limit (5 per 15 minutes).
-     *
-     * @return array{0: string, 1: int}|null [translation key, HTTP status] or null when correct
-     */
-    private function checkCurrentPassword(string $password, int $userId): ?array
-    {
-        $limiter = $this->app->rateLimiter();
-        $key = self::PASSWORD_LIMIT_KEY . $userId;
-        if ($limiter->tooMany($key)) {
-            return ['security.err_locked', 429];
-        }
-        $hash = (string) ($this->app->db()->one('SELECT password_hash FROM users WHERE id = ?', [$userId])['password_hash'] ?? '');
-        if ($password === '' || strlen($password) > 1024 || !password_verify($password, $hash)) {
-            $limiter->hit($key);
-            return ['security.err_current_password', 422];
-        }
-        return null;
     }
 
     /** @param array<string, mixed> $detail */
@@ -590,23 +511,6 @@ final class SettingsController
             'pass_set' => $repo->get()['smtp_pass_set'],
             'configured' => $repo->mailConfigured(),
             'test' => $test,
-        ], $status);
-    }
-
-    /**
-     * @param list<string>|null $newCodes plain backup codes, shown once
-     * @param array<string, string> $codesErrors
-     * @param array<string, string> $passwordErrors
-     */
-    private function securityPage(?array $newCodes = null, array $codesErrors = [], array $passwordErrors = [], int $status = 200, bool $passwordChanged = false): Response
-    {
-        $user = $this->app->currentUser();
-        return $this->page('settings/security.twig', 'security', [
-            'totp_active' => (int) ($user['totp_enabled'] ?? 0) === 1,
-            'new_codes' => $newCodes,
-            'codes_errors' => $this->translate($codesErrors),
-            'password_errors' => $this->translate($passwordErrors),
-            'password_changed' => $passwordChanged,
         ], $status);
     }
 

@@ -46,11 +46,15 @@ final class AuthService
     {
         $email = UserService::normaliseEmail($email);
         $keys = $this->loginKeys($email, $ip);
+        // Hit first (RateLimiter::attempt): every guess is recorded before its password is verified, so
+        // concurrent guesses cannot all slip under the limit. Every key is hit, none is short-circuited.
+        $allowed = true;
         foreach ($keys as $key) {
-            if ($this->limiter->tooMany($key)) {
-                $this->auditLocked('login:' . $this->emailKey($email), 'auth.login_failed', ['reason' => 'locked', 'key' => $this->emailKey($email)]);
-                return AuthResult::locked();
-            }
+            $allowed = $this->limiter->attempt($key) && $allowed;
+        }
+        if (!$allowed) {
+            $this->auditLocked('login:' . $this->emailKey($email), 'auth.login_failed', ['reason' => 'locked', 'key' => $this->emailKey($email)]);
+            return AuthResult::locked();
         }
 
         $user = strlen($email) <= 190
@@ -61,9 +65,6 @@ final class AuthService
         $ok = password_verify($tooLong ? '' : $password, $hash) && $user !== null && !$tooLong;
 
         if (!$ok) {
-            foreach ($keys as $key) {
-                $this->limiter->hit($key);
-            }
             $this->audit?->logSilently(
                 'auth.login_failed',
                 ['reason' => $user === null ? 'unknown_user' : 'bad_password', 'key' => $this->emailKey($email)],
@@ -72,6 +73,9 @@ final class AuthService
             return AuthResult::invalid();
         }
         $id = (int) $user['id'];
+        // Only the per-email counter is cleared here: the IP counter is cleared after the second factor
+        // (an attacker with one valid account must not reset the IP budget by logging in).
+        $this->limiter->clear($keys[0]);
         if (password_needs_rehash($hash, PASSWORD_ARGON2ID)) {
             $this->db->exec('UPDATE users SET password_hash = ? WHERE id = ?', [password_hash($password, PASSWORD_ARGON2ID), $id]);
         }
@@ -83,7 +87,7 @@ final class AuthService
     public function verifySecondFactor(int $userId, string $code, string $ip): AuthResult
     {
         $key = $this->secondFactorKey($userId);
-        if ($this->limiter->tooMany($key)) {
+        if (!$this->limiter->attempt($key)) {
             $this->auditLocked('2fa:' . $userId, 'auth.2fa_failed', ['reason' => 'locked'], $userId);
             return AuthResult::locked();
         }
@@ -98,7 +102,6 @@ final class AuthService
                 : $this->acceptTotp($userId, $this->secret($user), $code);
         }
         if (!$ok) {
-            $this->limiter->hit($key);
             $this->audit?->logSilently('auth.2fa_failed', ['reason' => 'invalid'], Audit::NO_COMPANY, $userId);
             return AuthResult::invalid();
         }
@@ -112,6 +115,12 @@ final class AuthService
             $this->limiter->clear($k);
         }
         return AuthResult::ok($userId);
+    }
+
+    /** Lifts the login lockout of this address (admin temporary password); the IP counter is left alone. */
+    public function clearLoginLock(string $email): void
+    {
+        $this->limiter->clear($this->loginKeys(UserService::normaliseEmail($email), '')[0]);
     }
 
     /** The not-yet-confirmed TOTP secret, created and stored encrypted on first call. */
@@ -136,7 +145,7 @@ final class AuthService
     public function confirmTotpSetup(int $userId, string $code): AuthResult
     {
         $key = $this->secondFactorKey($userId);
-        if ($this->limiter->tooMany($key)) {
+        if (!$this->limiter->attempt($key)) {
             return AuthResult::locked();
         }
         $user = $this->db->one('SELECT totp_secret_enc, totp_enabled FROM users WHERE id = ?', [$userId]);
@@ -145,11 +154,10 @@ final class AuthService
             && !empty($user['totp_secret_enc'])
             && $this->acceptTotp($userId, $this->secret($user), trim($code));
         if (!$ok) {
-            $this->limiter->hit($key);
             return AuthResult::invalid();
         }
         $codes = $this->db->transaction(function (Db $db) use ($userId): array {
-            $db->exec('UPDATE users SET totp_enabled = 1 WHERE id = ?', [$userId]);
+            $db->exec('UPDATE users SET totp_enabled = 1, session_epoch = session_epoch + 1 WHERE id = ?', [$userId]);
             $this->audit?->log('auth.2fa_enabled', [], Audit::NO_COMPANY, $userId);
             return $this->backupCodes->generate($userId);
         });

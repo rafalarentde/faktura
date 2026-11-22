@@ -254,9 +254,64 @@ final class AdminController
         // The reset and its audit row commit together or not at all. No secrets in the detail.
         $this->app->db()->transaction(function () use ($id, $uid): void {
             $this->companies->resetTwoFactor($uid);
+            $this->app->users()->bumpSessionEpoch($uid); // the user's sessions end (the admin's own is unaffected)
             $this->audit($id, 'admin.user_reset_2fa', ['company_id' => $id, 'user_id' => $uid]);
         });
         return Response::redirect('/admin/companies/' . $id);
+    }
+
+    /**
+     * "Set temporary password" (there is no self-service reset: this is the way back in). Only for a member of
+     * this company (404 otherwise) and never for an administrator account (422: admins change their own
+     * password in /settings/security). Generates a random password, forces a change at the next page view
+     * (users.must_change_password), ends every session of the user (session_epoch) and lifts a login lockout.
+     * The password is rendered once in the response (no-store), stored only as a hash and never logged.
+     *
+     * @param array<string, string> $params
+     */
+    public function tempPassword(Request $request, array $params): Response
+    {
+        $id = (int) $params['id'];
+        $uid = (int) $params['uid'];
+        $company = $this->companies->find($id);
+        if ($company === null || !$this->companies->isMember($id, $uid)) {
+            return $this->notFound();
+        }
+        $user = $this->app->db()->one('SELECT email, is_admin FROM users WHERE id = ?', [$uid]);
+        if ($user === null) {
+            return $this->notFound();
+        }
+        if ((int) $user['is_admin'] === 1) {
+            return $this->detail($company, $this->app->t('admin.err_temp_admin'), 422);
+        }
+        $password = self::randomPassword();
+        $this->app->db()->transaction(function () use ($id, $uid, $password): void {
+            $this->app->db()->exec(
+                'UPDATE users SET password_hash = ?, must_change_password = 1 WHERE id = ?',
+                [password_hash($password, PASSWORD_ARGON2ID), $uid]
+            );
+            $this->app->users()->bumpSessionEpoch($uid);
+            $this->audit($id, 'admin.user_temp_password', ['company_id' => $id, 'user_id' => $uid]);
+        });
+        $this->app->auth()->clearLoginLock((string) $user['email']);
+        return $this->detail($company, null, 200, ['email' => (string) $user['email'], 'password' => $password])
+            ->withHeader('Cache-Control', 'no-store');
+    }
+
+    /** 16 characters (about 80 bits) without look-alikes, in groups of four. */
+    private static function randomPassword(): string
+    {
+        $alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+        $max = strlen($alphabet) - 1;
+        $groups = [];
+        for ($g = 0; $g < 4; $g++) {
+            $chars = '';
+            for ($i = 0; $i < 4; $i++) {
+                $chars .= $alphabet[random_int(0, $max)];
+            }
+            $groups[] = $chars;
+        }
+        return implode('-', $groups);
     }
 
     private function list(?string $error = null, int $status = 200): Response
@@ -274,13 +329,17 @@ final class AdminController
         return $this->app->render('admin/company_new.twig', ['form' => $form, 'error' => $error], $status);
     }
 
-    /** @param array<string, mixed> $company */
-    private function detail(array $company, ?string $error, int $status = 200): Response
+    /**
+     * @param array<string, mixed> $company
+     * @param array{email: string, password: string}|null $temp a temporary password to show once
+     */
+    private function detail(array $company, ?string $error, int $status = 200, ?array $temp = null): Response
     {
         return $this->app->render('admin/company.twig', [
             'company' => $company,
             'members' => $this->companies->members((int) $company['id']),
             'error' => $error,
+            'temp' => $temp,
         ], $status);
     }
 

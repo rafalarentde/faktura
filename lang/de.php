@@ -449,6 +449,12 @@ return [
     'security.err_locked' => 'Zu viele Versuche. Bitte versuche es in 15 Minuten erneut.',
     'admin.reset_2fa' => '2FA zurücksetzen',
     'admin.reset_2fa_hint' => 'Entfernt die Zwei-Faktor-Anmeldung und die Backup-Codes. Die Person richtet sie bei der nächsten Anmeldung neu ein.',
+    'security.must_change' => 'Ein Administrator hat dir ein temporäres Passwort gesetzt. Bitte vergib jetzt ein neues Passwort.',
+    'admin.temp_password' => 'Temporäres Passwort',
+    'admin.temp_password_hint' => 'Setzt ein zufälliges Passwort, das beim nächsten Aufruf geändert werden muss, und beendet alle Sitzungen der Person.',
+    'admin.temp_password_title' => 'Temporäres Passwort',
+    'admin.temp_password_intro' => 'Neues Passwort für {email}. Es wird nur jetzt einmal angezeigt; gib es sicher weiter. Die Person muss es bei der Anmeldung ändern.',
+    'admin.err_temp_admin' => 'Für Administrator-Konten gibt es kein temporäres Passwort; Administratoren ändern ihr Passwort unter Einstellungen > Sicherheit.',
     // Task 13: numbering
     'settings.err_num_no_counter' => 'Es fehlt ein Zähler, z. B. {NNN}. Ohne Zähler wären Nummern doppelt.',
     'settings.err_num_multiple_counters' => 'Es darf nur ein Zähler vorkommen ({N}, {NN}, {NNN} …).',

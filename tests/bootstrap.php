@@ -13,9 +13,9 @@ use App\Core\Migrator;
 final class TestDb
 {
     /** Fresh in-memory SQLite database with all migrations applied. */
-    public static function fresh(): Db
+    public static function fresh(string $pdoClass = PDO::class): Db
     {
-        $pdo = new PDO('sqlite::memory:', null, null, [
+        $pdo = new $pdoClass('sqlite::memory:', null, null, [
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
         ]);

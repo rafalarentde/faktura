@@ -449,6 +449,12 @@ return [
     'security.err_locked' => 'Zbyt wiele prób. Spróbuj ponownie za 15 minut.',
     'admin.reset_2fa' => 'Zresetuj 2FA',
     'admin.reset_2fa_hint' => 'Usuwa uwierzytelnianie dwuskładnikowe i kody zapasowe. Użytkownik skonfiguruje je ponownie przy następnym logowaniu.',
+    'security.must_change' => 'Administrator ustawił dla Ciebie hasło tymczasowe. Ustaw teraz nowe hasło.',
+    'admin.temp_password' => 'Hasło tymczasowe',
+    'admin.temp_password_hint' => 'Ustawia losowe hasło, które trzeba zmienić przy następnym wejściu, i kończy wszystkie sesje tej osoby.',
+    'admin.temp_password_title' => 'Hasło tymczasowe',
+    'admin.temp_password_intro' => 'Nowe hasło dla {email}. Pokazujemy je tylko raz, teraz; przekaż je bezpiecznie. Osoba musi zmienić je przy logowaniu.',
+    'admin.err_temp_admin' => 'Konta administratorów nie mają hasła tymczasowego; administratorzy zmieniają hasło w Ustawienia > Bezpieczeństwo.',
     // Task 13: numbering
     'settings.err_num_no_counter' => 'Brakuje licznika, np. {NNN}. Bez niego numery by się powtarzały.',
     'settings.err_num_multiple_counters' => 'W formacie może być tylko jeden licznik ({N}, {NN}, {NNN} …).',
