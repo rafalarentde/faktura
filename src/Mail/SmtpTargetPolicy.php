@@ -11,8 +11,9 @@ namespace App\Mail;
  * - Ports: only 25, 465, 587, 2525.
  * - Host: must resolve (resolver is injectable) and EVERY address must be public; loopback,
  *   private, link-local, unspecified, reserved, carrier-grade NAT and documentation ranges are
- *   refused, IPv4 embedded in IPv6 (::ffff:a.b.c.d, ::a.b.c.d, 6to4, NAT64) is unwrapped and
- *   re-checked, Teredo is refused.
+ *   refused. IPv6 is accepted only inside 2000::/3 and then minus 2001::/23 (incl. Teredo), 2001:db8::/32,
+ *   2002::/16 (6to4) and 3fff::/20; everything outside 2000::/3 (so also IPv4-mapped/compatible, SIIT and
+ *   NAT64 forms) is refused without being unwrapped.
  * - connectAddress() returns the address to connect to (first IPv4, else first IPv6), so the
  *   address that was checked is the address that is used (no DNS rebinding between check and
  *   connect); the caller keeps verifying the certificate against the configured host name.
@@ -82,25 +83,35 @@ final class SmtpTargetPolicy
         if (strlen($bin) === 4) {
             return self::publicV4($bin);
         }
-        // ::, ::1, fc00::/7, fe80::/10, multicast ff00::/8
-        $b0 = ord($bin[0]);
-        $b1 = ord($bin[1]);
-        if ($bin === str_repeat("\0", 16) || $bin === str_repeat("\0", 15) . "\1" || ($b0 & 0xFE) === 0xFC || ($b0 === 0xFE && ($b1 & 0xC0) === 0x80) || $b0 === 0xFF) {
+        // IPv6: ONLY global unicast 2000::/3 is considered at all. That drops, in one rule, ::/128, ::1, ::/96
+        // (IPv4-compatible), ::ffff:0:0/96 (IPv4-mapped), ::ffff:0:0:0/96 (SIIT), 64:ff9b::/96 and 64:ff9b:1::/48
+        // (NAT64), 100::/64, fc00::/7, fe80::/10, fec0::/10, ff00::/8 and every unallocated block.
+        if ((ord($bin[0]) & 0xE0) !== 0x20) {
             return false;
         }
-        $head = substr($bin, 0, 12);
-        // ::ffff:a.b.c.d (mapped), ::a.b.c.d (compatible), 64:ff9b::/96 (NAT64): check the embedded IPv4
-        if ($head === str_repeat("\0", 10) . "\xFF\xFF" || $head === str_repeat("\0", 12) || $head === "\x00\x64\xFF\x9B" . str_repeat("\0", 8)) {
-            return self::publicV4(substr($bin, 12, 4));
+        // Special-purpose ranges inside 2000::/3: 2001::/23 (IETF protocol assignments, Teredo 2001::/32,
+        // benchmarking, ORCHID), 2001:db8::/32 (documentation), 2002::/16 (6to4: an IPv4 address in disguise,
+        // deprecated; refused outright instead of unwrapped) and 3fff::/20 (documentation, RFC 9637).
+        foreach ([['2001:0::', 23], ['2001:db8::', 32], ['2002::', 16], ['3fff::', 20]] as [$base, $bits]) {
+            if (self::inV6($bin, (string) inet_pton($base), $bits)) {
+                return false;
+            }
         }
-        // 2002::/16 (6to4): IPv4 in bytes 2-5; 2001::/32 (Teredo) is refused outright
-        if ($b0 === 0x20 && $b1 === 0x02) {
-            return self::publicV4(substr($bin, 2, 4));
-        }
-        if (substr($bin, 0, 4) === "\x20\x01\x00\x00") {
+        return true;
+    }
+
+    private static function inV6(string $bin, string $base, int $bits): bool
+    {
+        $bytes = intdiv($bits, 8);
+        if (substr($bin, 0, $bytes) !== substr($base, 0, $bytes)) {
             return false;
         }
-        return filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6 | FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) !== false;
+        $rest = $bits % 8;
+        if ($rest === 0) {
+            return true;
+        }
+        $mask = (0xFF << (8 - $rest)) & 0xFF;
+        return (ord($bin[$bytes]) & $mask) === (ord($base[$bytes]) & $mask);
     }
 
     private static function publicV4(string $bin): bool
