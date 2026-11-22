@@ -17,11 +17,12 @@ final class EmailLogRepo extends BaseRepo
 
     /**
      * @param string|null $error reason code (auth, connect, tls, recipient, other) for failed rows
+     * @param string|null $pdfSha256 SHA-256 (hex) of the PDF that was attached
      * @return int id of the new row
      * @throws DocumentNotFound the document is not one of the context company
      * @throws \InvalidArgumentException unknown status
      */
-    public function record(int $documentId, string $to, string $subject, string $status, ?string $error, ?int $sentBy, int $at): int
+    public function record(int $documentId, string $to, string $subject, string $status, ?string $error, ?int $sentBy, int $at, ?string $pdfSha256 = null): int
     {
         if (!in_array($status, self::STATUSES, true)) {
             throw new \InvalidArgumentException('Unknown email log status.');
@@ -37,6 +38,7 @@ final class EmailLogRepo extends BaseRepo
             'error' => $status === 'failed' ? mb_substr((string) $error, 0, 40) : null,
             'sent_by' => $sentBy,
             'created_at' => gmdate('Y-m-d H:i:s', $at),
+            'pdf_sha256' => $pdfSha256 !== null && preg_match('/\A[0-9a-f]{64}\z/', $pdfSha256) === 1 ? $pdfSha256 : null,
         ]);
     }
 

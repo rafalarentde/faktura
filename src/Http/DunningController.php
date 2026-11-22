@@ -166,6 +166,7 @@ final class DunningController extends AbstractDocumentController
             }
             return $this->previewPage($invoiceId, (string) $level->value, $toggles, $e->errors, 422);
         }
+        $this->app->archiveIssued($id);
         $this->flash('dunning.created', ['number' => (string) ($this->docs()->row($id)['number'] ?? '')]);
         return Response::redirect('/dunning/' . $id, 303);
     }

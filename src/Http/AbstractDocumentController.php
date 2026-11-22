@@ -315,6 +315,7 @@ abstract class AbstractDocumentController
         } catch (DocumentNotFound) {
             return $this->notFound();
         }
+        $this->app->archiveIssued($id);
         $this->flash('invoice.issued_as', ['number' => $number]);
         // "Issue and prepare email": the same issue as above, then straight to the send page (nothing is sent there yet).
         return Response::redirect($request->input('then') === 'send' ? '/documents/' . $id . '/send' : $this->prefix() . '/' . $id, 303);

@@ -24,6 +24,9 @@ use Twig\Environment;
  * (document language for every label and number). The one live asset is the company's current
  * logo, re-encoded by LogoStore::process() and embedded as a data: URI (no file access by Dompdf).
  *
+ * Archive (GoBD): with a DocumentArchive, renderFile()/render() serve the bytes archived at the first render of an
+ * issued document (see DocumentArchive) instead of rendering again; html() and the on-screen preview are always live.
+ *
  * Access: render()/html() throw DocumentNotFound for unknown ids, other companies' documents and
  * types without a template (TEMPLATES), and PdfNotAvailable for drafts.
  *
@@ -74,6 +77,7 @@ final class PdfRenderer
         private CompanyContext $ctx,
         string $resourcesDir,
         private string $cacheDir,
+        private ?DocumentArchive $archive = null,
     ) {
         $this->resourcesDir = realpath($resourcesDir) ?: throw new \InvalidArgumentException('Resources directory missing.');
     }
@@ -91,14 +95,34 @@ final class PdfRenderer
 
     /**
      * The PDF with its download file name (PdfRenderer::filename of the document number), from
-     * one read of the document.
+     * one read of the document, and the SHA-256 of the bytes. With an archive the archived copy is
+     * served (rendered and stored on first use, re-rendered and restored when the file is lost).
      *
-     * @return array{content: string, filename: string}
+     * @return array{content: string, filename: string, sha256: string}
      * @throws DocumentNotFound|PdfNotAvailable as render()
+     * @throws ArchiveCorrupt the archived file does not match its checksum
      */
     public function renderFile(int $documentId): array
     {
-        [$doc, $vm] = $this->load($documentId);
+        $doc = $this->loadDoc($documentId);
+        $filename = self::filename((string) $doc['number']);
+        if ($this->archive === null) {
+            $bytes = $this->build($doc);
+            return ['content' => $bytes, 'filename' => $filename, 'sha256' => hash('sha256', $bytes)];
+        }
+        $found = $this->archive->fetch($documentId);
+        if ($found['state'] === 'ok') {
+            return ['content' => $found['bytes'], 'filename' => $filename, 'sha256' => $found['sha256']];
+        }
+        $bytes = $this->build($doc);
+        $kept = $found['state'] === 'missing' ? $this->archive->restore($documentId, $bytes) : $this->archive->store($documentId, $bytes);
+        return ['content' => $kept['bytes'], 'filename' => $filename, 'sha256' => $kept['sha256']];
+    }
+
+    /** @param array<string, mixed> $doc issued document row with lines */
+    private function build(array $doc): string
+    {
+        $vm = $this->presenter->issued($doc);
         $dompdf = new Dompdf($this->options());
         $metrics = $dompdf->getFontMetrics();
         foreach (self::FONTS as $f) {
@@ -128,7 +152,7 @@ final class PdfRenderer
             $dompdf->addInfo('CreationDate', 'D:' . $issued->format('YmdHis') . "+00'00'");
             $dompdf->addInfo('ModDate', 'D:' . $issued->format('YmdHis') . "+00'00'");
         }
-        return ['content' => (string) $dompdf->output(), 'filename' => self::filename((string) $doc['number'])];
+        return (string) $dompdf->output();
     }
 
     /**
@@ -179,6 +203,13 @@ final class PdfRenderer
      */
     private function load(int $documentId): array
     {
+        $doc = $this->loadDoc($documentId);
+        return [$doc, $this->presenter->issued($doc)];
+    }
+
+    /** @return array<string, mixed> @throws DocumentNotFound|PdfNotAvailable */
+    private function loadDoc(int $documentId): array
+    {
         $doc = $this->docs->find($documentId);
         if ($doc === null || !isset(self::TEMPLATES[$doc['type']])) {
             throw new DocumentNotFound();
@@ -186,7 +217,7 @@ final class PdfRenderer
         if ($doc['status'] !== 'issued') {
             throw new PdfNotAvailable();
         }
-        return [$doc, $this->presenter->issued($doc)];
+        return $doc;
     }
 
     /**

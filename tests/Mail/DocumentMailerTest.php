@@ -72,6 +72,49 @@ final class DocumentMailerTest extends TestCase
         );
     }
 
+    /** Mailer whose renderer archives (GoBD), optionally with other translations. */
+    private function archivingMailer(): DocumentMailer
+    {
+        $c = $this->fx->companyA;
+        $ctx = $this->fx->ctx($c);
+        $repo = $this->fx->repo($c);
+        return new DocumentMailer(
+            $this->fx->db, $ctx, $repo, new DocumentPresenter($this->fx->translator(), $repo), $this->fx->archivingRenderer($c), $this->transport,
+            $this->crypto(), $this->fx->translator(), fn (): int => $this->now, PdfFixture::ROOT . '/templates/mail',
+            new SmtpTargetPolicy(FakeResolver::publicHosts())
+        );
+    }
+
+    public function test_attachment_is_the_archived_pdf_and_its_checksum_is_logged(): void
+    {
+        $d = $this->defaults();
+        $mailer = $this->archivingMailer();
+        $mailer->send($this->doc, $d['to'], $d['subject'], $d['body']);
+        $first = $this->transport->sent[0]['attachments'][0]['content'];
+        $sha = hash('sha256', $first);
+        $this->assertSame($sha, $this->fx->db->one('SELECT pdf_sha256 FROM email_log')['pdf_sha256']);
+        $this->assertSame($sha, $this->fx->db->one('SELECT sha256 FROM document_archives WHERE document_id = ?', [$this->doc])['sha256']);
+
+        // the company changes its data afterwards: the second mail carries the very same bytes
+        $this->fx->db->exec("UPDATE companies SET name = 'Anders GmbH', bank = 'Andere Bank' WHERE id = ?", [$this->fx->companyA]);
+        $mailer->send($this->doc, $d['to'], $d['subject'], $d['body']);
+        $this->assertSame($first, $this->transport->sent[1]['attachments'][0]['content']);
+        $rows = $this->fx->db->all('SELECT pdf_sha256 FROM email_log ORDER BY id');
+        $this->assertSame([$sha, $sha], array_column($rows, 'pdf_sha256'));
+    }
+
+    public function test_failed_send_logs_the_checksum_too(): void
+    {
+        $d = $this->defaults();
+        $this->transport->failWith = 'connect';
+        try {
+            $this->archivingMailer()->send($this->doc, $d['to'], $d['subject'], $d['body']);
+            $this->fail('MailSendFailed expected');
+        } catch (MailSendFailed) {
+        }
+        $this->assertMatchesRegularExpression('/\A[0-9a-f]{64}\z/', (string) $this->fx->db->one('SELECT pdf_sha256 FROM email_log')['pdf_sha256']);
+    }
+
     private function rows(string $table): int
     {
         return (int) $this->fx->db->one("SELECT COUNT(*) AS n FROM $table")['n'];

@@ -208,6 +208,19 @@ final class ExportTest extends HttpTestCase
 
     // ---- download ----
 
+    public function test_export_pdfs_are_the_archived_copies(): void
+    {
+        $this->login();
+        $doc = $this->ids['invoice'] ?? (int) $this->db->one("SELECT id FROM documents WHERE company_id = ? AND type = 'invoice' AND status = 'issued' ORDER BY id LIMIT 1", [$this->a])['id'];
+        // the document was archived by a first render; changing the company data afterwards must not change the export
+        $archived = $this->app->pdf()->renderFile($doc);
+        $this->db->exec("UPDATE companies SET logo_path = NULL, name = 'Alpha NEU GmbH' WHERE id = ?", [$this->a]);
+        $zip = $this->zip($this->export(['include_pdfs' => '1']));
+        $found = array_filter($zip, fn (string $bytes, string $n): bool => str_starts_with($n, 'pdf/') && hash('sha256', $bytes) === $archived['sha256'], ARRAY_FILTER_USE_BOTH);
+        $this->assertCount(1, $found, 'the archived bytes are exported unchanged');
+        $this->assertFileExists(self::$storage . '/archive/' . $this->a . '/' . $doc . '.pdf');
+    }
+
     public function test_export_contains_only_own_company_data_with_real_pdfs(): void
     {
         $this->login();

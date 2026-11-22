@@ -124,6 +124,28 @@ final class PdfRouteTest extends HttpTestCase
         $this->assertStringStartsWith('%PDF-', $r->body);
     }
 
+    public function test_served_pdf_is_the_archived_copy_even_after_the_company_data_changed(): void
+    {
+        $id = $this->issued($this->companyA, $this->customer);
+        $this->loginFully($this->secret);
+        $first = $this->get("/documents/$id/pdf");
+        $this->assertPdf($first);
+        $file = self::storage() . '/archive/' . $this->companyA . '/' . $id . '.pdf';
+        $this->assertFileExists($file);
+        $this->assertSame($first->body, file_get_contents($file));
+        // logo and layout text change after the first render ...
+        $this->db->exec("UPDATE companies SET logo_path = 'logos/company-{$this->companyA}.png', name = 'Muster NEU GmbH' WHERE id = ?", [$this->companyA]);
+        $second = $this->getQ("/documents/$id/pdf", ['download' => '1']);
+        $this->assertPdf($second);
+        $this->assertSame($first->body, $second->body, 'byte-identical');
+        // a missing file is rendered again, stored and audited
+        unlink($file);
+        $third = $this->get("/documents/$id/pdf");
+        $this->assertPdf($third);
+        $this->assertFileExists($file);
+        $this->assertSame(1, (int) $this->db->one("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'document.archive_restored'")['n']);
+    }
+
     public function test_inline_pdf_with_headers(): void
     {
         $this->requirePoppler();

@@ -8,6 +8,7 @@ use App\Domain\DocumentService;
 use App\Domain\NumberSequences;
 use App\Http\DocumentPresenter;
 use App\I18n\Translator;
+use App\Pdf\DocumentArchive;
 use App\Pdf\PdfRenderer;
 use App\Repo\CustomerRepo;
 use App\Repo\DocumentRepo;
@@ -45,13 +46,13 @@ final class PdfFixture
         $this->companyB = $this->company(['name' => 'Fremd AG']);
     }
 
-    /** Removes the temporary storage directory (logos, nothing else). */
+    /** Removes the temporary storage directory (logos, archive, nothing else). */
     public function cleanup(): void
     {
-        foreach (glob($this->storage . '/logos/*') ?: [] as $f) {
-            @unlink($f);
+        $it = is_dir($this->storage) ? new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($this->storage, \FilesystemIterator::SKIP_DOTS), \RecursiveIteratorIterator::CHILD_FIRST) : [];
+        foreach ($it as $f) {
+            $f->isDir() && !$f->isLink() ? @rmdir($f->getPathname()) : @unlink($f->getPathname());
         }
-        @rmdir($this->storage . '/logos');
         @rmdir($this->storage);
     }
 
@@ -100,11 +101,30 @@ final class PdfFixture
         return new DocumentPresenter($this->translator(), $this->repo($companyId));
     }
 
+    /** Live renderer (no archive): every call renders again. */
     public function renderer(int $companyId): PdfRenderer
     {
         $twig = new Environment(new FilesystemLoader(self::ROOT . '/templates'), ['autoescape' => 'html', 'strict_variables' => true]);
         return new PdfRenderer($twig, $this->presenter($companyId), $this->repo($companyId), new LogoStore($this->storage),
             $this->ctx($companyId), self::ROOT . '/resources', self::cacheDir());
+    }
+
+    public function archive(int $companyId): DocumentArchive
+    {
+        return new DocumentArchive($this->db, $this->ctx($companyId), $this->storage, fn (): int => self::NOW);
+    }
+
+    /**
+     * Renderer with the GoBD archive under $this->storage/archive.
+     *
+     * @param Translator|null $translator another translator (e.g. with changed texts) for the presenter
+     */
+    public function archivingRenderer(int $companyId, ?Translator $translator = null): PdfRenderer
+    {
+        $twig = new Environment(new FilesystemLoader(self::ROOT . '/templates'), ['autoescape' => 'html', 'strict_variables' => true]);
+        $repo = $this->repo($companyId);
+        return new PdfRenderer($twig, new DocumentPresenter($translator ?? $this->translator(), $repo), $repo, new LogoStore($this->storage),
+            $this->ctx($companyId), self::ROOT . '/resources', self::cacheDir(), $this->archive($companyId));
     }
 
     /** Font cache shared by all PDF tests (registering the fonts is the slow part). */

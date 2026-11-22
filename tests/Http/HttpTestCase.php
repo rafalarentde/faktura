@@ -37,7 +37,9 @@ abstract class HttpTestCase extends TestCase
     protected function makeApp(array $config = []): App
     {
         return new App(
-            $config + ['app_key' => base64_encode(str_repeat('k', 32)), 'debug' => false],
+            // archive_on_issue is off by default: rendering a PDF per issued document would slow every
+            // controller test down; the tests of the archive switch it on.
+            $config + ['app_key' => base64_encode(str_repeat('k', 32)), 'debug' => false, 'archive_on_issue' => false],
             $this->db,
             $this->store,
             fn (): int => $this->now,

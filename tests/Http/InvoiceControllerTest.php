@@ -731,6 +731,32 @@ final class InvoiceControllerTest extends HttpTestCase
         $this->assertStringContainsString($this->app->t('invoice.status_paid'), $view->body);
     }
 
+    public function test_issuing_archives_the_pdf_right_away(): void
+    {
+        $storage = sys_get_temp_dir() . '/faktura-archive-issue-' . bin2hex(random_bytes(4));
+        mkdir($storage, 0775, true);
+        $this->app = $this->makeApp(['storage_path' => $storage, 'archive_on_issue' => true]);
+        $this->login();
+        $id = $this->issued();
+        $row = $this->db->one('SELECT * FROM document_archives WHERE document_id = ?', [$id]);
+        $this->assertNotNull($row);
+        $file = $storage . '/archive/' . $this->companyA . '/' . $id . '.pdf';
+        $this->assertFileExists($file);
+        $this->assertSame($row['sha256'], hash_file('sha256', $file));
+        shell_exec('rm -rf ' . escapeshellarg($storage));
+    }
+
+    public function test_an_archive_failure_at_issue_does_not_fail_the_issue(): void
+    {
+        $blocker = tempnam(sys_get_temp_dir(), 'faktura-nostorage'); // a FILE where the storage directory should be
+        $this->app = $this->makeApp(['storage_path' => $blocker, 'archive_on_issue' => true]);
+        $this->login();
+        $id = $this->issued();
+        $this->assertSame('issued', $this->doc($id)['status']);
+        $this->assertSame(0, (int) $this->db->one('SELECT COUNT(*) AS n FROM document_archives')['n']);
+        unlink($blocker);
+    }
+
     public function test_payment_in_the_future_is_refused_in_the_form(): void
     {
         $this->login();

@@ -163,8 +163,9 @@ final class DocumentMailer
         $status = $reason === null ? 'sent' : 'failed';
         $at = ($this->clock)();
         $detail = ['document_id' => (int) $doc['id'], 'status' => $status] + ($reason === null ? [] : ['reason' => $reason]);
-        $this->db->transaction(function () use ($doc, $to, $subject, $status, $reason, $at, $detail): void {
-            $this->log->record((int) $doc['id'], $to, $subject, $status, $reason, $this->ctx->userId(), $at);
+        $sha = $attachment['sha256'];
+        $this->db->transaction(function () use ($doc, $to, $subject, $status, $reason, $at, $detail, $sha): void {
+            $this->log->record((int) $doc['id'], $to, $subject, $status, $reason, $this->ctx->userId(), $at, $sha);
             $this->audit('document.email_send', $detail, $at);
         });
         if ($reason === null && $doc['type'] === DocType::OFFER && $this->offerSent !== null) {

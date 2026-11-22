@@ -20,6 +20,7 @@ use App\Mail\MailTransport;
 use App\Mail\SmtpTargetPolicy;
 use App\Mail\SmtpTransport;
 use App\I18n\Translator;
+use App\Pdf\DocumentArchive;
 use App\Pdf\PdfRenderer;
 use App\Repo\CustomerRepo;
 use App\Repo\DocumentRepo;
@@ -328,7 +329,8 @@ final class App
 
     /**
      * PDF renderer of the active company (cached per request, like documents()). Font metrics and
-     * Dompdf temp files go to <storage_path>/pdf-cache (created on first use; must be writable).
+     * Dompdf temp files go to <storage_path>/pdf-cache (created on first use; must be writable). Issued documents
+     * are archived under <storage_path>/archive/<company_id>/ (GoBD; must be writable and part of the backups).
      *
      * @throws \LogicException when no company is selected (use RequireCompany on the route)
      */
@@ -340,10 +342,28 @@ final class App
             $storage = rtrim((string) $this->config('storage_path', $this->root . '/storage'), '/');
             $this->pdf = new PdfRenderer(
                 $this->twig(), new DocumentPresenter($this->translator(), $repo), $repo, new LogoStore($storage), $ctx,
-                $this->root . '/resources', $storage . '/pdf-cache'
+                $this->root . '/resources', $storage . '/pdf-cache', new DocumentArchive($this->db, $ctx, $storage, $this->clock)
             );
         }
         return $this->pdf;
+    }
+
+    /**
+     * Archives the PDF of a just-issued document right away (GoBD), so a later change of the company data, the
+     * logo or a text can never alter it. Best effort: a failure here is logged (no PII) and never fails the
+     * issue; the first PDF view, e-mail or export then archives it (or reports the problem). Config
+     * `archive_on_issue` (default true) switches it off (tests that do not need it).
+     */
+    public function archiveIssued(int $documentId): void
+    {
+        if ($this->config('archive_on_issue', true) !== true) {
+            return;
+        }
+        try {
+            $this->pdf()->renderFile($documentId);
+        } catch (\Throwable $e) {
+            error_log('Faktura: archiving document ' . $documentId . ' at issue failed: ' . get_class($e));
+        }
     }
 
     /**

@@ -58,6 +58,7 @@ final class Audit
         'admin.user_temp_password' => ['company_id', 'user_id'],
         'document.issue' => ['document_id', 'type', 'number', 'vat_confirmed'],
         'document.payment_add' => ['document_id', 'payment_id'],
+        'document.archive_restored' => ['document_id', 'sha_changed'],
         'document.payment_reverse' => ['document_id', 'payment_id', 'reversal_id'],
         'document.correction_create' => ['document_id', 'invoice_id'],
         'document.offer_convert' => ['offer_id', 'invoice_id'],
