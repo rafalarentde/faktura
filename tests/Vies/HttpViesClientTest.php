@@ -26,6 +26,16 @@ final class HttpViesClientTest extends TestCase
         return ['status' => 200, 'body' => json_encode($data, JSON_THROW_ON_ERROR)];
     }
 
+    public function test_valid_requires_no_error_or_a_definite_valid(): void
+    {
+        foreach (['MS_UNAVAILABLE', 'SERVICE_UNAVAILABLE', 'TIMEOUT', 'INVALID', 'INVALID_INPUT', '', 0, false] as $err) {
+            $c = $this->client($this->body(['isValid' => true, 'userError' => $err]));
+            $this->assertSame(ViesStatus::Unavailable, $c->check('DE', '1'), 'isValid=true with userError ' . var_export($err, true));
+        }
+        $this->assertSame(ViesStatus::Valid, $this->client($this->body(['isValid' => true]))->check('DE', '1'));
+        $this->assertSame(ViesStatus::Valid, $this->client($this->body(['isValid' => true, 'userError' => 'VALID']))->check('DE', '1'));
+    }
+
     public function test_valid(): void
     {
         $c = $this->client($this->body(['isValid' => true, 'userError' => 'VALID']), $url);

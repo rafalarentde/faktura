@@ -418,7 +418,7 @@ final class OfferTest extends TestCase
     public function test_vies_confirmation_does_not_block_offers(): void
     {
         $fr = $this->customer($this->companyA, ['name' => 'Société SA', 'address' => "1 rue de Rivoli\n75001 Paris", 'country' => 'FR', 'vat_id' => 'FR40303265045']);
-        (new CustomerRepo($this->db, $this->ctx($this->companyA)))->recordVies($fr, ViesStatus::Unavailable, new \DateTimeImmutable('@' . self::NOW));
+        (new CustomerRepo($this->db, $this->ctx($this->companyA)))->recordVies($fr, ViesStatus::Unavailable, new \DateTimeImmutable('@' . self::NOW), 'FR', 'FR40303265045');
         $offer = $this->svc->createDraft('offer', ['customer_id' => $fr, 'lines' => [$this->line()]]);
         $this->assertSame('vies_not_confirmed', $this->doc($offer)['vat_reason']);
         $this->svc->issue($offer, $this->at()); // no confirmation needed
@@ -437,7 +437,7 @@ final class OfferTest extends TestCase
     public function test_reverse_charge_offer_matches_the_vat_of_the_later_invoice(): void
     {
         $fr = $this->customer($this->companyA, ['name' => 'Société SA', 'address' => "1 rue de Rivoli\n75001 Paris", 'country' => 'FR', 'vat_id' => 'FR40303265045']);
-        (new CustomerRepo($this->db, $this->ctx($this->companyA)))->recordVies($fr, ViesStatus::Valid, new \DateTimeImmutable('@' . self::NOW));
+        (new CustomerRepo($this->db, $this->ctx($this->companyA)))->recordVies($fr, ViesStatus::Valid, new \DateTimeImmutable('@' . self::NOW), 'FR', 'FR40303265045');
         $offer = $this->svc->createDraft('offer', ['customer_id' => $fr, 'lines' => [$this->line()]]);
         $this->svc->issue($offer, $this->at());
         $o = $this->doc($offer);

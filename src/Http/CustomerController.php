@@ -86,7 +86,8 @@ final class CustomerController
             return $this->page($request, $customer, $this->formFrom($customer), ['vat_id' => 'customer.err_vies_non_eu'], 422);
         }
         $status = $this->app->vies()->check(VatId::prefix($country), VatId::number($country, $vatId));
-        $this->repo()->recordVies($id, $status, (new \DateTimeImmutable('@' . $this->app->now())));
+        // Matched on the checked VAT id and country: an edit made meanwhile keeps its (reset) status.
+        $this->repo()->recordVies($id, $status, new \DateTimeImmutable('@' . $this->app->now()), $country, $vatId);
         return Response::redirect('/customers/' . $id);
     }
 

@@ -80,7 +80,7 @@ final class PdfRouteTest extends HttpTestCase
         $id = $repo->save($data + ['name' => 'Bauhaus Logistik GmbH', 'address' => "Hauptstraße 5\n80331 München", 'country' => 'DE',
             'vat_id' => 'DE123456789', 'is_company' => '1', 'payment_days' => '14', 'default_lang' => 'de', 'default_currency' => 'EUR']);
         if ($vies !== null) {
-            $repo->recordVies($id, $vies, new \DateTimeImmutable('@' . $this->now));
+            $repo->recordVies($id, $vies, new \DateTimeImmutable('@' . $this->now), (string) $repo->find($id)['country'], (string) $repo->find($id)['vat_id']);
         }
         return $id;
     }

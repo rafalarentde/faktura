@@ -112,7 +112,7 @@ final class DocumentServiceTest extends TestCase
             'name' => 'Société SA', 'address' => "1 rue de Rivoli\n75001 Paris", 'country' => 'FR', 'vat_id' => 'FR40303265045', 'default_currency' => $currency,
         ]);
         if ($vies !== null) {
-            $this->customers($this->companyA)->recordVies($id, $vies, new \DateTimeImmutable('@' . self::NOW));
+            $this->customers($this->companyA)->recordVies($id, $vies, new \DateTimeImmutable('@' . self::NOW), 'FR', 'FR40303265045');
         }
         return $id;
     }
@@ -457,7 +457,7 @@ final class DocumentServiceTest extends TestCase
         $inv = $this->draft(['customer_id' => $fr]);
         $this->svc->issue($inv, $this->at());
         // VIES later invalid: the credit note still follows the invoice
-        $this->customers($this->companyA)->recordVies($fr, ViesStatus::Invalid, new \DateTimeImmutable('@' . self::NOW));
+        $this->customers($this->companyA)->recordVies($fr, ViesStatus::Invalid, new \DateTimeImmutable('@' . self::NOW), 'FR', 'FR40303265045');
         $cn = $this->svc->createCorrection($inv);
         $this->svc->issue($cn, $this->at());
         $doc = $this->doc($cn);
@@ -613,7 +613,7 @@ final class DocumentServiceTest extends TestCase
     {
         $fr = $this->euCustomer(ViesStatus::Valid);
         $id = $this->draft(['customer_id' => $fr]);
-        $this->customers($this->companyA)->recordVies($fr, ViesStatus::Invalid, new \DateTimeImmutable('@' . self::NOW));
+        $this->customers($this->companyA)->recordVies($fr, ViesStatus::Invalid, new \DateTimeImmutable('@' . self::NOW), 'FR', 'FR40303265045');
         $this->expectException(VatNeedsConfirmation::class);
         $this->svc->issue($id, $this->at());
     }
@@ -623,7 +623,7 @@ final class DocumentServiceTest extends TestCase
         $fr = $this->euCustomer(ViesStatus::Valid);
         $id = $this->draft(['customer_id' => $fr]);
         $this->assertSame(1, $this->doc($id)['reverse_charge']);
-        $this->customers($this->companyA)->recordVies($fr, ViesStatus::Unavailable, new \DateTimeImmutable('@' . self::NOW));
+        $this->customers($this->companyA)->recordVies($fr, ViesStatus::Unavailable, new \DateTimeImmutable('@' . self::NOW), 'FR', 'FR40303265045');
         $this->svc->updateDraft($id, ['notes' => 'n']);
         $doc = $this->doc($id);
         $this->assertSame(0, $doc['reverse_charge']);
@@ -655,7 +655,7 @@ final class DocumentServiceTest extends TestCase
     public function test_pln_reverse_charge_invoice_has_zero_vat(): void
     {
         $pl = $this->customer($this->companyA, ['name' => 'Firma', 'country' => 'PL', 'vat_id' => 'PL1234567890', 'default_currency' => 'PLN']);
-        $this->customers($this->companyA)->recordVies($pl, ViesStatus::Valid, new \DateTimeImmutable('@' . self::NOW));
+        $this->customers($this->companyA)->recordVies($pl, ViesStatus::Valid, new \DateTimeImmutable('@' . self::NOW), 'PL', 'PL1234567890');
         $id = $this->draft(['customer_id' => $pl, 'eur_rate' => '4.30']);
         $this->svc->issue($id, $this->at());
         $doc = $this->doc($id);

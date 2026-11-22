@@ -55,10 +55,12 @@ final class HttpViesClient implements ViesClient
             return ViesStatus::Unavailable;
         }
         $isValid = $data['isValid'] ?? null;
-        if ($isValid === true) {
-            return ViesStatus::Valid;
-        }
         $userError = $data['userError'] ?? null;
+        // Valid (which enables reverse charge) only without an error or with the definite VALID code: a
+        // service/member-state problem reported next to isValid=true is not a confirmation.
+        if ($isValid === true) {
+            return $userError === null || $userError === 'VALID' ? ViesStatus::Valid : ViesStatus::Unavailable;
+        }
         if ($isValid === false && ($userError === null || in_array($userError, self::DEFINITE_ERRORS, true))) {
             return ViesStatus::Invalid;
         }

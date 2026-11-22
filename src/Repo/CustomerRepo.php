@@ -82,13 +82,19 @@ final class CustomerRepo extends BaseRepo
         return (int) $id;
     }
 
-    /** Stores the VIES result; $at is saved in UTC. Unknown ids (or another company's) change nothing. */
-    public function recordVies(int $id, ViesStatus $status, \DateTimeImmutable $at): void
+    /**
+     * Stores the VIES result; $at is saved in UTC. The row is matched on the VAT id AND country that were
+     * actually checked: when the customer was edited while the (slow) VIES call was in flight, the old answer
+     * is NOT attached to the new number (reverse-charge safety). Unknown ids (or another company's) change nothing.
+     *
+     * @return bool whether the result was stored
+     */
+    public function recordVies(int $id, ViesStatus $status, \DateTimeImmutable $at, string $country, string $vatId): bool
     {
-        $this->scopedUpdate(self::TABLE, $id, [
-            'vies_status' => $status->value,
-            'vies_checked_at' => $at->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d H:i:s'),
-        ]);
+        return $this->db->exec(
+            'UPDATE customers SET vies_status = ?, vies_checked_at = ? WHERE company_id = ? AND id = ? AND vat_id = ? AND country = ?',
+            [$status->value, $at->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d H:i:s'), $this->ctx->id(), $id, $vatId, $country]
+        ) === 1;
     }
 
     /** @return array<string, mixed> */

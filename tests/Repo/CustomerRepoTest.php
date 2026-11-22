@@ -170,7 +170,7 @@ final class CustomerRepoTest extends TestCase
     {
         $id = $this->repo->save(['name' => 'Acme', 'country' => 'PL', 'vat_id' => 'PL1234567890']);
         $at = new \DateTimeImmutable('2026-11-19 10:00:00', new \DateTimeZone('UTC'));
-        $this->repo->recordVies($id, ViesStatus::Valid, $at);
+        $this->repo->recordVies($id, ViesStatus::Valid, $at, 'PL', 'PL1234567890');
         $row = $this->repo->find($id);
         $this->assertSame('valid', $row['vies_status']);
         $this->assertSame('2026-11-19 10:00:00', $row['vies_checked_at']);
@@ -184,15 +184,31 @@ final class CustomerRepoTest extends TestCase
         $this->assertNull($row['vies_status']);
         $this->assertNull($row['vies_checked_at']);
 
-        $this->repo->recordVies($id, ViesStatus::Invalid, $at);
+        $this->repo->recordVies($id, ViesStatus::Invalid, $at, 'PL', 'PL1234567891');
         $this->repo->save(['name' => 'Acme 2', 'country' => 'DE', 'vat_id' => 'DE1234567891'], $id);
         $this->assertNull($this->repo->find($id)['vies_status']);
     }
 
+    public function test_record_vies_only_applies_to_the_vat_id_and_country_that_were_checked(): void
+    {
+        $id = $this->repo->save(['name' => 'Acme', 'country' => 'PL', 'vat_id' => 'PL1234567890']);
+        $at = new \DateTimeImmutable('2026-11-19 10:00:00', new \DateTimeZone('UTC'));
+        // The VAT id was edited while the VIES call was in flight: the old answer must not be attached to the new number.
+        $this->repo->save(['name' => 'Acme', 'country' => 'PL', 'vat_id' => 'PL1234567891'], $id);
+        $this->assertFalse($this->repo->recordVies($id, ViesStatus::Valid, $at, 'PL', 'PL1234567890'));
+        $this->assertNull($this->repo->find($id)['vies_status']);
+        $this->assertFalse($this->repo->recordVies($id, ViesStatus::Valid, $at, 'DE', 'PL1234567891'), 'country must match too');
+        $this->assertNull($this->repo->find($id)['vies_status']);
+        $this->assertTrue($this->repo->recordVies($id, ViesStatus::Valid, $at, 'PL', 'PL1234567891'));
+        $this->assertSame('valid', $this->repo->find($id)['vies_status']);
+        $this->assertFalse($this->repoB->recordVies($id, ViesStatus::Invalid, $at, 'PL', 'PL1234567891'), 'another company');
+        $this->assertSame('valid', $this->repo->find($id)['vies_status']);
+    }
+
     public function test_record_vies_converts_to_utc(): void
     {
-        $id = $this->repo->save(['name' => 'Acme']);
-        $this->repo->recordVies($id, ViesStatus::Unavailable, new \DateTimeImmutable('2026-11-19 12:00:00', new \DateTimeZone('Europe/Berlin')));
+        $id = $this->repo->save(['name' => 'Acme', 'country' => 'PL', 'vat_id' => 'PL1234567890']);
+        $this->repo->recordVies($id, ViesStatus::Unavailable, new \DateTimeImmutable('2026-11-19 12:00:00', new \DateTimeZone('Europe/Berlin')), 'PL', 'PL1234567890');
         $row = $this->repo->find($id);
         $this->assertSame('unavailable', $row['vies_status']);
         $this->assertSame('2026-11-19 11:00:00', $row['vies_checked_at']);
@@ -201,7 +217,7 @@ final class CustomerRepoTest extends TestCase
     public function test_other_company_customers_are_invisible_and_immovable(): void
     {
         $a = $this->repo->save(['name' => 'Alpha']);
-        $b = $this->repoB->save(['name' => 'Beta']);
+        $b = $this->repoB->save(['name' => 'Beta', 'country' => 'PL', 'vat_id' => 'PL1234567890']);
         $this->assertNull($this->repo->find($b));
         $this->assertSame(['Alpha'], array_column($this->repo->list(), 'name'));
         $this->assertSame([], $this->repo->list('beta'));
@@ -214,7 +230,7 @@ final class CustomerRepoTest extends TestCase
         }
         $this->assertSame('Beta', $this->repoB->find($b)['name']);
 
-        $this->repo->recordVies($b, ViesStatus::Valid, new \DateTimeImmutable());
+        $this->assertFalse($this->repo->recordVies($b, ViesStatus::Valid, new \DateTimeImmutable(), 'PL', 'PL1234567890'));
         $this->assertNull($this->repoB->find($b)['vies_status']);
 
         // company_id in the payload is ignored
