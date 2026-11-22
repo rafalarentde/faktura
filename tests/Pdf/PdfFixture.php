@@ -120,7 +120,8 @@ final class PdfFixture
         $id = $repo->save($data + ['name' => 'Bauhaus Logistik GmbH', 'address' => "Hauptstraße 5\n80331 München", 'country' => 'DE',
             'vat_id' => 'DE123456789', 'is_company' => '1', 'payment_days' => '14', 'default_lang' => 'de', 'default_currency' => 'EUR']);
         if ($vies !== null) {
-            $repo->recordVies($id, $vies, new \DateTimeImmutable('@' . self::NOW));
+            $row = $repo->find($id);
+            $repo->recordVies($id, $vies, new \DateTimeImmutable('@' . self::NOW), (string) $row['country'], (string) $row['vat_id']);
         }
         return $id;
     }
