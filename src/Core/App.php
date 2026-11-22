@@ -445,6 +445,8 @@ final class App
         $t = fn (string $key, array $vars = []): string => $this->t($key, $vars);
         $twig->addFunction(new TwigFunction('t', $t));
         $twig->addFilter(new TwigFilter('t', $t));
+        // Name shown in the "by ..." line of the brand (config `brand_name`; the lang texts hold no company name).
+        $twig->addFunction(new TwigFunction('brand_name', fn (): string => is_string($b = $this->config('brand_name')) && $b !== '' ? $b : 'Pan Behapowiec'));
         $twig->addFunction(new TwigFunction('csrf_token', fn (): string => $this->csrf()->token()));
         $twig->addFunction(new TwigFunction(
             'csrf_field',

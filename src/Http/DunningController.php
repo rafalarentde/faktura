@@ -242,6 +242,8 @@ final class DunningController extends AbstractDocumentController
             'toggles' => $toggles,
             'interest' => [
                 'available' => (bool) $ctx['base_rate_set'],
+                // The company's configured B2B surcharge (percentage points over the base rate), not a literal in the text.
+                'points' => Percent::format(DunningSettings::fromCompanyRow($this->ctx()->company())->b2bSurchargeBp, $lang),
                 'hint' => $rate === null ? null : $this->app->t('dunning.interest_hint', ['rate' => Percent::format((int) $rate, $lang),
                     'kind' => $this->app->t($ctx['is_company'] ? 'dunning.kind_b2b' : 'dunning.kind_b2c'), 'days' => (string) $ctx['days_overdue']]),
             ],

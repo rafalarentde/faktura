@@ -260,6 +260,16 @@ final class DunningControllerTest extends HttpTestCase
         $this->assertSame([0, 0], [$this->dunnings(), $this->counter()]);
     }
 
+    public function test_the_interest_hint_shows_the_companys_b2b_surcharge_not_a_fixed_number(): void
+    {
+        $this->db->exec('UPDATE companies SET dunning_base_rate_bp = NULL, dunning_b2b_surcharge_bp = 700 WHERE id = ?', [$this->companyA]);
+        $id = $this->invoice();
+        $this->login();
+        $page = $this->plain($this->getQ('/dunning/new', ['invoice' => (string) $id])->body);
+        $this->assertStringContainsString('Basiszins + 7 Prozentpunkte (B2B)', $page);
+        $this->assertStringNotContainsString('+ 9 Prozentpunkte', $page);
+    }
+
     public function test_interest_disabled_without_base_rate(): void
     {
         $this->db->exec('UPDATE companies SET dunning_base_rate_bp = NULL WHERE id = ?', [$this->companyA]);

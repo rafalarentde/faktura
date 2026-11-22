@@ -115,7 +115,7 @@ final class TranslatorTest extends TestCase
     {
         $tr = $this->real();
         $this->assertSame('Hasło', $tr->t('login.password', 'pl'));
-        $this->assertSame('Opłacona', $tr->t('status.paid', 'pl'));
+        $this->assertSame('Opłacona', $tr->t('invoice.status_paid', 'pl'));
         $this->assertSame('Rechnung', $tr->t('invoice.title', 'de'));
         $all = implode('', array_map(fn ($k) => $tr->t($k, 'pl'), $tr->keys('pl')));
         foreach (['ą', 'ć', 'ę', 'ł', 'ń', 'ó', 'ś', 'ż'] as $ch) {

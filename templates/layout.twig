@@ -34,7 +34,7 @@
         <div class="side-top">
             <a class="brand" href="/">
                 <span class="brand-mark" aria-hidden="true">F</span>
-                <span class="brand-text"><b>Faktura</b><small>{{ t('nav.byline') }}</small></span>
+                <span class="brand-text"><b>Faktura</b><small>{{ t('nav.byline', {name: brand_name()}) }}</small></span>
             </a>
             <button type="button" class="nav-toggle" data-nav-toggle aria-controls="side-panel" aria-expanded="false" aria-label="{{ t('nav.menu') }}">{{ icons.icon('menu') }}</button>
         </div>

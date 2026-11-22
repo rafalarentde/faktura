@@ -19,7 +19,7 @@
     <div class="auth-card">
         <div class="brand auth-brand">
             <span class="brand-mark" aria-hidden="true">F</span>
-            <span class="brand-text"><b>Faktura</b><small>{{ t('nav.byline') }}</small></span>
+            <span class="brand-text"><b>Faktura</b><small>{{ t('nav.byline', {name: brand_name()}) }}</small></span>
         </div>
         {% block content %}{% endblock %}
     </div>

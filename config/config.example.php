@@ -13,6 +13,7 @@ return [
     'app_key' => 'BASE64_32_BYTES_PLACEHOLDER',
     'debug' => false,               // never true in production: it shows exception details on the page
     'promo_enabled' => false,
+    // 'brand_name' => 'Pan Behapowiec',   // optional: the name in the "by ..." line under the logo (default shown)
     'base_url' => 'https://example.com', // https => the app also sends Strict-Transport-Security
     // Optional: writable directory with pdf-cache/, tmp/ and logos/ (default: <app>/storage).
     // 'storage_path' => '/home/user/faktura-storage',

@@ -246,4 +246,13 @@ final class LayoutTest extends HttpTestCase
         $this->assertStringContainsString('try', $js);
         $this->assertStringContainsString('catch', $js);
     }
+
+    public function test_the_brand_byline_uses_the_configured_name(): void
+    {
+        $this->assertStringContainsString('von Pan Behapowiec', $this->get('/login')->body, 'default');
+        $this->app = $this->makeApp(['brand_name' => 'Acme <Studio>']);
+        $body = $this->get('/login')->body;
+        $this->assertStringContainsString('von Acme &lt;Studio&gt;', $body);
+        $this->assertStringNotContainsString('Behapowiec', $body);
+    }
 }
