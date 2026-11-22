@@ -59,7 +59,7 @@ final class BackupCodes
                     // The used_at IS NULL guard makes a concurrent double-spend impossible.
                     return $db->exec(
                         'UPDATE backup_codes SET used_at = ? WHERE id = ? AND used_at IS NULL',
-                        [date('Y-m-d H:i:s'), $row['id']]
+                        [gmdate('Y-m-d H:i:s'), $row['id']]
                     ) === 1;
                 }
             }

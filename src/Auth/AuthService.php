@@ -134,11 +134,20 @@ final class AuthService
             return $this->secret($user);
         }
         $secret = $this->totp->newSecret();
-        $this->db->exec(
-            'UPDATE users SET totp_secret_enc = ? WHERE id = ? AND totp_enabled = 0',
+        // Only while no secret exists: two tabs opening /2fa/setup at once must not overwrite each other
+        // (the QR code of the loser would then never validate). Whoever lost shows the stored secret.
+        $written = $this->db->exec(
+            'UPDATE users SET totp_secret_enc = ? WHERE id = ? AND totp_enabled = 0 AND totp_secret_enc IS NULL',
             [$this->crypto->encrypt($secret), $userId]
         );
-        return $secret;
+        if ($written === 1) {
+            return $secret;
+        }
+        $current = $this->db->one('SELECT totp_secret_enc, totp_enabled FROM users WHERE id = ?', [$userId]);
+        if ($current === null || (int) $current['totp_enabled'] === 1 || empty($current['totp_secret_enc'])) {
+            throw new \LogicException('No pending TOTP setup for this user.');
+        }
+        return $this->secret($current);
     }
 
     /** Confirms the pending secret with a valid code; on success the result carries 8 backup codes (show once). */

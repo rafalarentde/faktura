@@ -12,6 +12,8 @@ final class Session
     public const COOKIE_NAME = 'faktura_sid';
     public const IDLE_TIMEOUT = 7200;
     public const ABSOLUTE_LIFETIME = 43200;
+    /** Seconds the password-only stage may wait for the second factor; then back to /login. */
+    public const PASSWORD_STAGE_TTL = 600;
 
     private const K_USER = '_uid';
     private const K_STAGE = '_stage';
@@ -59,6 +61,12 @@ final class Session
             $this->store->clear();
             $this->store->regenerate();
         }
+        // The half-logged-in state must not linger: the password stage is only valid for a short time.
+        $pwAt = $this->store->get(self::K_PW_AT);
+        if ($this->store->get(self::K_STAGE) === 'password_ok' && is_int($pwAt) && $now - $pwAt > self::PASSWORD_STAGE_TTL) {
+            $this->store->clear();
+            $this->store->regenerate();
+        }
         if (!is_int($this->store->get(self::K_CREATED))) {
             $this->store->set(self::K_CREATED, $now);
         }
@@ -98,6 +106,7 @@ final class Session
         $this->store->regenerate();
         $this->store->set(self::K_USER, $userId);
         $this->store->set(self::K_STAGE, 'password_ok');
+        $this->store->set(self::K_PW_AT, ($this->clock)());
         $this->store->remove(self::K_COMPANY);
         $this->store->set(self::K_CREATED, ($this->clock)());
     }
@@ -114,6 +123,7 @@ final class Session
         }
         $this->store->regenerate();
         $this->store->set(self::K_STAGE, 'full');
+        $this->store->remove(self::K_PW_AT);
         $this->store->set(self::K_EPOCH, $epoch);
         $this->store->remove(self::K_COMPANY);
     }

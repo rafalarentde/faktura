@@ -34,6 +34,24 @@ final class BackupCodesTest extends TestCase
         }
     }
 
+    public function test_used_at_is_stored_in_utc_whatever_the_php_timezone(): void
+    {
+        $before = date_default_timezone_get();
+        date_default_timezone_set('Asia/Tokyo'); // +09:00: a local date() would be 9 hours ahead
+        try {
+            $db = \TestDb::fresh();
+            $bc = new BackupCodes($db);
+            $code = $bc->generate(1)[0];
+            $t0 = time();
+            $this->assertTrue($bc->consume(1, $code));
+            $used = (string) $db->one('SELECT used_at FROM backup_codes WHERE used_at IS NOT NULL')['used_at'];
+            $ts = (new \DateTimeImmutable($used, new \DateTimeZone('UTC')))->getTimestamp();
+            $this->assertEqualsWithDelta($t0, $ts, 5);
+        } finally {
+            date_default_timezone_set($before);
+        }
+    }
+
     public function test_consume_works_exactly_once(): void
     {
         $db = \TestDb::fresh();

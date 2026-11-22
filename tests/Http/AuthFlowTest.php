@@ -36,6 +36,18 @@ final class AuthFlowTest extends HttpTestCase
         $this->assertStringContainsString('inputmode="numeric"', $page->body);
     }
 
+    public function test_password_only_stage_expires_back_to_login_after_ten_minutes(): void
+    {
+        ['secret' => $secret] = $this->createUser();
+        $this->assertRedirect('/login/2fa', $this->loginPassword());
+        $this->now += 601;
+        $this->assertRedirect('/login', $this->get('/login/2fa'));
+        $r = $this->post('/login/2fa', ['code' => $this->code($secret)]);
+        $this->assertRedirect('/login', $r);
+        $this->assertSame('none', $this->app->session()->loginStage());
+        $this->assertSame(0, (int) $this->db->one('SELECT COUNT(*) AS n FROM backup_codes')['n']);
+    }
+
     public function test_current_user_is_null_until_full_login(): void
     {
         ['id' => $id, 'secret' => $secret] = $this->createUser();

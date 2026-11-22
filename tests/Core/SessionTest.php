@@ -19,6 +19,14 @@ final class SessionTest extends TestCase
         return $s;
     }
 
+    /** A fully logged-in session (the password-only stage has its own 10 minute limit). */
+    private function login(ArraySessionStore $store, int $userId): void
+    {
+        $s = $this->session($store);
+        $s->passwordOk($userId);
+        $s->fullLogin();
+    }
+
     public function test_stages(): void
     {
         $store = new ArraySessionStore();
@@ -34,6 +42,40 @@ final class SessionTest extends TestCase
         $s->logout();
         $this->assertSame('none', $s->loginStage());
         $this->assertTrue($store->wasDestroyed());
+    }
+
+    public function test_password_stage_expires_after_ten_minutes_back_to_login(): void
+    {
+        $store = new ArraySessionStore();
+        $this->session($store)->passwordOk(5);
+        $this->now += Session::PASSWORD_STAGE_TTL;
+        $s = $this->session($store);
+        $this->assertSame('password_ok', $s->loginStage(), 'exactly at the limit it is still valid');
+        $this->now += 1;
+        $s = $this->session($store);
+        $this->assertSame('none', $s->loginStage());
+        $this->assertNull($s->userId());
+    }
+
+    public function test_the_password_stage_clock_is_not_extended_by_activity(): void
+    {
+        $store = new ArraySessionStore();
+        $this->session($store)->passwordOk(5);
+        for ($i = 0; $i < 4; $i++) {
+            $this->now += 200; // requests every 200 s keep the idle timer alive, not the 10 minute stage
+            $s = $this->session($store);
+        }
+        $this->assertSame('none', $s->loginStage());
+    }
+
+    public function test_a_full_login_does_not_expire_with_the_password_stage_ttl(): void
+    {
+        $store = new ArraySessionStore();
+        $s = $this->session($store);
+        $s->passwordOk(5);
+        $s->fullLogin(0);
+        $this->now += Session::PASSWORD_STAGE_TTL + 1;
+        $this->assertSame('full', $this->session($store)->loginStage());
     }
 
     public function test_full_login_requires_password_stage(): void
@@ -57,7 +99,7 @@ final class SessionTest extends TestCase
     public function test_idle_timeout(): void
     {
         $store = new ArraySessionStore();
-        $this->session($store)->passwordOk(1);
+        $this->login($store, 1);
         $this->now += Session::IDLE_TIMEOUT;
         $this->assertSame(1, $this->session($store)->userId());
         $this->now += Session::IDLE_TIMEOUT + 1;
@@ -69,7 +111,7 @@ final class SessionTest extends TestCase
         $store = new ArraySessionStore();
         $this->session($store);
         $this->now += 10 * 3600; // anonymous session ages; login resets the absolute clock
-        $this->session($store)->passwordOk(1);
+        $this->login($store, 1);
         for ($i = 0; $i < 12; $i++) {
             $this->now += 3600;
             $this->assertSame(1, $this->session($store)->userId(), "hour $i");

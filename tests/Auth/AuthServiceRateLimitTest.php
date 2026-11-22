@@ -114,6 +114,22 @@ final class AuthServiceRateLimitTest extends TestCase
         $this->assertSame(0, $this->attempts());
     }
 
+    public function test_setup_secret_is_written_only_when_none_exists_so_concurrent_tabs_agree(): void
+    {
+        $id = (new UserService($this->db))->create('a@example.pl', self::PW, false);
+        $other = $this->totp->newSecret();
+        // A second tab stores its secret between our read and our write.
+        $this->pdo->onPrepare = function (string $sql) use ($id, $other): void {
+            if (str_starts_with($sql, 'UPDATE users SET totp_secret_enc')) {
+                $this->pdo->onPrepare = null;
+                $this->db->exec('UPDATE users SET totp_secret_enc = ? WHERE id = ?', [$this->crypto->encrypt($other), $id]);
+            }
+        };
+        $this->assertSame($other, $this->auth->pendingTotpSecret($id), 'the first writer wins; we show its secret');
+        $this->assertSame($other, $this->crypto->decrypt((string) $this->db->one('SELECT totp_secret_enc FROM users WHERE id = ?', [$id])['totp_secret_enc']));
+        $this->assertSame($other, $this->auth->pendingTotpSecret($id));
+    }
+
     public function test_totp_setup_confirmation_is_hit_first(): void
     {
         $id = (new UserService($this->db))->create('a@example.pl', self::PW, false);
