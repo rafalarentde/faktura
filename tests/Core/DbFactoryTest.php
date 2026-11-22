@@ -27,6 +27,11 @@ final class DbFactoryTest extends TestCase
         $this->assertTrue($o[\PDO::MYSQL_ATTR_FOUND_ROWS]);
         $this->assertFalse($o[\PDO::ATTR_EMULATE_PREPARES]);
         $this->assertSame(\PDO::ERRMODE_EXCEPTION, $o[\PDO::ATTR_ERRMODE]);
+        // Strict mode (no silent truncation of money/text) and UTC for CURRENT_TIMESTAMP, set on every connection.
+        $this->assertSame(
+            "SET sql_mode='STRICT_ALL_TABLES,NO_ENGINE_SUBSTITUTION', time_zone='+00:00'",
+            $o[\PDO::MYSQL_ATTR_INIT_COMMAND]
+        );
         $this->assertSame(
             'mysql:host=db.local;port=3307;dbname=fak;charset=utf8mb4',
             DbFactory::mysqlDsn(['host' => 'db.local', 'port' => 3307, 'name' => 'fak'])

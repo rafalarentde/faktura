@@ -56,6 +56,26 @@ final class Db
         return $st->fetchAll();
     }
 
+    /**
+     * Runs $fn (a whole unit of work that opens and commits its own transaction) and, on MySQL only, runs it
+     * ONE more time when the server aborted it with a deadlock (1213) or a lock wait timeout (1205). Both mean
+     * nothing of the first run was kept, so a second run is safe. Not retried inside an already open
+     * transaction (the server rolled that one back as a whole: only its owner can redo it), and any other
+     * error, or a second failure, propagates unchanged.
+     */
+    public function retryOnLockError(callable $fn): mixed
+    {
+        try {
+            return $fn();
+        } catch (\PDOException $e) {
+            $code = (int) ($e->errorInfo[1] ?? 0);
+            if ($this->driver !== 'mysql' || !in_array($code, [1213, 1205], true) || $this->pdo->inTransaction()) {
+                throw $e;
+            }
+        }
+        return $fn();
+    }
+
     /** @return array<string,mixed>|null */
     public function one(string $sql, array $p = []): ?array
     {

@@ -46,6 +46,9 @@ final class DbFactory
             \PDO::ATTR_EMULATE_PREPARES => false,
             // rowCount() reports matched rather than changed rows, like SQLite.
             \PDO::MYSQL_ATTR_FOUND_ROWS => true,
+            // Strict mode: out-of-range or too-long values are errors, not silently truncated (money!);
+            // UTC for the session so CURRENT_TIMESTAMP defaults match the UTC the application stores.
+            \PDO::MYSQL_ATTR_INIT_COMMAND => "SET sql_mode='STRICT_ALL_TABLES,NO_ENGINE_SUBSTITUTION', time_zone='+00:00'",
         ];
     }
 }

@@ -302,7 +302,8 @@ abstract class AbstractDocumentController
     {
         $confirm = $request->input('confirm_vat') === '1';
         try {
-            $number = $this->service()->issue($id, $this->now(), $confirm);
+            // One retry when MySQL aborts the issue with a deadlock/lock wait (nothing was written then).
+            $number = $this->app->db()->retryOnLockError(fn (): string => $this->service()->issue($id, $this->now(), $confirm));
         } catch (VatNeedsConfirmation) {
             return $this->editorFor($id, $form, ['confirm_vat' => 'invoice.err_confirm_vat'], 422);
         } catch (AccessSuspended) {

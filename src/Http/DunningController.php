@@ -153,7 +153,8 @@ final class DunningController extends AbstractDocumentController
             return $this->previewPage($invoiceId, '', $toggles, ['level' => 'dunning.err_level'], 422);
         }
         try {
-            $id = $this->service()->createDunning($invoiceId, $level, $toggles['interest'], $toggles['flat_fee'], $toggles['fee'], $this->now());
+            // One retry when MySQL aborts the creation with a deadlock/lock wait (nothing was written then).
+            $id = $this->app->db()->retryOnLockError(fn (): int => $this->service()->createDunning($invoiceId, $level, $toggles['interest'], $toggles['flat_fee'], $toggles['fee'], $this->now()));
         } catch (DocumentNotFound) {
             return $this->notFound();
         } catch (AccessSuspended) {
