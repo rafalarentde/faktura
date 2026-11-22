@@ -102,7 +102,7 @@ final class SecurityHeadersTest extends HttpTestCase
     public function test_real_config_and_storage_contents_are_git_ignored(): void
     {
         $ignore = (string) file_get_contents(self::ROOT . '/.gitignore');
-        foreach (['/config/config.php', '/vendor/', '/storage/pdf-cache/*', '/storage/tmp/*', '/storage/logos/*'] as $rule) {
+        foreach (['/config/config.php', '/vendor/', '/storage/pdf-cache/*', '/storage/tmp/*', '/storage/logos/*', '/storage/archive/*'] as $rule) {
             $this->assertStringContainsString($rule, $ignore);
         }
     }

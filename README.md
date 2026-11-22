@@ -50,4 +50,4 @@ Instrukcja: [docs/DEPLOY.md](docs/DEPLOY.md).
 
 `src/` kod, `templates/` Twig, `lang/` tłumaczenia (jeden plik na język), `migrations/` SQL,
 `bin/` skrypty CLI, `public/` jedyny katalog widoczny z sieci, `storage/` zapisywalne dane
-(`pdf-cache`, `tmp`, `logos`), `resources/fonts/` czcionki PDF, `docs/` projekt i plan.
+(`pdf-cache`, `tmp`, `logos`, `archive`: archiwalne PDF wystawionych dokumentów, wchodzi do kopii zapasowych), `resources/fonts/` czcionki PDF, `docs/` projekt i plan.

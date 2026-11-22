@@ -6,7 +6,7 @@ Po każdym pushu na `main` GitHub Actions (`.github/workflows/deploy.yml`) uruch
 paczkę przez `bin/build-release.sh` i wypycha ją (jeden commit, force-push) na gałąź **`deploy`**.
 Gałąź `deploy` zawiera gotowe drzewo: `src/`, `templates/`, `lang/`, `migrations/`, `public/`,
 `resources/fonts/`, `bin/`, `config/*.php` (bez `config.php`), `vendor/` (tylko produkcyjne), puste
-`storage/{pdf-cache,tmp,logos}`. Nie ma w niej `tests/`, `docs/`, `.git*`, `.superpowers`.
+`storage/{pdf-cache,tmp,logos,archive}`. Nie ma w niej `tests/`, `docs/`, `.git*`, `.superpowers`.
 
 Paczkę można zbudować też ręcznie: `bin/build-release.sh [katalog]` (domyślnie `build/`), wynik to
 `build/faktura-release/` i `build/faktura-release.tar.gz`. Skrypt kończy się błędem, jeśli
@@ -45,13 +45,36 @@ zostać skasowane przy aktualizacji: nie uruchamiaj `git clean -x` w katalogu ap
 3. `app_key` to base64 z 32 losowych bajtów: `php -r 'echo base64_encode(random_bytes(32)), "\n";'`.
    Szyfruje sekrety TOTP i hasła SMTP. **Zrób jego kopię w menedżerze haseł**: utrata lub zmiana klucza
    oznacza, że sekrety 2FA i hasła SMTP trzeba ustawić od nowa. Uprawnienia pliku: `chmod 600`.
-4. Opcjonalnie `storage_path` (zapisywalny katalog z `pdf-cache/`, `tmp/`, `logos/`) poza drzewem aplikacji.
+4. Opcjonalnie `storage_path` (zapisywalny katalog z `pdf-cache/`, `tmp/`, `logos/`, `archive/`) poza drzewem aplikacji.
 
 ## 4. Katalog storage/
 
-Serwer WWW (użytkownik PHP) musi mieć prawo zapisu do `storage/pdf-cache`, `storage/tmp` i
-`storage/logos` (zwykle `chmod 755`/`775`, właściciel = konto hostingowe). Zawartość tych katalogów
-nie jest w Gicie. `storage/` nie może być pod `public/`.
+Serwer WWW (użytkownik PHP) musi mieć prawo zapisu do `storage/pdf-cache`, `storage/tmp`,
+`storage/logos` i **`storage/archive`** (zwykle `chmod 755`/`775`, właściciel = konto hostingowe).
+Zawartość tych katalogów nie jest w Gicie. `storage/` nie może być pod `public/`.
+
+### Archiwum PDF (GoBD): `storage/archive/`
+
+Każdy wystawiony dokument (faktura, korekta, oferta, wezwanie) ma zarchiwizowany plik PDF w
+`storage/archive/<id_firmy>/<id_dokumentu>.pdf` (katalogi `0700`, pliki `0600`, poza webrootem). Plik powstaje
+od razu po wystawieniu (przy błędzie zapisu: przy pierwszym podglądzie PDF, wysyłce maila lub eksporcie) i jest
+**zapisywany tylko raz**: pobranie, załącznik maila i eksport ZIP zawsze oddają te same bajty, więc późniejsza
+zmiana logo, tekstów, szablonu czy danych firmy nie zmienia już wystawionego dokumentu. Suma SHA-256 jest w
+tabeli `document_archives` (UNIQUE po `document_id`) oraz, dla każdej wysyłki, w `email_log.pdf_sha256`.
+
+- **To są dane prawnie istotne (Aufbewahrung, GoBD).** `storage/archive/` **musi wchodzić do kopii zapasowych**
+  razem z bazą (inaczej niż `pdf-cache/` i `tmp/`, które można skasować) i nie wolno go czyścić. Kopię bazy i
+  archiwum rób z tego samego momentu; nie uruchamiaj `git clean -x` w katalogu aplikacji.
+- Brak zapisu do `storage/archive` powoduje błąd 500 przy pobraniu/wysyłce PDF (celowo: dokument bez
+  archiwalnej kopii nie jest oddawany).
+- Brakujący plik (utrata dysku, odtworzenie bazy bez plików) program wygeneruje ponownie, zapisze i zapisze
+  zdarzenie `document.archive_restored` w dzienniku (`sha_changed` = czy nowy PDF różni się od zapisanej sumy;
+  suma w bazie jest wtedy aktualizowana). Taki PDF może się różnić od oryginału, jeśli teksty lub logo
+  zmieniły się w międzyczasie: dlatego kopie zapasowe archiwum są obowiązkowe.
+- Plik, którego suma SHA-256 nie zgadza się z zapisaną, jest traktowany jako naruszenie integralności:
+  błąd 500, plik nie jest ani oddawany, ani nadpisywany.
+- Plik bez wiersza w bazie (np. baza odtworzona ze starszej kopii) nie jest nigdy uznawany za archiwum:
+  przy archiwizacji dokumentu o tym id zostaje zastąpiony nowym plikiem.
 
 ## 5. Baza danych i pierwszy użytkownik
 
@@ -111,8 +134,9 @@ zdarzenia biznesowe zostają):
   do jednej faktury, wystawienie podczas edycji szkicu, zmiana „zerowanie co rok" w trakcie wystawiania.
   Sprawdź też UNIQUE `(company_id, type, number)` i ponowienie po duplikacie (R24).
 - [ ] **Kopie zapasowe:** włączone kopie Hostingera (baza + pliki), osobny eksport bazy (`mysqldump`)
-  przed każdym wdrożeniem z migracją, kopia `config.php` i `app_key` poza hostingiem. Sprawdź
-  odtworzenie z kopii.
+  przed każdym wdrożeniem z migracją, kopia `config.php` i `app_key` poza hostingiem. **Kopia obejmuje
+  `storage/archive/`** (archiwalne PDF-y wystawionych dokumentów, dane prawnie istotne; `pdf-cache/` i `tmp/`
+  nie są potrzebne). Sprawdź odtworzenie z kopii: baza + archiwum z tego samego momentu.
 - [ ] **HTTPS i HSTS:** certyfikat aktywny, przekierowanie http -> https, `base_url` z `https://`,
   w odpowiedzi nagłówek `Strict-Transport-Security`, ciasteczko sesji z `Secure`.
 - [ ] `debug => false`, `promo_enabled => false`, `mail_allow_private_hosts => false`.
@@ -152,6 +176,23 @@ zdarzenia biznesowe zostają):
   miała zerowanie roczne i je wyłączyła. Unikalność jest wymogiem prawnym, ciągłość pilnuje program
   w zwykłym użyciu. Zmiana formatu w trakcie roku może dać numer równy już wystawionemu: wtedy program
   losuje kolejny licznik (R24).
+- **Storno płatności:** płatność można anulować (kontr-zapis z ujemną kwotą, `payments.reverses_payment_id`;
+  wiersze płatności nigdy nie są zmieniane ani kasowane). Każdą płatność można anulować raz, tylko w całości
+  i tylko dla wystawionej faktury; zapis jest w dzienniku (`document.payment_reverse`). Kwota zapłacona,
+  saldo, status, lista wezwań i pulpit liczą **sumę netto**, więc po stornie faktura wraca do „otwartej"
+  (lub „po terminie"). Data płatności nie może być w przyszłości.
+- **Data wsteczna wystawienia (§14 UStG, kolejność numerów):** program pozwala wystawić dokument z datą
+  wcześniejszą niż ostatnio wystawiony dokument tego rodzaju (np. po urlopie), ale ostrzega w formularzu
+  (bez blokady). Numery rosną z kolejnością wystawiania, nie z datami: Steuerberater powinien potwierdzić,
+  czy takie odstępstwa są dla firmy akceptowalne (pkt 3 poniżej).
+- **Odsetki za zwłokę, ograniczenia:** stopa bazowa jest wpisywana ręcznie w formularzu w zakresie
+  **0 do 30 %** (ujemnej stopy bazowej, obowiązującej do 2022 r., nie da się wpisać: przy ujemnej stopie ustawienie 0
+  zawyża ustawowe odsetki, więc w takim okresie nie włączaj odsetek albo skoryguj kwotę ręcznie; model
+  obliczeń zna wartości ujemne, formularz ich nie przyjmuje); dopłata B2B/B2C 0 do 20 pkt, ryczałt i opłata
+  0 do 1000 €, progi 1 do 365 dni. **Jedna stopa na cały okres:** odsetki liczone są jedną roczną stopą
+  (stopa bazowa + dopłata, stan na dzień wezwania) przez wszystkie dni zwłoki; zmiany stopy bazowej
+  1 stycznia i 1 lipca (§247 BGB) w trakcie zwłoki nie są rozdzielane na okresy. Odsetki zerowe lub ujemne
+  (stopa łączna <= 0) nie są drukowane w wezwaniu.
 - **Interfejs po niemiecku używa nieformalnego „du"** (zgodnie z makietą i sevDesk). Zmiana na „Sie" to
   edycja tekstów w `lang/de.php`.
 - **Pulpit i listy faktur** ładują faktury firmy do PHP i liczą statusy w pamięci; przy tysiącach faktur
@@ -169,12 +210,16 @@ ostrożne wartości domyślne i wymagają potwierdzenia przed użyciem produkcyj
    faktury bez VAT z adnotacją §19. Potwierdzić, że żadna z firm nie jest Kleinunternehmerem.
 2. **Obowiązkowe dane faktury, §14 UStG:** nazwa i adres wystawcy i nabywcy, Steuernummer lub USt-IdNr
    wystawcy, data wystawienia, numer jednorazowy i kolejny, rodzaj i ilość towaru lub zakres usługi,
-   data dostawy/wykonania usługi, netto per stawka, stawka i kwota VAT, rabaty, adnotacje. Program
+   data dostawy/wykonania usługi (pusta = data wystawienia, wtedy dokument ma adnotację „Leistungsdatum
+   entspricht Rechnungsdatum"; okres rozliczeniowy nie ma osobnego pola, wystarczy opisać go w pozycji),
+   netto per stawka, stawka i kwota VAT, rabaty, adnotacje. Program
    nie pozwala wystawić faktury bez danych wystawcy/nabywcy i numeru podatkowego (R29); potwierdzić
    kompletność układu PDF i polskich/angielskich wersji.
 3. **Numeracja jednorazowa i ciągła (§14 UStG):** edytowalne formaty, numeracja bez dziur w zwykłym
    użyciu, pomijanie (nie powtarzanie) w przypadku z pkt „Numeracja (R23)". Czy dopuszczalne są
-   pominięcia w opisanym rzadkim przypadku?
+   pominięcia w opisanym rzadkim przypadku? **Data wsteczna:** dokument można wystawić z datą
+   wcześniejszą niż ostatnio wystawiony tego rodzaju (z ostrzeżeniem, bez blokady); numer jest wtedy
+   wyższy niż w dokumentach z późniejszą datą. Czy to dopuszczalne i jak to opisać w Verfahrensdokumentation?
 4. **Reverse Charge:** tekst adnotacji (DE: „Steuerschuldnerschaft des Leistungsempfängers ...
    Innergemeinschaftliche Leistung gemäß Art. 196 MwStSystRL", PL i EN analogicznie), numery VAT obu stron,
    weryfikacja VIES zapisywana z datą. Tekst dotyczy usług; dla dostaw towarów do UE obowiązuje inna
@@ -185,14 +230,23 @@ ostrożne wartości domyślne i wymagają potwierdzenia przed użyciem produkcyj
    bazowa zmienia się co pół roku i jest wpisywana ręcznie w ustawieniach), ryczałt 40 € (§288 ust. 5 BGB,
    tylko B2B), ewentualna opłata za wezwanie. Odsetki i ryczałt są domyślnie wyłączone i włączane
    świadomie przy każdym wezwaniu. Potwierdzić wzory, kwoty i terminy kolejnych stopni.
-8. **GoBD:** niezmienność wystawionych dokumentów (brak edycji i usuwania, tylko korekta), dziennik
-   zdarzeń (wpisy logowań są kasowane po 90 dniach, zdarzenia biznesowe zostają), brak archiwizacji
-   treści maili (jest tylko `email_log`), potrzeba dokumentacji procesowej (Verfahrensdokumentation).
+8. **GoBD:** niezmienność wystawionych dokumentów (brak edycji i usuwania, tylko korekta), archiwalna
+   kopia PDF zapisywana raz (`storage/archive/`, suma SHA-256, zapis w bazie i w `email_log`; patrz
+   sekcja 4), dziennik zdarzeń (wpisy logowań są kasowane po 90 dniach, zdarzenia biznesowe zostają),
+   brak archiwizacji treści maili (jest tylko `email_log` z sumą załączonego PDF), potrzeba dokumentacji
+   procesowej (Verfahrensdokumentation). Do potwierdzenia: czy archiwum plikowe plus baza spełnia wymogi
+   niezmienności i czytelności (Unveränderbarkeit, maszynowa ocena danych), oraz data wsteczna (pkt 3).
 9. **Okres przechowywania (Aufbewahrung):** przyjęto 8 lat dla faktur i dokumentów księgowych;
    potwierdzić okres i to, że aplikacja ani administrator nie usuwają wystawionych dokumentów w tym czasie.
    Eksport ZIP (dokumenty, klienci, towary, PDF) jest dostępny także dla firmy wstrzymanej.
-10. **E-Rechnung:** model danych ma umożliwiać ZUGFeRD/XRechnung, ale pierwsza wersja wystawia tylko
-    PDF. Sprawdzić obowiązki wystawiania e-faktur w B2B w Niemczech i terminy przejściowe.
+10. **E-Rechnung:** w Niemczech od 1.1.2025 każdy przedsiębiorca krajowy w B2B musi umieć **odbierać**
+    e-faktury (XRechnung/ZUGFeRD, EN 16931); sam PDF nie jest e-fakturą. **Obowiązek wystawiania** e-faktur
+    w krajowym B2B: od **1.1.2027** dla firm z obrotem ponad 800 000 € w roku poprzednim, od **1.1.2028**
+    dla wszystkich (do końca 2026 oraz do końca 2027 dla mniejszych firm dopuszczalne są jeszcze faktury
+    papierowe/PDF za zgodą odbiorcy). **Aplikacja produkuje wyłącznie PDF**; ZUGFeRD (PDF/A-3 z XML) jest
+    planowany, ale jeszcze go nie ma. Do ustalenia ze Steuerberaterem: od kiedy konkretna firma musi
+    wystawiać e-faktury i jak do tego czasu obsługiwać odbiór (osobna skrzynka e-mail dla e-faktur, archiwizacja
+    otrzymanych XML przez firmę poza tą aplikacją).
 11. **Hostinger, lokalizacja danych i DSGVO:** w jakim kraju/centrum danych leży baza i pliki, umowa
     powierzenia przetwarzania (**AV-Vertrag**, art. 28 RODO) z Hostingerem, umowy z klientami korzystającymi
     z aplikacji jako podmiotami przetwarzającymi dane swoich kontrahentów, okresy retencji danych osobowych

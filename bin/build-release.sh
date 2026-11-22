@@ -43,7 +43,7 @@ echo "==> Installing production dependencies"
 find "$DEST" -name '.git' -prune -exec rm -rf {} +
 
 echo "==> Creating empty writable storage directories"
-for d in pdf-cache tmp logos; do
+for d in pdf-cache tmp logos archive; do
     mkdir -p "$DEST/storage/$d"
     : > "$DEST/storage/$d/.gitkeep"
 done
@@ -51,7 +51,7 @@ done
 echo "==> Checking required release contents"
 for p in public/index.php public/.htaccess public/assets resources/fonts lang templates migrations \
          config/config.example.php vendor/autoload.php bin/migrate.php bin/create-user.php bin/purge-audit.php \
-         storage/pdf-cache/.gitkeep storage/tmp/.gitkeep storage/logos/.gitkeep; do
+         storage/pdf-cache/.gitkeep storage/tmp/.gitkeep storage/logos/.gitkeep storage/archive/.gitkeep; do
     [ -e "$DEST/$p" ] || { echo "Missing in release: $p" >&2; exit 1; }
 done
 ls "$DEST"/resources/fonts/*.ttf >/dev/null
