@@ -130,7 +130,7 @@ abstract class AbstractDocumentController
             return $this->editor(null, $form, InvoiceForm::remapErrors($e->errors, $parsed['rows']), 422);
         }
         if ($request->input('intent') === 'issue' || $request->input('then') === 'send') {
-            return $this->issueSaved($id, $request, $form);
+            return $this->issueSaved($id, $request, $form, true);
         }
         $this->flash('invoice.saved');
         return Response::redirect($this->prefix() . '/' . $id, 303);
@@ -297,19 +297,23 @@ abstract class AbstractDocumentController
         return $id;
     }
 
-    /** Issues a SAVED draft (no transaction open here). */
-    private function issueSaved(int $id, Request $request, InvoiceForm $form): Response
+    /**
+     * Issues a SAVED draft (no transaction open here). With $justCreated (create mode: the draft was inserted by
+     * this very POST) a refused issue is answered with a redirect to the new draft (post/redirect/get): re-rendering
+     * under POST /invoices would let a refresh or a re-submit insert a second draft.
+     */
+    private function issueSaved(int $id, Request $request, InvoiceForm $form, bool $justCreated = false): Response
     {
         $confirm = $request->input('confirm_vat') === '1';
         try {
             // One retry when MySQL aborts the issue with a deadlock/lock wait (nothing was written then).
             $number = $this->app->db()->retryOnLockError(fn (): string => $this->service()->issue($id, $this->now(), $confirm));
         } catch (VatNeedsConfirmation) {
-            return $this->editorFor($id, $form, ['confirm_vat' => 'invoice.err_confirm_vat'], 422);
+            return $justCreated ? $this->savedNotIssued($id, 'invoice.err_confirm_vat') : $this->editorFor($id, $form, ['confirm_vat' => 'invoice.err_confirm_vat'], 422);
         } catch (AccessSuspended) {
-            return $this->editorFor($id, $form, ['document' => 'invoice.suspended'], 403);
+            return $justCreated ? $this->savedNotIssued($id, 'invoice.suspended') : $this->editorFor($id, $form, ['document' => 'invoice.suspended'], 403);
         } catch (ValidationException $e) {
-            return $this->editorFor($id, $form, $e->errors, 422);
+            return $justCreated ? $this->savedNotIssued($id, (string) (array_values($e->errors)[0] ?? 'error.bad_request')) : $this->editorFor($id, $form, $e->errors, 422);
         } catch (DocumentLocked) {
             return $this->locked($id);
         } catch (DocumentNotFound) {
@@ -319,6 +323,13 @@ abstract class AbstractDocumentController
         $this->flash('invoice.issued_as', ['number' => $number]);
         // "Issue and prepare email": the same issue as above, then straight to the send page (nothing is sent there yet).
         return Response::redirect($request->input('then') === 'send' ? '/documents/' . $id . '/send' : $this->prefix() . '/' . $id, 303);
+    }
+
+    /** PRG after a refused issue in create mode: the draft is kept, the reason is shown on its page. */
+    private function savedNotIssued(int $id, string $reasonKey): Response
+    {
+        $this->flash('invoice.saved_not_issued', ['reason' => $this->app->t($reasonKey)], 'warn');
+        return Response::redirect($this->prefix() . '/' . $id, 303);
     }
 
     /** @param array<string, string> $errors */
@@ -478,6 +489,7 @@ abstract class AbstractDocumentController
             'customers' => $this->customerChoices(),
             'customer' => $customer === null ? null : ['id' => (int) $customer['id'], 'name' => (string) $customer['name']],
             'banner' => $this->banner($doc, $vat, $customer),
+            'backdate' => $this->backdateWarning($type, $fields['issue_date']),
             'missing_data' => $this->missingData($errors, $customer),
             'reverse_charge' => $rc,
             'totals' => $totals,
@@ -492,6 +504,20 @@ abstract class AbstractDocumentController
             'langs' => DocumentService::LANGS,
             'currencies' => DocumentService::CURRENCIES,
         ], $status);
+    }
+
+    /**
+     * M5: warning (never a block) when the chosen issue date lies before the latest issued document of the
+     * same type: numbers then no longer rise with the dates, which an auditor will ask about.
+     */
+    private function backdateWarning(string $type, string $issueDate): ?string
+    {
+        $date = self::realDate($issueDate);
+        $latest = $date === null ? null : $this->docs()->latestIssueDate($type);
+        if ($latest === null || $date >= $latest) {
+            return null;
+        }
+        return $this->app->t('invoice.backdate_warning', ['date' => $this->date($latest), 'type' => $this->app->t('invoice.type_' . $type)]);
     }
 
     /**

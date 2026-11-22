@@ -203,6 +203,16 @@ final class DocumentRepo extends BaseRepo
         return $row === null ? null : $this->normalize($row);
     }
 
+    /** Issue date ('Y-m-d') of the latest ISSUED document of $type of the company, null when there is none. */
+    public function latestIssueDate(string $type): ?string
+    {
+        if (!DocType::isValid($type)) {
+            return null;
+        }
+        $rows = $this->scopedAll(self::DOCS, "type = ? AND status = 'issued' AND issue_date IS NOT NULL", [$type], 'issue_date DESC, id DESC', 1);
+        return $rows === [] ? null : substr((string) $rows[0]['issue_date'], 0, 10);
+    }
+
     /** @return list<array<string, mixed>> lines of a document, by position */
     public function lines(int $documentId): array
     {

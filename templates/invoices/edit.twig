@@ -77,6 +77,8 @@
                         <input type="date" id="f-{{ f }}" name="{{ f }}" value="{{ attribute(form, f) }}"{{ m.invalid('f-' ~ f, attribute(errors, f) ?? null) }}>
                         {{ m.err('f-' ~ f, attribute(errors, f) ?? null) }}
                         {% if f == 'issue_date' and attribute(form, f) == '' %}<p class="hint">{{ t('invoice.issue_date_hint') }}</p>{% endif %}
+                        {% if f == 'issue_date' and backdate %}<p class="hint warn-soft" role="status" data-backdate>{{ backdate }}</p>{% endif %}
+                        {% if f == 'service_date' and attribute(form, f) == '' %}<p class="hint">{{ t('invoice.service_date_hint') }}</p>{% endif %}
                         {% if f == 'valid_until' and attribute(form, f) == '' %}<p class="hint">{{ t('offer.valid_until_hint') }}</p>{% endif %}
                     </div>
                 {% endfor %}

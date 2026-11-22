@@ -731,6 +731,49 @@ final class InvoiceControllerTest extends HttpTestCase
         $this->assertStringContainsString($this->app->t('invoice.status_paid'), $view->body);
     }
 
+    public function test_backdating_warns_but_does_not_block(): void
+    {
+        $this->login();
+        $this->issued(); // issue date 2026-11-18
+        $early = $this->createDraft($this->de, ['issue_date' => '2026-11-10', 'service_date' => '', 'due_date' => '2026-11-30']);
+        $page = $this->get("/invoices/$early");
+        $this->assertStringContainsString('data-backdate', $page->body);
+        $this->assertStringContainsString('18.11.2026', $this->plain($page->body));
+        $this->assertStringContainsString(htmlspecialchars($this->app->t('invoice.service_date_hint'), ENT_QUOTES), $page->body);
+        $r = $this->issueDraft($early);
+        $this->assertSame(303, $r->status, 'a warning, not a block');
+        $this->assertSame('issued', $this->doc($early)['status']);
+        $this->assertSame('2026-11-10', $this->doc($early)['issue_date']);
+        $this->assertSame('2026-11-10', $this->doc($early)['service_date'], 'empty service date = issue date (I4)');
+
+        $same = $this->createDraft($this->de, ['issue_date' => '2026-11-18']);
+        $this->assertStringNotContainsString('data-backdate', $this->get("/invoices/$same")->body);
+        $noDate = $this->get('/invoices/new?customer_id=' . $this->de);
+        $this->assertStringNotContainsString('data-backdate', $noDate->body);
+        // another type has its own latest date: no credit note exists yet, so an early offer date does not warn
+        $this->assertNull((new \App\Repo\DocumentRepo($this->db, \App\Tenant\CompanyContext::forUser($this->db, (int) $this->db->one('SELECT id FROM users')['id'], $this->companyA)))->latestIssueDate('credit_note'));
+    }
+
+    public function test_refused_issue_in_create_mode_redirects_instead_of_rendering_under_post(): void
+    {
+        $this->login();
+        $form = $this->form($this->plUnverified, ['lang' => 'pl', 'issue_date' => '2026-11-18']) + ['intent' => 'issue'];
+        $r = $this->post('/invoices', $form);
+        $this->assertSame(303, $r->status, 'PRG: no 422 page under POST /invoices');
+        $id = (int) substr($r->headers['Location'], strlen('/invoices/'));
+        $this->assertSame('draft', $this->doc($id)['status']);
+        $this->assertSame(1, $this->counts()[0], 'exactly one draft');
+        $page = $this->get($r->headers['Location']);
+        $this->assertSame(200, $page->status);
+        $this->assertStringContainsString(htmlspecialchars($this->app->t('invoice.err_confirm_vat'), ENT_QUOTES), $page->body);
+        $this->assertSame(1, $this->counts()[0], 'reloading the page creates nothing');
+        // a refused issue of a mandatory-data error is a redirect too, with the reason on the page
+        $this->db->exec("UPDATE companies SET vat_id = NULL, tax_number = NULL WHERE id = ?", [$this->companyA]);
+        $r = $this->post('/invoices', $this->form($this->de) + ['intent' => 'issue']);
+        $this->assertSame(303, $r->status);
+        $this->assertSame(2, $this->counts()[0]);
+    }
+
     public function test_issuing_archives_the_pdf_right_away(): void
     {
         $storage = sys_get_temp_dir() . '/faktura-archive-issue-' . bin2hex(random_bytes(4));
