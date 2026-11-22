@@ -703,9 +703,12 @@ final class OfferControllerTest extends HttpTestCase
         $this->assertSame('AN-2026-001', $this->doc($id)['number']);
         $inv = $this->post('/invoices', ['customer_id' => (string) $customer, 'lang' => 'de', 'currency' => 'EUR', 'issue_date' => '2026-11-18', 'service_date' => '2026-11-18',
             'due_date' => '2026-12-02', 'lines' => $this->makietaLines(), 'intent' => 'issue']);
-        $this->assertSame(422, $inv->status);
-        $this->assertStringContainsString('data-missing="seller"', $inv->body);
-        $this->assertStringContainsString('data-missing="buyer"', $inv->body);
+        $this->assertSame(303, $inv->status, 'PRG: the refused issue redirects to the saved draft');
+        $page = $this->get($inv->headers['Location']);
+        $this->assertSame(200, $page->status);
+        $this->assertStringContainsString('data-missing="seller"', $page->body);
+        $this->assertStringContainsString('data-missing="buyer"', $page->body);
+        $this->assertStringNotContainsString('data-missing="seller"', $this->get($inv->headers['Location'])->body, 'shown once');
     }
 
     public function test_unconfirmed_vies_shows_a_note_without_checkbox_and_never_blocks_the_offer(): void
@@ -723,8 +726,8 @@ final class OfferControllerTest extends HttpTestCase
         // an invoice for the same customer still needs the confirmation
         $inv = $this->post('/invoices', ['customer_id' => (string) $this->plUnverified, 'lang' => 'pl', 'currency' => 'EUR', 'issue_date' => '2026-11-18', 'service_date' => '2026-11-18',
             'due_date' => '2026-12-02', 'lines' => $this->makietaLines(), 'intent' => 'issue']);
-        $this->assertSame(422, $inv->status);
-        $this->assertStringContainsString('name="confirm_vat"', $inv->body);
+        $this->assertSame(303, $inv->status, 'PRG after the refused issue');
+        $this->assertStringContainsString('name="confirm_vat"', $this->get($inv->headers['Location'])->body);
     }
 
     public function test_reverse_charge_offer_banner_and_totals(): void

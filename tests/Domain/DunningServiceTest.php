@@ -378,12 +378,14 @@ final class DunningServiceTest extends TestCase
         }
     }
 
-    public function test_overflow_is_a_validation_error_not_a_crash(): void
+    public function test_an_out_of_bounds_stored_rate_is_a_validation_error_not_a_crash(): void
     {
+        // T20: the settings bounds (-10..30 %) now refuse what used to overflow the interest arithmetic (the
+        // overflow guards themselves stay covered in DunningTest); a hand-edited row is a refusal, not a 500.
         $this->db->exec('UPDATE companies SET dunning_base_rate_bp = ? WHERE id = ?', [9_000_000_000_000, $this->companyA]);
         $inv = $this->invoice();
-        $this->assertSame(['invoice' => 'dunning.err_overflow'], $this->errors(fn () => $this->svc->createDunning($inv, DunningLevel::First, true, false, false)));
-        $this->assertSame(['invoice' => 'dunning.err_overflow'], $this->errors(fn () => $this->svc->dunningQuote($inv, DunningLevel::First, true, false, false)));
+        $this->assertSame(['invoice' => 'dunning.err_settings'], $this->errors(fn () => $this->svc->createDunning($inv, DunningLevel::First, true, false, false)));
+        $this->assertSame(['invoice' => 'dunning.err_settings'], $this->errors(fn () => $this->svc->dunningQuote($inv, DunningLevel::First, true, false, false)));
         $this->assertNothingWritten();
     }
 

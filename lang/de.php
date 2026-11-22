@@ -740,6 +740,7 @@ return [
     'dunning.back_to_list' => 'Alle Mahnungen',
     'dunning.search' => 'Nummer oder Kunde …',
     'dunning.actions' => 'Aktionen',
+    'dunning.err_settings' => 'Die Mahneinstellungen enthalten ungültige Werte. Bitte prüfe sie unter Einstellungen, Mahnwesen.',
     'dunning.err_not_issued' => 'Nur ausgestellte Rechnungen können gemahnt werden.',
     'dunning.err_not_overdue' => 'Die Rechnung ist noch nicht überfällig.',
     'dunning.err_paid' => 'Die Rechnung ist bereits bezahlt.',

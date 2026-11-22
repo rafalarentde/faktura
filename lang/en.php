@@ -740,6 +740,7 @@ return [
     'dunning.back_to_list' => 'All reminders',
     'dunning.search' => 'Number or customer …',
     'dunning.actions' => 'Actions',
+    'dunning.err_settings' => 'The dunning settings contain invalid values. Please check them under Settings, Dunning.',
     'dunning.err_not_issued' => 'Only issued invoices can be dunned.',
     'dunning.err_not_overdue' => 'The invoice is not overdue yet.',
     'dunning.err_paid' => 'The invoice is already paid.',

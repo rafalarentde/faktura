@@ -54,6 +54,7 @@ abstract class AbstractDocumentController
 {
     /** Session key of the one-shot flash message (also set by MailController). */
     public const FLASH = 'invoice_flash';
+    private const ISSUE_ERRORS = 'invoice_issue_errors';
 
     public function __construct(protected App $app)
     {
@@ -146,7 +147,7 @@ abstract class AbstractDocumentController
             return $this->notFound();
         }
         if ($doc['status'] === 'draft') {
-            return $this->editor($doc, InvoiceForm::fromDocument($doc, $this->app->lang()));
+            return $this->editor($doc, InvoiceForm::fromDocument($doc, $this->app->lang()), $this->takeIssueErrors((int) $doc['id']));
         }
         return $this->viewIssued($doc);
     }
@@ -309,11 +310,11 @@ abstract class AbstractDocumentController
             // One retry when MySQL aborts the issue with a deadlock/lock wait (nothing was written then).
             $number = $this->app->db()->retryOnLockError(fn (): string => $this->service()->issue($id, $this->now(), $confirm));
         } catch (VatNeedsConfirmation) {
-            return $justCreated ? $this->savedNotIssued($id, 'invoice.err_confirm_vat') : $this->editorFor($id, $form, ['confirm_vat' => 'invoice.err_confirm_vat'], 422);
+            return $justCreated ? $this->savedNotIssued($id, ['confirm_vat' => 'invoice.err_confirm_vat']) : $this->editorFor($id, $form, ['confirm_vat' => 'invoice.err_confirm_vat'], 422);
         } catch (AccessSuspended) {
-            return $justCreated ? $this->savedNotIssued($id, 'invoice.suspended') : $this->editorFor($id, $form, ['document' => 'invoice.suspended'], 403);
+            return $justCreated ? $this->savedNotIssued($id, ['document' => 'invoice.suspended']) : $this->editorFor($id, $form, ['document' => 'invoice.suspended'], 403);
         } catch (ValidationException $e) {
-            return $justCreated ? $this->savedNotIssued($id, (string) (array_values($e->errors)[0] ?? 'error.bad_request')) : $this->editorFor($id, $form, $e->errors, 422);
+            return $justCreated ? $this->savedNotIssued($id, $e->errors) : $this->editorFor($id, $form, $e->errors, 422);
         } catch (DocumentLocked) {
             return $this->locked($id);
         } catch (DocumentNotFound) {
@@ -325,11 +326,28 @@ abstract class AbstractDocumentController
         return Response::redirect($request->input('then') === 'send' ? '/documents/' . $id . '/send' : $this->prefix() . '/' . $id, 303);
     }
 
-    /** PRG after a refused issue in create mode: the draft is kept, the reason is shown on its page. */
-    private function savedNotIssued(int $id, string $reasonKey): Response
+    /**
+     * PRG after a refused issue in create mode: the draft is kept; the field errors travel in the session and are
+     * shown ONCE by the draft's editor (same banners and fix links as a 422 render), plus a flash line.
+     *
+     * @param array<string, string> $errors field => translation key
+     */
+    private function savedNotIssued(int $id, array $errors): Response
     {
-        $this->flash('invoice.saved_not_issued', ['reason' => $this->app->t($reasonKey)], 'warn');
+        $this->flash('invoice.saved_not_issued', ['reason' => $this->app->t((string) (array_values($errors)[0] ?? 'error.bad_request'))], 'warn');
+        $this->app->session()->set(self::ISSUE_ERRORS, ['id' => $id, 'errors' => $errors]);
         return Response::redirect($this->prefix() . '/' . $id, 303);
+    }
+
+    /** @return array<string, string> the refusal kept by savedNotIssued() for this draft (once), else [] */
+    private function takeIssueErrors(int $id): array
+    {
+        $kept = $this->app->session()->get(self::ISSUE_ERRORS);
+        $this->app->session()->remove(self::ISSUE_ERRORS);
+        if (!is_array($kept) || ($kept['id'] ?? null) !== $id || !is_array($kept['errors'] ?? null)) {
+            return [];
+        }
+        return array_filter($kept['errors'], fn ($v, $k): bool => is_string($k) && is_string($v), ARRAY_FILTER_USE_BOTH);
     }
 
     /** @param array<string, string> $errors */

@@ -778,7 +778,12 @@ final class DocumentService
         }
         // Empty after the final level: createDunning() then refuses any level (err_level_not_higher).
         $levels = array_values(array_filter(DunningLevel::cases(), fn (DunningLevel $l): bool => $last === null || $l->value > $last->value));
-        $settings = DunningSettings::fromCompanyRow($this->docs->company());
+        try {
+            $settings = DunningSettings::fromCompanyRow($this->docs->company());
+        } catch (\InvalidArgumentException) {
+            // A stored value outside the allowed bounds (only a hand-edited row can have one): not a crash.
+            throw new ValidationException(['invoice' => 'dunning.err_settings']);
+        }
         $isCompany = (int) (((array) $invoice['buyer'])['is_company'] ?? 0) === 1;
         $currency = (string) $invoice['currency'];
         $feesAllowed = Dunning::feesAllowedFor($currency);

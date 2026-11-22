@@ -740,6 +740,7 @@ return [
     'dunning.back_to_list' => 'Wszystkie wezwania',
     'dunning.search' => 'Numer lub klient …',
     'dunning.actions' => 'Akcje',
+    'dunning.err_settings' => 'Ustawienia wezwań zawierają nieprawidłowe wartości. Sprawdź je w Ustawienia, Wezwania do zapłaty.',
     'dunning.err_not_issued' => 'Wezwanie można utworzyć tylko do wystawionej faktury.',
     'dunning.err_not_overdue' => 'Termin płatności faktury jeszcze nie minął.',
     'dunning.err_paid' => 'Faktura jest już opłacona.',
