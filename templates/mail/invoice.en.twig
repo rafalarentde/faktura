@@ -1,0 +1,20 @@
+Hello {{ buyer }},
+
+please find attached our invoice {{ number }} for {{ gross }} as a PDF.
+
+{% if due %}
+Please transfer the amount by {{ due }}.
+
+{% endif %}
+{% if iban %}
+IBAN: {{ iban }}
+{% if bic %}
+BIC: {{ bic }}
+{% endif %}
+Payment reference: {{ number }}
+
+{% endif %}
+If you have any questions, just get in touch.
+
+Kind regards
+{{ company }}

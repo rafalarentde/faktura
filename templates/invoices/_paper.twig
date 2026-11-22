@@ -1,0 +1,74 @@
+{#
+  Paper preview of a document (server-rendered HTML, document language). Input: `paper`, the view
+  model built by App\Http\DocumentPresenter (present/issued) — plain strings only, escaped here; addresses come as
+  lists of lines (never raw HTML). Reusable wherever a document is shown on screen.
+#}
+<article class="paper" lang="{{ paper.lang }}" aria-label="{{ t('invoice.preview') }}">
+    <header class="paper-head">
+        <div class="paper-logo">{{ paper.seller.name }}</div>
+        <div class="paper-title">
+            <h2>{{ paper.title }}</h2>
+            <div>{{ paper.number }}{% if paper.issue_date %} · {{ paper.issue_date }}{% endif %}</div>
+        </div>
+    </header>
+    <div class="paper-parties">
+        <div>
+            <b>{{ paper.labels.bill_to }}</b><br>{{ paper.buyer.name }}
+            {%- for l in paper.buyer.address %}<br>{{ l }}{% endfor %}
+            {%- if paper.buyer.vat_id %}<br>{{ paper.labels.vat_id }}: {{ paper.buyer.vat_id }}{% endif %}
+        </div>
+        <div class="paper-seller">
+            {{ paper.seller.name }}
+            {%- for l in paper.seller.address %}<br>{{ l }}{% endfor %}
+            {%- if paper.seller.vat_id %}<br>{{ paper.labels.vat_id }}: {{ paper.seller.vat_id }}{% endif %}
+            {%- if paper.seller.tax_number %}<br>{{ paper.labels.tax_number }}: {{ paper.seller.tax_number }}{% endif %}
+        </div>
+    </div>
+    <dl class="paper-dates">
+        {% if paper.issue_date %}<div><dt>{{ paper.labels.issue_date }}</dt><dd>{{ paper.issue_date }}</dd></div>{% endif %}
+        {% if paper.service_same %}<div><dd>{{ paper.labels.service_same }}</dd></div>{% elseif paper.service_date %}<div><dt>{{ paper.labels.service_date }}</dt><dd>{{ paper.service_date }}</dd></div>{% endif %}
+        {% if paper.due_date %}<div><dt>{{ paper.labels.due_date }}</dt><dd>{{ paper.due_date }}</dd></div>{% endif %}
+        {% if paper.valid_until %}<div><dt>{{ paper.labels.valid_until }}</dt><dd>{{ paper.valid_until }}</dd></div>{% endif %}
+    </dl>
+    {% if paper.related %}<p class="paper-related">{{ paper.related }}</p>{% endif %}
+    {% for l in paper.intro %}<p class="paper-text">{{ l }}</p>{% endfor %}
+    <div class="paper-table-wrap">
+        <table class="paper-table">
+            <thead>
+                <tr>
+                    <th>{{ paper.labels.position }}</th>
+                    <th>{{ paper.labels.description }}</th>
+                    <th class="r">{{ paper.labels.quantity }}</th>
+                    <th class="r">{{ paper.labels.unit_price }}</th>
+                    <th class="r">{{ paper.labels.vat }}</th>
+                    <th class="r">{{ paper.labels.amount }}</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for r in paper.rows %}
+                <tr>
+                    <td>{{ r.pos }}</td>
+                    <td class="paper-desc">{{ r.name }}{% if r.description %}<small>{{ r.description }}</small>{% endif %}{% if r.discount %}<small>{{ paper.labels.discount }}: {{ r.discount }}</small>{% endif %}</td>
+                    <td class="r">{{ r.qty }} {{ r.unit }}</td>
+                    <td class="r">{{ r.price }}</td>
+                    <td class="r">{{ r.vat }}</td>
+                    <td class="r">{{ r.net }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <div class="paper-totals">
+        <div><span>{{ paper.labels.net }}</span><span>{{ paper.net }}</span></div>
+        {% for v in paper.vat %}<div><span>{{ v.label }}</span><span>{{ v.amount }}</span></div>{% endfor %}
+        <div class="paper-gross"><span>{{ paper.labels.total }}</span><span>{{ paper.gross }}</span></div>
+        {% if paper.vat_eur %}<div class="paper-muted"><span>{{ paper.labels.vat_in_eur }}</span><span>{{ paper.vat_eur }}</span></div>{% endif %}
+        {% if paper.rate %}<div class="paper-muted"><span>{{ paper.labels.exchange_rate }}</span><span>{{ paper.rate }}</span></div>{% endif %}
+    </div>
+    {% if paper.note %}<p class="paper-note">{{ paper.note }}</p>{% endif %}
+    {% for l in paper.outro %}<p class="paper-text">{{ l }}</p>{% endfor %}
+    <footer class="paper-foot">
+        <span>{% if paper.seller.iban %}IBAN {{ paper.seller.iban }}{% endif %}{% if paper.seller.bic %} · BIC {{ paper.seller.bic }}{% endif %}</span>
+        <span>{{ paper.seller.name }}</span>
+    </footer>
+</article>

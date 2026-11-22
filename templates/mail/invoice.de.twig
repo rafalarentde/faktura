@@ -1,0 +1,20 @@
+Guten Tag {{ buyer }},
+
+anbei erhalten Sie unsere Rechnung {{ number }} über {{ gross }} als PDF.
+
+{% if due %}
+Bitte überweisen Sie den Betrag bis zum {{ due }} ohne Abzug.
+
+{% endif %}
+{% if iban %}
+IBAN: {{ iban }}
+{% if bic %}
+BIC: {{ bic }}
+{% endif %}
+Verwendungszweck: {{ number }}
+
+{% endif %}
+Bei Fragen melden Sie sich gern.
+
+Mit freundlichen Grüßen
+{{ company }}

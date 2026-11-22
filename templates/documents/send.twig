@@ -1,0 +1,55 @@
+{#
+  Send an issued document by email (GET /documents/{id}/send, POST re-renders it on errors).
+  Nothing here sends anything by itself: the "Send" button is the only way. All values are
+  escaped by Twig; the body is plain text in a textarea.
+#}
+{% extends 'layout.twig' %}
+{% block title %}{{ t('mail.send_title') }} · {{ doc.number }}{% endblock %}
+{% block subtitle %}{{ doc.buyer }}{% endblock %}
+{% block actions %}<a class="btn btn-ghost" href="{{ doc.path }}">{{ t('mail.back') }}</a>{% endblock %}
+{% block content %}
+{% if flash %}<p class="{{ flash.kind == 'warn' ? 'warn-box' : 'notice' }}" role="status">{{ flash.text }}</p>{% endif %}
+{% if problem %}<p class="warn-box" role="alert">{{ problem }}</p>{% endif %}
+{% if not configured %}
+    <div class="warn-box" role="alert" data-block="mail_not_configured">
+        {% if is_owner %}
+            <p>{{ t('mail.not_configured_owner') }}</p>
+            <p><a class="strong-link" href="/settings/mail">{{ t('mail.configure_link') }}</a></p>
+        {% else %}
+            <p>{{ t('mail.not_configured_user') }}</p>
+        {% endif %}
+    </div>
+{% endif %}
+<section class="panel">
+    <form class="form-grid" method="post" action="/documents/{{ doc.id }}/send" autocomplete="off">
+        {{ csrf_field() }}
+        <div class="field">
+            <label for="mail-to">{{ t('mail.to') }}</label>
+            <input id="mail-to" type="email" name="to" value="{{ form.to }}" maxlength="254" autocomplete="off" required{% if errors.to is defined %} aria-invalid="true" aria-describedby="mail-to-err"{% endif %}>
+            {% if errors.to is defined %}<p class="warn" id="mail-to-err" role="alert">{{ errors.to }}</p>{% endif %}
+            <p class="hint">{{ t(no_recipient and form.to == '' ? 'mail.no_recipient_hint' : 'mail.recipient_hint') }}</p>
+        </div>
+        <div class="field">
+            <label for="mail-subject">{{ t('mail.subject') }}</label>
+            <input id="mail-subject" name="subject" value="{{ form.subject }}" maxlength="200" required{% if errors.subject is defined %} aria-invalid="true" aria-describedby="mail-subject-err"{% endif %}>
+            {% if errors.subject is defined %}<p class="warn" id="mail-subject-err" role="alert">{{ errors.subject }}</p>{% endif %}
+        </div>
+        <div class="field">
+            <label for="mail-body">{{ t('mail.body') }}</label>
+            <textarea id="mail-body" name="body" rows="16" maxlength="10000" required{% if errors.body is defined %} aria-invalid="true" aria-describedby="mail-body-err"{% endif %}>
+{{ form.body }}</textarea>
+            {% if errors.body is defined %}<p class="warn" id="mail-body-err" role="alert">{{ errors.body }}</p>{% endif %}
+        </div>
+        <p class="mail-attachment"><strong>{{ t('mail.attachment') }}:</strong> <span class="mono">{{ attachment_name }}</span> · <a class="strong-link" href="/documents/{{ doc.id }}/pdf" target="_blank" rel="noopener">{{ t('mail.attachment_open') }}</a></p>
+        <p class="hint">{{ t('mail.manual_hint') }}</p>
+        <div class="form-actions">
+            <a class="btn btn-ghost" href="{{ doc.path }}">{{ t('mail.back') }}</a>
+            <button class="btn btn-primary" type="submit"{% if not configured %} disabled{% endif %}>{{ t('mail.submit') }}</button>
+        </div>
+    </form>
+</section>
+<section class="panel">
+    <div class="panel-head"><h2>{{ t('mail.history') }}</h2></div>
+    {% include 'documents/_mail_log.twig' %}
+</section>
+{% endblock %}

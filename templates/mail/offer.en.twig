@@ -1,0 +1,12 @@
+Hello {{ buyer }},
+
+please find attached our quote {{ number }} for {{ gross }} as a PDF.
+
+{% if valid_until %}
+The quote is valid until {{ valid_until }}.
+
+{% endif %}
+If you have any questions or would like changes, just get in touch. We look forward to hearing from you.
+
+Kind regards
+{{ company }}

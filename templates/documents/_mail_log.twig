@@ -1,0 +1,27 @@
+{#
+  Send log of one document (EmailLogRepo rows via MailController::logRows): date, recipient,
+  status chip and, on failure, the mapped reason text. Included by invoices/show.twig and
+  documents/send.twig; needs `mail_log` (show) or `log` (send) under the name `rows`.
+#}
+{% set rows = mail_log is defined ? mail_log : log %}
+{% if rows %}
+    <div class="tbl-wrap">
+        <table class="table">
+            <thead><tr><th>{{ t('mail.col_date') }}</th><th>{{ t('mail.col_to') }}</th><th>{{ t('mail.col_status') }}</th></tr></thead>
+            <tbody>
+            {% for r in rows %}
+                <tr>
+                    <td>{{ r.date }}</td>
+                    <td class="wrap">{{ r.to }}</td>
+                    <td>
+                        {% if r.ok %}<span class="chip chip-ok">{{ t('mail.status_sent') }}</span>
+                        {% else %}<span class="chip chip-late">{{ t('mail.status_failed') }}</span> <span class="hint">{{ t(r.reason) }}</span>{% endif %}
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+{% else %}
+    <p class="panel-body hint">{{ t('mail.history_empty') }}</p>
+{% endif %}

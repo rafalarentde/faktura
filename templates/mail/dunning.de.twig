@@ -1,0 +1,19 @@
+Sehr geehrte Damen und Herren,
+
+anbei erhalten Sie unser Schreiben „{{ level }}“ ({{ number }}) zu unserer Rechnung {{ invoice }}{% if invoice_date %} vom {{ invoice_date }}{% endif %} als PDF.
+
+Gesamtforderung: {{ gross }}
+Bitte überweisen Sie den Betrag bis zum {{ pay_by }}.
+
+{% if iban %}
+IBAN: {{ iban }}
+{% if bic %}
+BIC: {{ bic }}
+{% endif %}
+Verwendungszweck: {{ invoice }}
+
+{% endif %}
+Sollten Sie die Zahlung inzwischen veranlasst haben, betrachten Sie diese Nachricht bitte als gegenstandslos.
+
+Mit freundlichen Grüßen
+{{ company }}

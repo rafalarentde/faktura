@@ -1,0 +1,75 @@
+{% extends 'layout.twig' %}
+{% block title %}{{ t('settings.title') }}{% endblock %}
+{% block subtitle %}{{ company_name }}{% endblock %}
+{% block content %}
+    {% include 'settings/_tabs.twig' %}
+    <section class="panel">
+        {% if saved %}<p class="notice" role="status">{{ t('settings.saved') }}</p>{% endif %}
+        {% if errors %}<p class="warn" role="alert">{{ t('settings.err_summary') }}</p>{% endif %}
+        <form class="form-grid" method="post" action="/settings/mail" autocomplete="off">
+            {{ csrf_field() }}
+            <p>
+                {% if configured %}
+                    <span class="chip chip-ok">{{ t('settings.mail_status_ok') }}</span>
+                {% else %}
+                    <span class="chip chip-draft">{{ t('settings.mail_status_off') }}</span>
+                {% endif %}
+            </p>
+            <p class="hint">{{ t('settings.mail_hint') }}</p>
+            <p class="hint">{{ t('settings.mail_security_hint') }}</p>
+            {% if not configured %}<p class="hint">{{ t('settings.mail_incomplete_hint') }}</p>{% endif %}
+            <div class="grid-3">
+                <div class="field">
+                    <label for="m-host">{{ t('settings.mail_host') }}</label>
+                    <input id="m-host" name="smtp_host" value="{{ form.smtp_host }}" maxlength="190" autocomplete="off">
+                    {% if errors.smtp_host is defined %}<p class="warn" role="alert">{{ errors.smtp_host }}</p>{% endif %}
+                </div>
+                <div class="field">
+                    <label for="m-port">{{ t('settings.mail_port') }}</label>
+                    <input id="m-port" name="smtp_port" value="{{ form.smtp_port }}" inputmode="numeric" maxlength="5" placeholder="465">
+                    {% if errors.smtp_port is defined %}<p class="warn" role="alert">{{ errors.smtp_port }}</p>{% endif %}
+                </div>
+                <div class="field">
+                    <label for="m-user">{{ t('settings.mail_user') }}</label>
+                    <input id="m-user" name="smtp_user" value="{{ form.smtp_user }}" maxlength="190" autocomplete="off">
+                    {% if errors.smtp_user is defined %}<p class="warn" role="alert">{{ errors.smtp_user }}</p>{% endif %}
+                </div>
+            </div>
+            <div class="grid-3">
+                <div class="field">
+                    <label for="m-pass">{{ t('settings.mail_password') }}</label>
+                    <input id="m-pass" type="password" name="smtp_pass" value="" maxlength="1024" autocomplete="new-password"{% if pass_set %} placeholder="{{ t('settings.mail_password_saved') }}"{% endif %}>
+                    {% if pass_set %}
+                        <p class="hint">{{ t('settings.mail_password_keep') }}</p>
+                        <label class="toggle" for="m-pass-clear">
+                            <input type="checkbox" id="m-pass-clear" name="smtp_pass_clear" value="1">
+                            <span><b>{{ t('settings.mail_password_clear') }}</b></span>
+                        </label>
+                    {% endif %}
+                    {% if errors.smtp_pass is defined %}<p class="warn" role="alert">{{ errors.smtp_pass }}</p>{% endif %}
+                </div>
+                <div class="field">
+                    <label for="m-from">{{ t('settings.mail_from_name') }}</label>
+                    <input id="m-from" name="smtp_from_name" value="{{ form.smtp_from_name }}" maxlength="190">
+                    {% if errors.smtp_from_name is defined %}<p class="warn" role="alert">{{ errors.smtp_from_name }}</p>{% endif %}
+                </div>
+                <div class="field">
+                    <label for="m-addr">{{ t('settings.mail_from_address') }}</label>
+                    <input id="m-addr" type="email" name="smtp_from_addr" value="{{ form.smtp_from_addr }}" maxlength="190">
+                    {% if errors.smtp_from_addr is defined %}<p class="warn" role="alert">{{ errors.smtp_from_addr }}</p>{% endif %}
+                </div>
+            </div>
+            <div class="form-actions"><button class="btn btn-primary" type="submit">{{ t('common.save') }}</button></div>
+        </form>
+        <form class="form-grid" method="post" action="/settings/mail/test" data-block="mail_test">
+            {{ csrf_field() }}
+            {% if test %}<p class="{{ test.ok ? 'notice' : 'warn-box' }}" role="{{ test.ok ? 'status' : 'alert' }}">{{ test.text }}</p>{% endif %}
+            <p class="hint">{{ t('settings.mail_test_hint') }}</p>
+            {% if configured %}
+                <div class="form-actions"><button class="btn" type="submit">{{ t('settings.mail_test') }}</button></div>
+            {% else %}
+                <p class="hint">{{ t('settings.mail_test_needs_config') }}</p>
+            {% endif %}
+        </form>
+    </section>
+{% endblock %}

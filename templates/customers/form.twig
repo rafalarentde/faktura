@@ -1,0 +1,90 @@
+{% set action = customer ? '/customers/' ~ customer.id : '/customers' %}
+<section class="panel" id="customer-form">
+    <div class="panel-head"><h2>{{ customer ? t('customer.edit') : t('customer.new') }}</h2></div>
+    {% if saved %}<p class="notice" role="status">{{ t('customer.saved') }}</p>{% endif %}
+    {% if errors %}<p class="warn" role="alert">{{ t('customer.err_summary') }}</p>{% endif %}
+    <form class="form-grid" method="post" action="{{ action }}">
+        {{ csrf_field() }}
+        <div class="field">
+            <span class="field-label" id="type-label">{{ t('customer.type') }}</span>
+            <div class="seg" role="radiogroup" aria-labelledby="type-label">
+                <label><input class="sr-only" type="radio" name="is_company" value="1"{{ form.is_company ? ' checked' : '' }}>{{ t('customer.type_company') }}</label>
+                <label><input class="sr-only" type="radio" name="is_company" value="0"{{ form.is_company ? '' : ' checked' }}>{{ t('customer.type_private') }}</label>
+            </div>
+        </div>
+        <div class="field">
+            <label for="c-name">{{ t('customer.name') }}</label>
+            <input id="c-name" name="name" value="{{ form.name }}" maxlength="190" required>
+            {% if errors.name is defined %}<p class="warn" role="alert">{{ errors.name }}</p>{% endif %}
+        </div>
+        <div class="field">
+            <label for="c-address">{{ t('customer.address') }}</label>
+            <textarea id="c-address" name="address" rows="3" maxlength="1000">{{ form.address }}</textarea>
+        </div>
+        <div class="grid-2">
+            <div class="field">
+                <label for="c-country">{{ t('customer.country') }}</label>
+                <select id="c-country" name="country">
+                    {% for code in countries %}<option value="{{ code }}"{{ form.country == code ? ' selected' : '' }}>{{ code }}</option>{% endfor %}
+                </select>
+                {% if errors.country is defined %}<p class="warn" role="alert">{{ errors.country }}</p>{% endif %}
+            </div>
+            <div class="field">
+                <label for="c-vat">{{ t('customer.vat_id') }}</label>
+                <div class="inline-form">
+                    <input id="c-vat" name="vat_id" value="{{ form.vat_id }}" maxlength="40" autocomplete="off">
+                    {% if customer %}<button class="btn btn-ghost" type="submit" form="vies-form">{{ t('customer.vies_check') }}</button>{% endif %}
+                </div>
+                {% if errors.vat_id is defined %}<p class="warn" role="alert">{{ errors.vat_id }}</p>{% endif %}
+                {% if customer %}<p class="hint">{{ t('customer.vies_hint') }}</p>{% endif %}
+            </div>
+        </div>
+        {% if vies %}
+            {% if vies.kind == 'ok' %}
+                <div class="toggle" role="status"><input type="checkbox" checked disabled><div><b>{{ vies.text }}</b></div></div>
+            {% elseif vies.kind == 'warn' %}
+                <p class="warn" role="status">{{ vies.text }}</p>
+            {% elseif vies.kind == 'soft' %}
+                <p class="notice" role="status">{{ vies.text }}</p>
+            {% else %}
+                <p class="hint" role="status">{{ vies.text }}</p>
+            {% endif %}
+        {% endif %}
+        <div class="field">
+            <label for="c-email">{{ t('customer.document_email') }}</label>
+            <input id="c-email" type="email" name="email" value="{{ form.email }}" maxlength="190">
+            {% if errors.email is defined %}<p class="warn" role="alert">{{ errors.email }}</p>{% endif %}
+        </div>
+        <div class="grid-3">
+            <div class="field">
+                <label for="c-lang">{{ t('customer.document_language') }}</label>
+                <select id="c-lang" name="default_lang">
+                    {% for l in langs %}<option value="{{ l }}"{{ form.default_lang == l ? ' selected' : '' }}>{{ t('lang.' ~ l) }}</option>{% endfor %}
+                </select>
+                {% if errors.default_lang is defined %}<p class="warn" role="alert">{{ errors.default_lang }}</p>{% endif %}
+            </div>
+            <div class="field">
+                <label for="c-currency">{{ t('customer.currency') }}</label>
+                <select id="c-currency" name="default_currency">
+                    {% for cur in currencies %}<option value="{{ cur }}"{{ form.default_currency == cur ? ' selected' : '' }}>{{ cur }}</option>{% endfor %}
+                </select>
+                {% if errors.default_currency is defined %}<p class="warn" role="alert">{{ errors.default_currency }}</p>{% endif %}
+            </div>
+            <div class="field">
+                <label for="c-days">{{ t('customer.payment_terms') }}</label>
+                <select id="c-days" name="payment_days">
+                    {% for d in payment_days %}<option value="{{ d }}"{{ form.payment_days == d ~ '' ? ' selected' : '' }}>{{ t('customer.days', {n: d}) }}</option>{% endfor %}
+                </select>
+                {% if errors.payment_days is defined %}<p class="warn" role="alert">{{ errors.payment_days }}</p>{% endif %}
+            </div>
+        </div>
+        <div class="field">
+            <label for="c-notes">{{ t('customer.note') }}</label>
+            <textarea id="c-notes" name="notes" rows="2" maxlength="2000">{{ form.notes }}</textarea>
+        </div>
+        <div class="form-actions"><button class="btn btn-primary" type="submit">{{ t('common.save') }}</button></div>
+    </form>
+    {% if customer %}
+        <form id="vies-form" method="post" action="/customers/{{ customer.id }}/vies">{{ csrf_field() }}</form>
+    {% endif %}
+</section>

@@ -1,0 +1,50 @@
+{% extends 'layout.twig' %}
+{% block title %}{{ t('audit.title') }}{% endblock %}
+{% block subtitle %}{{ t('audit.subtitle') }}{% endblock %}
+{% block content %}
+    {% include 'admin/_nav.twig' with {active: 'audit'} only %}
+    <section class="panel">
+        <div class="panel-head">
+            <form class="inline-form" method="get" action="/admin/audit" role="search">
+                <input type="text" name="company" value="{{ filters.company }}" placeholder="{{ t('audit.filter_company') }}" aria-label="{{ t('audit.filter_company') }}" inputmode="numeric" maxlength="18" size="10">
+                <input type="text" name="action" value="{{ filters.action }}" placeholder="{{ t('audit.filter_action') }}" aria-label="{{ t('audit.filter_action') }}" maxlength="64" autocomplete="off">
+                <button class="btn btn-ghost btn-sm" type="submit">{{ t('audit.filter_button') }}</button>
+                {% if filters.company != '' or filters.action != '' %}<a class="btn btn-ghost btn-sm" href="/admin/audit">{{ t('audit.filter_reset') }}</a>{% endif %}
+            </form>
+        </div>
+        <div class="tbl-wrap">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>{{ t('audit.col_time') }}</th>
+                        <th>{{ t('audit.col_company') }}</th>
+                        <th>{{ t('audit.col_user') }}</th>
+                        <th>{{ t('audit.col_action') }}</th>
+                        <th>{{ t('audit.col_detail') }}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for e in entries %}
+                    <tr>
+                        <td class="num">{{ e.time }}</td>
+                        <td class="wrap">{{ e.company ?? '—' }}</td>
+                        <td class="wrap">{{ e.user ?? '—' }}</td>
+                        <td><code>{{ e.action }}</code></td>
+                        <td class="wrap">{% if e.detail %}<span class="kv-list">{% for pair in e.detail %}<code>{{ pair }}</code>{% endfor %}</span>{% else %}—{% endif %}</td>
+                    </tr>
+                {% else %}
+                    <tr><td colspan="5" class="empty-row">{{ t('audit.empty') }}</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% if pages > 1 %}
+            <nav class="pager" aria-label="{{ t('invoice.pagination') }}">
+                {% if prev %}<a class="btn btn-ghost btn-sm" href="{{ prev }}" rel="prev">{{ t('invoice.prev') }}</a>{% endif %}
+                <span>{{ t('invoice.page_info', {page: page, pages: pages}) }}</span>
+                {% if next %}<a class="btn btn-ghost btn-sm" href="{{ next }}" rel="next">{{ t('invoice.next') }}</a>{% endif %}
+            </nav>
+        {% endif %}
+    </section>
+    <p class="hint">{{ t('audit.hint') }}</p>
+{% endblock %}

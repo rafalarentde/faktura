@@ -1,0 +1,52 @@
+{#
+  Read-only view of an ISSUED dunning letter, only from its stored dunning_* columns and snapshots:
+  breakdown (UI language), the letter as on paper (document language), PDF and "send by email" in the
+  document_actions block (sending is the existing explicit POST on /documents/{id}/send) and the email log.
+#}
+{% extends 'layout.twig' %}
+{% block title %}{{ level_label }} {{ doc.number }}{% endblock %}
+{% block subtitle %}{{ doc.buyer }}{% if doc.issue_date %} · {{ doc.issue_date }}{% endif %}{% endblock %}
+{% block actions %}<a class="btn btn-ghost" href="/dunning">{{ t('dunning.back_to_list') }}</a>{% endblock %}
+{% block content %}
+{% if flash %}<p class="{{ flash.kind == 'warn' ? 'warn-box' : 'notice' }}" role="status">{{ flash.text }}</p>{% endif %}
+<section class="panel doc-head">
+    <div class="doc-chips">
+        <span class="chip chip-outline">{{ t('dunning.type_label') }}</span>
+        <span class="sugg {{ dot }}"><span class="dot" aria-hidden="true"></span>{{ level_label }}</span>
+    </div>
+    <dl class="doc-meta">
+        <div><dt>{{ t('table.number') }}</dt><dd class="mono">{{ doc.number }}</dd></div>
+        <div><dt>{{ t('table.date') }}</dt><dd>{{ doc.issue_date ?? '—' }}</dd></div>
+        <div><dt>{{ t('dunning.pay_by') }}</dt><dd>{{ doc.pay_by ?? '—' }}</dd></div>
+        <div><dt>{{ t('dunning.invoice_panel') }}</dt><dd>{% if invoice %}<a class="strong-link mono" href="/invoices/{{ invoice.id }}">{{ invoice.number }}</a>{% else %}—{% endif %}</dd></div>
+        <div><dt>{{ t('invoice.currency') }}</dt><dd>{{ doc.currency }}</dd></div>
+    </dl>
+    <div class="doc-actions" data-block="document_actions">{% block document_actions %}
+        <a class="btn btn-sm" href="/documents/{{ doc.id }}/pdf" target="_blank" rel="noopener" aria-label="{{ t('pdf.open_label', {number: doc.number}) }}">{{ t('invoice.pdf') }}</a>
+        <a class="btn btn-sm btn-ghost" href="/documents/{{ doc.id }}/pdf?download=1">{{ t('pdf.download') }}</a>
+        <a class="btn btn-sm btn-primary" href="/documents/{{ doc.id }}/send">{{ t(mail_sent ? 'mail.send_again' : 'dunning.send') }}</a>
+    {% endblock %}</div>
+</section>
+
+<div class="inv-layout">
+    <div class="stack">
+        <section class="panel" data-block="breakdown">
+            <div class="panel-head"><h2>{{ t('dunning.breakdown') }}</h2></div>
+            <dl class="claim-list">
+                {% for row in breakdown.rows %}<div data-row="{{ row.key }}"><dt>{{ row.label }}</dt><dd class="num">{{ row.amount }}</dd></div>{% endfor %}
+                <div class="claim-total"><dt>{{ breakdown.total_label }}</dt><dd class="num" data-total>{{ breakdown.total }}</dd></div>
+                <div><dt>{{ t('dunning.pay_by') }}</dt><dd>{{ doc.pay_by }}</dd></div>
+            </dl>
+            {% if invoice %}<p class="panel-body"><a class="btn btn-sm btn-ghost" href="/invoices/{{ invoice.id }}">{{ t('dunning.view_invoice') }}</a></p>{% endif %}
+        </section>
+        <section class="panel" data-block="email_log">
+            <div class="panel-head"><h2>{{ t('mail.history') }}</h2></div>
+            {% include 'documents/_mail_log.twig' %}
+        </section>
+    </div>
+    <aside class="paper-col">
+        <p class="hint">{{ t('dunning.message_preview', {lang: letter_lang}) }}</p>
+        {% include 'dunning/_letter.twig' %}
+    </aside>
+</div>
+{% endblock %}

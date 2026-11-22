@@ -1,0 +1,10 @@
+{% extends '_auth_base.twig' %}
+{% block title %}{{ status }}{% endblock %}
+{% block content %}
+    <h1>{{ status }}</h1>
+    <p class="auth-sub">{{ message }}</p>
+    {% if detail %}
+        <pre class="error-detail">{{ detail }}</pre>
+    {% endif %}
+    <a class="btn btn-primary btn-wide" href="/">{{ t('error.back_home') }}</a>
+{% endblock %}

@@ -1,0 +1,8 @@
+{# Language switcher (POST /lang). Needs: back (local path to return to). #}
+<form class="seg seg-dark" method="post" action="/lang" aria-label="{{ t('lang.label') }}">
+    {{ csrf_field() }}
+    <input type="hidden" name="back" value="{{ back }}">
+    {% for code in ['de', 'pl', 'en'] %}
+        <button type="submit" name="lang" value="{{ code }}" lang="{{ code }}"{% if code == current_lang() %} class="is-on" aria-current="true"{% endif %} title="{{ t('lang.' ~ code) }}">{{ code|upper }}</button>
+    {% endfor %}
+</form>

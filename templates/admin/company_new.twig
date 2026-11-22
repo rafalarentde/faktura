@@ -1,0 +1,36 @@
+{% extends 'layout.twig' %}
+{% block title %}{{ t('admin.new_company') }}{% endblock %}
+{% block actions %}<a class="btn btn-ghost" href="/admin/companies">← {{ t('admin.back') }}</a>{% endblock %}
+{% block content %}
+    {% if error %}<p class="warn" role="alert">{{ error }}</p>{% endif %}
+    <section class="panel panel-narrow">
+        <form class="form-grid" method="post" action="/admin/companies">
+            {{ csrf_field() }}
+            <div class="grid-2">
+                <div class="field">
+                    <label for="company-name">{{ t('admin.company_name') }}</label>
+                    <input id="company-name" name="name" value="{{ form.name }}" maxlength="190" required>
+                </div>
+                <div class="field">
+                    <label for="company-plan">{{ t('admin.plan') }}</label>
+                    <input id="company-plan" name="plan" value="{{ form.plan }}" maxlength="32">
+                </div>
+            </div>
+            <div class="grid-2">
+                <div class="field">
+                    <label for="company-status">{{ t('admin.initial_status') }}</label>
+                    <select id="company-status" name="access_status">
+                        <option value="suspended"{{ form.access_status == 'suspended' ? ' selected' : '' }}>{{ t('admin.status_suspended') }}</option>
+                        <option value="active"{{ form.access_status == 'active' ? ' selected' : '' }}>{{ t('admin.status_active') }}</option>
+                        <option value="trial"{{ form.access_status == 'trial' ? ' selected' : '' }}>{{ t('admin.status_trial') }}</option>
+                    </select>
+                </div>
+                <div class="field">
+                    <label for="company-until">{{ t('admin.until_label') }}</label>
+                    <input id="company-until" type="date" name="access_until" value="{{ form.access_until }}">
+                </div>
+            </div>
+            <div class="form-actions"><button class="btn btn-primary" type="submit">{{ t('admin.create') }}</button></div>
+        </form>
+    </section>
+{% endblock %}

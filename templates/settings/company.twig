@@ -1,0 +1,110 @@
+{% extends 'layout.twig' %}
+{% block title %}{{ t('settings.title') }}{% endblock %}
+{% block subtitle %}{{ company_name }}{% endblock %}
+{% block content %}
+    {% include 'settings/_tabs.twig' %}
+    <div class="stack">
+        <section class="panel">
+            {% if saved %}<p class="notice" role="status">{{ t('settings.saved') }}</p>{% endif %}
+            {% if errors %}<p class="warn" role="alert">{{ t('settings.err_summary') }}</p>{% endif %}
+            <form class="form-grid" method="post" action="/settings/company">
+                {{ csrf_field() }}
+                <div class="grid-2">
+                    <div class="field">
+                        <label for="s-name">{{ t('settings.company_name') }}</label>
+                        <input id="s-name" name="name" value="{{ form.name }}" maxlength="190" required>
+                        {% if errors.name is defined %}<p class="warn" role="alert">{{ errors.name }}</p>{% endif %}
+                    </div>
+                    <div class="field">
+                        <label for="s-address">{{ t('settings.company_address') }}</label>
+                        <textarea id="s-address" name="address" rows="3" maxlength="500">{{ form.address }}</textarea>
+                        {% if errors.address is defined %}<p class="warn" role="alert">{{ errors.address }}</p>{% endif %}
+                    </div>
+                </div>
+                <div class="grid-3">
+                    <div class="field">
+                        <label for="s-tax">{{ t('settings.tax_number') }}</label>
+                        <input id="s-tax" name="tax_number" value="{{ form.tax_number }}" maxlength="40">
+                        {% if errors.tax_number is defined %}<p class="warn" role="alert">{{ errors.tax_number }}</p>{% endif %}
+                    </div>
+                    <div class="field">
+                        <label for="s-vat">{{ t('settings.vat_id') }}</label>
+                        <input id="s-vat" name="vat_id" value="{{ form.vat_id }}" maxlength="40" autocomplete="off">
+                        {% if errors.vat_id is defined %}<p class="warn" role="alert">{{ errors.vat_id }}</p>{% endif %}
+                    </div>
+                    <div class="field">
+                        <label for="s-iban">{{ t('settings.iban') }}</label>
+                        <input id="s-iban" name="iban" value="{{ form.iban }}" maxlength="42" autocomplete="off">
+                        {% if errors.iban is defined %}<p class="warn" role="alert">{{ errors.iban }}</p>{% endif %}
+                    </div>
+                </div>
+                <div class="grid-3">
+                    <div class="field">
+                        <label for="s-bic">{{ t('settings.bic') }}</label>
+                        <input id="s-bic" name="bic" value="{{ form.bic }}" maxlength="16" autocomplete="off">
+                        {% if errors.bic is defined %}<p class="warn" role="alert">{{ errors.bic }}</p>{% endif %}
+                    </div>
+                    <div class="field">
+                        <label for="s-bank">{{ t('settings.bank') }}</label>
+                        <input id="s-bank" name="bank" value="{{ form.bank }}" maxlength="190">
+                        {% if errors.bank is defined %}<p class="warn" role="alert">{{ errors.bank }}</p>{% endif %}
+                    </div>
+                    <div class="field">
+                        <label for="s-days">{{ t('settings.default_payment_terms') }} ({{ t('settings.payment_days_unit') }})</label>
+                        <input id="s-days" name="default_payment_days" value="{{ form.default_payment_days }}" inputmode="numeric" maxlength="3">
+                        {% if errors.default_payment_days is defined %}<p class="warn" role="alert">{{ errors.default_payment_days }}</p>{% endif %}
+                    </div>
+                </div>
+                <div class="grid-2">
+                    <div class="field">
+                        <label for="s-lang">{{ t('settings.default_language') }}</label>
+                        <select id="s-lang" name="default_lang">
+                            {% for l in langs %}<option value="{{ l }}"{{ form.default_lang == l ? ' selected' : '' }}>{{ {de: 'Deutsch', pl: 'Polski', en: 'English'}[l] }}</option>{% endfor %}
+                        </select>
+                        {% if errors.default_lang is defined %}<p class="warn" role="alert">{{ errors.default_lang }}</p>{% endif %}
+                    </div>
+                    <div class="field">
+                        <label for="s-cur">{{ t('settings.default_currency') }}</label>
+                        <select id="s-cur" name="default_currency">
+                            {% for c in currencies %}<option value="{{ c }}"{{ form.default_currency == c ? ' selected' : '' }}>{{ c }}</option>{% endfor %}
+                        </select>
+                        {% if errors.default_currency is defined %}<p class="warn" role="alert">{{ errors.default_currency }}</p>{% endif %}
+                    </div>
+                </div>
+                {% for f in ['intro_text', 'outro_text', 'footer_text'] %}
+                    <div class="field">
+                        <label for="s-{{ f }}">{{ t('settings.' ~ f) }}</label>
+                        <textarea id="s-{{ f }}" name="{{ f }}" rows="3" maxlength="2000">{{ attribute(form, f) }}</textarea>
+                        {% if attribute(errors, f) is defined %}<p class="warn" role="alert">{{ attribute(errors, f) }}</p>{% endif %}
+                    </div>
+                {% endfor %}
+                <div class="form-actions"><button class="btn btn-primary" type="submit">{{ t('common.save') }}</button></div>
+            </form>
+        </section>
+
+        <section class="panel">
+            <div class="panel-head"><h2>{{ t('settings.logo') }}</h2></div>
+            <form class="form-grid" method="post" action="/settings/company/logo" enctype="multipart/form-data">
+                {{ csrf_field() }}
+                {% if has_logo %}
+                    <img class="logo-preview" src="/company/logo?v={{ logo_version }}" alt="{{ t('settings.logo_alt') }}">
+                {% else %}
+                    <p class="hint">{{ t('settings.logo_none') }}</p>
+                {% endif %}
+                <div class="field">
+                    <label for="s-logo">{{ t('settings.logo_upload') }}</label>
+                    <input id="s-logo" type="file" name="logo" accept="image/png,image/jpeg" required>
+                    <p class="hint">{{ t('settings.logo_hint') }}</p>
+                    {% if errors.logo is defined %}<p class="warn" role="alert">{{ errors.logo }}</p>{% endif %}
+                </div>
+                <div class="form-actions"><button class="btn btn-primary" type="submit">{{ t('settings.logo_button') }}</button></div>
+            </form>
+            {% if has_logo %}
+                <form class="inline-form" method="post" action="/settings/company/logo/remove">
+                    {{ csrf_field() }}
+                    <button class="btn btn-ghost" type="submit">{{ t('settings.logo_remove') }}</button>
+                </form>
+            {% endif %}
+        </section>
+    </div>
+{% endblock %}

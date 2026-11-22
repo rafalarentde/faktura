@@ -1,0 +1,251 @@
+{#
+  Invoice / credit-note / offer editor (create mode: doc = null, posts to {prefix}; draft: posts to
+  {prefix}/{id}/save; prefix = /invoices or /offers, kind = invoice | offer). Offers have
+  a "valid until" date instead of service and due date and no VAT confirmation. Works without JavaScript: the row buttons (add line, remove line, add from
+  catalogue) are submit buttons that re-render the posted state; invoice.js only refreshes the
+  totals block live. The Save/Issue buttons in the page head belong to the form (form="invoice-form")
+  and come first in tree order, so Enter in a field saves (never removes a line).
+#}
+{% extends 'layout.twig' %}
+{% block title %}{% if credit_note %}{{ t('invoice.edit_credit_title') }}{% elseif doc %}{{ t(kind ~ '.edit_title') }}{% else %}{{ t(kind ~ '.new') }}{% endif %}{% endblock %}
+{% block subtitle %}{{ t('invoice.new_subtitle') }}{% if next_number %} · {{ t('invoice.next_number', {number: next_number}) }}{% endif %}{% endblock %}
+{% block scripts %}<script src="{{ asset('/assets/invoice.js') }}" defer></script>{% endblock %}
+{% block actions %}
+    <a class="btn btn-ghost" href="{{ prefix }}">{{ t(kind ~ '.back_to_list') }}</a>
+    <button class="btn" type="submit" form="invoice-form">{{ t('invoice.save_draft') }}</button>
+    {% if doc %}
+        <button class="btn btn-primary" type="submit" form="invoice-form" formaction="{{ prefix }}/{{ doc.id }}/issue"{% if not can_issue %} disabled aria-describedby="issue-blocked"{% endif %}>{{ t('invoice.issue') }}</button>
+        <button class="btn" type="submit" form="invoice-form" formaction="{{ prefix }}/{{ doc.id }}/issue" name="then" value="send"{% if not can_issue %} disabled aria-describedby="issue-blocked"{% endif %}>{{ t('invoice.issue_and_mail') }}</button>
+    {% else %}
+        <button class="btn btn-primary" type="submit" form="invoice-form" name="intent" value="issue"{% if not can_issue %} disabled aria-describedby="issue-blocked"{% endif %}>{{ t('invoice.issue') }}</button>
+        <button class="btn" type="submit" form="invoice-form" name="then" value="send"{% if not can_issue %} disabled aria-describedby="issue-blocked"{% endif %}>{{ t('invoice.issue_and_mail') }}</button>
+    {% endif %}
+{% endblock %}
+{% block content %}
+{% import 'invoices/_macros.twig' as m %}
+{% if flash %}<p class="{{ flash.kind == 'warn' ? 'warn-box' : 'notice' }}" role="status">{{ flash.text }}</p>{% endif %}
+{% if notice %}<p class="notice" role="status">{{ notice }}</p>{% endif %}
+{% if source_offer %}<p class="notice" role="note" data-source-offer>{{ t('offer.invoice_from_offer', {number: source_offer.number}) }} <a href="/offers/{{ source_offer.id }}">{{ source_offer.number }}</a></p>{% endif %}
+{% if not can_issue %}<p class="warn-box" id="issue-blocked" role="alert">{{ t('invoice.suspended') }}</p>{% endif %}
+{% if errors.document is defined and (can_issue or errors.document != t('invoice.suspended')) %}<p class="warn-box" role="alert">{{ errors.document }}</p>{% endif %}
+{% for md in missing_data %}
+    <div class="banner banner-warn" role="alert" data-missing="{{ md.key }}">
+        <p>{{ md.text }}</p>
+        {% if md.link %}<p><a href="{{ md.link }}">{{ md.label }}</a></p>{% endif %}
+    </div>
+{% endfor %}
+{% if errors.company is defined %}<p class="warn-box" role="alert">{{ errors.company }}</p>{% endif %}
+<div class="inv-layout">
+    <section class="panel">
+        <form class="form-grid" id="invoice-form" method="post" action="{{ doc ? prefix ~ '/' ~ doc.id ~ '/save' : prefix }}" data-recalc="{{ prefix }}/recalc">
+            {{ csrf_field() }}
+            {% if doc %}<input type="hidden" name="document_id" value="{{ doc.id }}">{% endif %}
+            {% if errors %}<p class="warn" role="alert">{{ t('invoice.err_summary') }}</p>{% endif %}
+
+            {% if credit_note %}
+                <div class="fixed-head">
+                    <p><b>{{ t('invoice.customer') }}:</b> {{ customer ? customer.name : '—' }} · <b>{{ t('invoice.currency') }}:</b> {{ form.currency }} · <b>{{ t('invoice.document_language') }}:</b> {{ form.lang|upper }}</p>
+                    {% if related %}<p>{{ t('invoice.original_invoice') }}: <a class="strong-link" href="/invoices/{{ related.id }}">{{ related.number }}</a>{% if related.date %} · {{ related.date }}{% endif %}</p>{% endif %}
+                    <p class="hint">{{ t('invoice.fixed_by_invoice') }}</p>
+                </div>
+            {% else %}
+                <div class="grid-2">
+                    <div class="field">
+                        <label for="f-customer">{{ t('invoice.customer') }}</label>
+                        <select id="f-customer" name="customer_id"{{ m.invalid('f-customer', errors.customer_id ?? null) }}>
+                            {% if not customer %}<option value="">—</option>{% endif %}
+                            {% for c in customers %}<option value="{{ c.id }}"{{ form.customer_id == c.id ~ '' ? ' selected' : '' }}>{{ c.name }} ({{ c.country }})</option>{% endfor %}
+                        </select>
+                        {{ m.err('f-customer', errors.customer_id ?? null) }}
+                        {% if not doc %}<p class="hint"><a href="{{ prefix }}/new">{{ t('invoice.change_customer') }}</a></p>{% endif %}
+                    </div>
+                    <div class="field">
+                        <label for="f-lang">{{ t('invoice.document_language') }}</label>
+                        <select id="f-lang" name="lang"{{ m.invalid('f-lang', errors.lang ?? null) }}>
+                            {% for l in langs %}<option value="{{ l }}"{{ form.lang == l ? ' selected' : '' }}>{{ t('lang.' ~ l) }}</option>{% endfor %}
+                        </select>
+                        {{ m.err('f-lang', errors.lang ?? null) }}
+                    </div>
+                </div>
+            {% endif %}
+
+            {% set date_fields = kind == 'offer' ? ['issue_date', 'valid_until'] : (credit_note ? ['issue_date', 'service_date'] : ['issue_date', 'service_date', 'due_date']) %}
+            <div class="{{ date_fields|length == 2 ? 'grid-2' : 'grid-3' }}">
+                {% for f in date_fields %}
+                    <div class="field">
+                        <label for="f-{{ f }}">{{ t(f == 'issue_date' ? (kind == 'offer' ? 'offer.date' : 'invoice.date') : (f == 'valid_until' ? 'offer.valid_until' : 'invoice.' ~ f)) }}</label>
+                        <input type="date" id="f-{{ f }}" name="{{ f }}" value="{{ attribute(form, f) }}"{{ m.invalid('f-' ~ f, attribute(errors, f) ?? null) }}>
+                        {{ m.err('f-' ~ f, attribute(errors, f) ?? null) }}
+                        {% if f == 'issue_date' and attribute(form, f) == '' %}<p class="hint">{{ t('invoice.issue_date_hint') }}</p>{% endif %}
+                        {% if f == 'issue_date' and backdate %}<p class="hint warn-soft" role="status" data-backdate>{{ backdate }}</p>{% endif %}
+                        {% if f == 'service_date' and attribute(form, f) == '' %}<p class="hint">{{ t('invoice.service_date_hint') }}</p>{% endif %}
+                        {% if f == 'valid_until' and attribute(form, f) == '' %}<p class="hint">{{ t('offer.valid_until_hint') }}</p>{% endif %}
+                    </div>
+                {% endfor %}
+            </div>
+
+            {% if not credit_note %}
+                <div class="grid-2">
+                    <div class="field">
+                        <label for="f-currency">{{ t('invoice.currency') }}</label>
+                        <select id="f-currency" name="currency" data-currency{{ m.invalid('f-currency', errors.currency ?? null) }}>
+                            {% for cur in currencies %}<option value="{{ cur }}"{{ form.currency == cur ? ' selected' : '' }}>{{ cur }}</option>{% endfor %}
+                        </select>
+                        {{ m.err('f-currency', errors.currency ?? null) }}
+                    </div>
+                    <div class="field" data-rate-field{% if form.currency == 'EUR' %} hidden{% endif %}>
+                        <label for="f-rate">{{ t('invoice.rate_per_eur') }}</label>
+                        <input id="f-rate" name="eur_rate" value="{{ form.eur_rate }}" inputmode="decimal" autocomplete="off" maxlength="20" placeholder="4.2650"{% if form.currency == 'EUR' %} disabled{% endif %}{{ m.invalid('f-rate', errors.eur_rate ?? null) }}>
+                        {{ m.err('f-rate', errors.eur_rate ?? null) }}
+                    </div>
+                </div>
+            {% endif %}
+
+            {% if banner %}
+                <div class="banner banner-{{ banner.kind }}" role="{{ banner.kind == 'warn' ? 'alert' : 'note' }}">
+                    {% if banner.title %}<b>{{ banner.title }}</b>{% endif %}
+                    <p>{{ banner.text }}</p>
+                    {% if banner.link %}<p><a href="{{ banner.link }}">{{ t('invoice.vies_check_link') }}</a></p>{% endif %}
+                    {% if banner.recheck %}<p class="hint">{{ t('invoice.vat_recheck') }}</p>{% endif %}
+                    {% if banner.confirm %}
+                        <label class="toggle banner-confirm" for="f-confirm-vat">
+                            <input type="checkbox" id="f-confirm-vat" name="confirm_vat" value="1"{% if confirm_vat %} checked{% endif %}{{ m.invalid('f-confirm-vat', errors.confirm_vat ?? null) }}>
+                            <span><b>{{ t('invoice.confirm_vat') }}</b><span>{{ t('invoice.confirm_vat_hint') }}</span></span>
+                        </label>
+                        {{ m.err('f-confirm-vat', errors.confirm_vat ?? null) }}
+                    {% endif %}
+                </div>
+            {% endif %}
+
+            <div class="lines-block">
+                <p class="field-label" id="lines-label">{{ t('invoice.lines') }}</p>
+                {% if errors.lines is defined %}<p class="field-error" role="alert">{{ errors.lines }}</p>{% endif %}
+                <div class="tbl-wrap">
+                    <table class="lines-table" aria-labelledby="lines-label">
+                        <thead>
+                            <tr>
+                                <th>{{ t('invoice.line_description') }}</th>
+                                <th class="r">{{ t('invoice.quantity') }}</th>
+                                <th>{{ t('invoice.unit') }}</th>
+                                <th class="r">{{ t('invoice.net_price') }}</th>
+                                <th class="r">{{ t('invoice.discount') }}</th>
+                                <th>{{ t('invoice.vat') }}</th>
+                                <th class="r">{{ t('invoice.line_net') }}</th>
+                                <th><span class="sr-only">{{ t('invoice.remove') }}</span></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        {% for l in lines %}
+                            {% set p = 'line-' ~ l.index %}
+                            {% set n = l.index + 1 %}
+                            <tr class="line-row">
+                                <td class="line-main" data-label="{{ t('invoice.line_description') }}">
+                                    <label class="sr-only" for="{{ p }}-name">{{ t('invoice.line_field', {field: t('invoice.line_description'), n: n}) }}</label>
+                                    <input id="{{ p }}-name" name="lines[{{ l.index }}][name]" value="{{ l.name }}" maxlength="190"{{ m.invalid(p ~ '-name', l.errors.name) }}>
+                                    {{ m.err(p ~ '-name', l.errors.name) }}
+                                    <details class="line-more"{% if l.description or l.errors.description %} open{% endif %}>
+                                        <summary>{{ t('invoice.line_details') }}</summary>
+                                        <label class="sr-only" for="{{ p }}-desc">{{ t('invoice.line_field', {field: t('invoice.line_details'), n: n}) }}</label>
+                                        <textarea id="{{ p }}-desc" name="lines[{{ l.index }}][description]" rows="2" maxlength="2000"{{ m.invalid(p ~ '-desc', l.errors.description) }}>{{ l.description }}</textarea>
+                                        {{ m.err(p ~ '-desc', l.errors.description) }}
+                                    </details>
+                                    <input type="hidden" name="lines[{{ l.index }}][item_id]" value="{{ l.item_id }}">
+                                    {% if l.errors.item %}<p class="field-error">{{ l.errors.item }}</p>{% endif %}
+                                    {% if l.errors.row %}<p class="field-error">{{ l.errors.row }}</p>{% endif %}
+                                </td>
+                                <td class="line-qty" data-label="{{ t('invoice.quantity') }}">
+                                    <label class="sr-only" for="{{ p }}-qty">{{ t('invoice.line_field', {field: t('invoice.quantity'), n: n}) }}</label>
+                                    <input class="input-num" id="{{ p }}-qty" name="lines[{{ l.index }}][qty]" value="{{ l.qty }}" inputmode="decimal" autocomplete="off" maxlength="20"{{ m.invalid(p ~ '-qty', l.errors.qty) }}>
+                                    {{ m.err(p ~ '-qty', l.errors.qty) }}
+                                </td>
+                                <td class="line-unit" data-label="{{ t('invoice.unit') }}">
+                                    <label class="sr-only" for="{{ p }}-unit">{{ t('invoice.line_field', {field: t('invoice.unit'), n: n}) }}</label>
+                                    <select id="{{ p }}-unit" name="lines[{{ l.index }}][unit]"{{ m.invalid(p ~ '-unit', l.errors.unit) }}>
+                                        {% for u in units %}<option value="{{ u }}"{{ l.unit == u ? ' selected' : '' }}>{{ t('unit.' ~ u) }}</option>{% endfor %}
+                                    </select>
+                                    {{ m.err(p ~ '-unit', l.errors.unit) }}
+                                </td>
+                                <td class="line-price" data-label="{{ t('invoice.net_price') }}">
+                                    <label class="sr-only" for="{{ p }}-price">{{ t('invoice.line_field', {field: t('invoice.net_price'), n: n}) }}</label>
+                                    <input class="input-num" id="{{ p }}-price" name="lines[{{ l.index }}][price]" value="{{ l.price }}" inputmode="decimal" autocomplete="off" maxlength="30"{{ m.invalid(p ~ '-price', l.errors.price) }}>
+                                    {{ m.err(p ~ '-price', l.errors.price) }}
+                                </td>
+                                <td class="line-discount" data-label="{{ t('invoice.discount') }}">
+                                    <label class="sr-only" for="{{ p }}-discount">{{ t('invoice.line_field', {field: t('invoice.discount'), n: n}) }}</label>
+                                    <input class="input-num" id="{{ p }}-discount" name="lines[{{ l.index }}][discount]" value="{{ l.discount }}" inputmode="decimal" autocomplete="off" maxlength="8" placeholder="0"{{ m.invalid(p ~ '-discount', l.errors.discount) }}>
+                                    {{ m.err(p ~ '-discount', l.errors.discount) }}
+                                </td>
+                                <td class="line-vat" data-label="{{ t('invoice.vat') }}">
+                                    <label class="sr-only" for="{{ p }}-vat">{{ t('invoice.line_field', {field: t('invoice.vat'), n: n}) }}</label>
+                                    {% if reverse_charge %}
+                                        <input type="hidden" name="lines[{{ l.index }}][vat_bp]" value="{{ l.vat_bp }}">
+                                        <select id="{{ p }}-vat" disabled aria-describedby="vat-rc-note"><option>0 %</option></select>
+                                    {% else %}
+                                        <select id="{{ p }}-vat" name="lines[{{ l.index }}][vat_bp]"{{ m.invalid(p ~ '-vat', l.errors.vat) }}>
+                                            {% for v in vat_choices %}<option value="{{ v.value }}"{{ l.vat_bp == v.value ? ' selected' : '' }}>{{ v.label }}</option>{% endfor %}
+                                        </select>
+                                        {{ m.err(p ~ '-vat', l.errors.vat) }}
+                                    {% endif %}
+                                </td>
+                                <td class="line-net r num" data-label="{{ t('invoice.line_net') }}" data-line-net="{{ l.index }}">{{ l.net }}</td>
+                                <td class="line-del-cell">
+                                    <button class="line-del" type="submit" name="remove_line[{{ l.index }}]" value="1" formnovalidate aria-label="{{ t('invoice.remove_line', {n: n}) }}" title="{{ t('invoice.remove_line', {n: n}) }}">×</button>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% if reverse_charge %}<p class="hint" id="vat-rc-note">{{ t('invoice.vat_rc_locked') }}</p>{% endif %}
+                <div class="addline-row">
+                    <button class="addline" type="submit" name="add_line" value="1" formnovalidate>{{ t('invoice.add_line') }}</button>
+                    <div class="catalogue-pick">
+                        <label class="sr-only" for="f-catalogue">{{ t('invoice.catalogue_choose') }}</label>
+                        <select id="f-catalogue" name="catalogue_item"{{ m.invalid('f-catalogue', errors.catalogue ?? null) }}>
+                            <option value="">{{ catalogue ? t('invoice.catalogue_choose') : t('invoice.catalogue_empty') }}</option>
+                            {% for c in catalogue %}<option value="{{ c.id }}">{{ c.name }} · {{ c.price }}</option>{% endfor %}
+                        </select>
+                        <button class="addline" type="submit" name="add_item" value="1" formnovalidate>{{ t('invoice.add_from_catalogue') }}</button>
+                    </div>
+                </div>
+                {{ m.err('f-catalogue', errors.catalogue ?? null) }}
+            </div>
+
+            {% include 'invoices/_totals.twig' %}
+
+            <div class="grid-2">
+                <div class="field">
+                    <label for="f-intro">{{ t('invoice.intro_text') }}</label>
+                    <textarea id="f-intro" name="intro_text" rows="3" maxlength="2000"{{ m.invalid('f-intro', errors.intro_text ?? null) }}>{{ form.intro_text }}</textarea>
+                    {{ m.err('f-intro', errors.intro_text ?? null) }}
+                </div>
+                <div class="field">
+                    <label for="f-outro">{{ t('invoice.outro_text') }}</label>
+                    <textarea id="f-outro" name="outro_text" rows="3" maxlength="2000"{{ m.invalid('f-outro', errors.outro_text ?? null) }}>{{ form.outro_text }}</textarea>
+                    {{ m.err('f-outro', errors.outro_text ?? null) }}
+                </div>
+            </div>
+            <div class="field">
+                <label for="f-notes">{{ t('invoice.notes') }}</label>
+                <textarea id="f-notes" name="notes" rows="2" maxlength="2000"{{ m.invalid('f-notes', errors.notes ?? null) }}>{{ form.notes }}</textarea>
+                {{ m.err('f-notes', errors.notes ?? null) }}
+                <p class="hint">{{ t('invoice.notes_hint') }}</p>
+            </div>
+        </form>
+        {% if doc %}
+            <form class="panel-foot" method="post" action="{{ prefix }}/{{ doc.id }}/delete" data-confirm="{{ t('invoice.delete_confirm') }}">
+                {{ csrf_field() }}
+                <button class="btn btn-ghost btn-sm" type="submit">{{ t('invoice.delete_draft') }}</button>
+            </form>
+        {% endif %}
+    </section>
+    <aside class="paper-col">
+        {% if paper %}
+            {% include 'invoices/_paper.twig' %}
+            {% if doc %}<p class="hint">{{ t('invoice.preview_saved') }}</p>{% endif %}
+        {% else %}
+            <p class="paper-empty">{{ t('invoice.preview_empty') }}</p>
+        {% endif %}
+    </aside>
+</div>
+{% endblock %}

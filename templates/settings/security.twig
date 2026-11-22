@@ -1,0 +1,67 @@
+{% extends 'layout.twig' %}
+{% block title %}{{ t('settings.title') }}{% endblock %}
+{% block subtitle %}{{ company_name ?: shell().user.email }}{% endblock %}
+{% block content %}
+    {% if tabs %}{% include 'settings/_tabs.twig' %}{% endif %}
+    {% if must_change %}<p class="warn" role="alert">{{ t('security.must_change') }}</p>{% endif %}
+    {% if new_codes %}
+        <section class="panel">
+            <div class="panel-head"><h2>{{ t('security.new_codes_title') }}</h2></div>
+            <div class="panel-body">
+                <p class="hint">{{ t('security.new_codes_intro') }}</p>
+                <ol class="backup-codes">
+                    {% for code in new_codes %}<li><code>{{ code }}</code></li>{% endfor %}
+                </ol>
+            </div>
+        </section>
+    {% endif %}
+    {% if password_changed %}<p class="notice" role="status">{{ t('security.password_changed') }}</p>{% endif %}
+    <div class="grid-2">
+        <section class="panel">
+            <div class="panel-head"><h2>{{ t('security.two_factor') }}</h2></div>
+            <div class="panel-body">
+                <p>
+                    {% if totp_active %}<span class="chip chip-ok">{{ t('security.active') }}</span>{% endif %}
+                </p>
+            </div>
+        </section>
+        <section class="panel">
+            <div class="panel-head"><h2>{{ t('security.backup_codes') }}</h2></div>
+            <form class="form-grid" method="post" action="/settings/security/backup-codes" autocomplete="off">
+                {{ csrf_field() }}
+                <p class="hint">{{ t('security.backup_codes_hint') }} {{ t('security.codes_intro') }}</p>
+                <div class="field">
+                    <label for="bc-pw">{{ t('security.current_password') }}</label>
+                    <input id="bc-pw" type="password" name="current_password" autocomplete="current-password" required>
+                    {% if codes_errors.current_password is defined %}<p class="warn" role="alert">{{ codes_errors.current_password }}</p>{% endif %}
+                </div>
+                <div class="form-actions"><button class="btn btn-ghost" type="submit">{{ t('security.regenerate_codes') }}</button></div>
+            </form>
+        </section>
+    </div>
+    <section class="panel">
+        <div class="panel-head"><h2>{{ t('security.change_password') }}</h2></div>
+        <form class="form-grid" method="post" action="/settings/security/password" autocomplete="off">
+            {{ csrf_field() }}
+            <p class="hint">{{ t('security.password_hint') }}</p>
+            <div class="field">
+                <label for="pw-cur">{{ t('security.current_password') }}</label>
+                <input id="pw-cur" type="password" name="current_password" autocomplete="current-password" required>
+                {% if password_errors.current_password is defined %}<p class="warn" role="alert">{{ password_errors.current_password }}</p>{% endif %}
+            </div>
+            <div class="grid-2">
+                <div class="field">
+                    <label for="pw-new">{{ t('security.new_password') }}</label>
+                    <input id="pw-new" type="password" name="new_password" autocomplete="new-password" minlength="12" required>
+                    {% if password_errors.new_password is defined %}<p class="warn" role="alert">{{ password_errors.new_password }}</p>{% endif %}
+                </div>
+                <div class="field">
+                    <label for="pw-conf">{{ t('security.new_password_confirm') }}</label>
+                    <input id="pw-conf" type="password" name="new_password_confirm" autocomplete="new-password" minlength="12" required>
+                    {% if password_errors.new_password_confirm is defined %}<p class="warn" role="alert">{{ password_errors.new_password_confirm }}</p>{% endif %}
+                </div>
+            </div>
+            <div class="form-actions"><button class="btn btn-primary" type="submit">{{ t('security.change_password') }}</button></div>
+        </form>
+    </section>
+{% endblock %}

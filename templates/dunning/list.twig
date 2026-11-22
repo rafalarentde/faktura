@@ -1,0 +1,111 @@
+{#
+  Dunning (Task 21): overdue invoices (aggregate query; days overdue, last issued letter, the suggested
+  next level as a coloured dot) with a "create" link per row, and the issued dunning letters.
+  Nothing is sent from here.
+#}
+{% extends 'layout.twig' %}
+{% block title %}{{ t('dunning.title') }}{% endblock %}
+{% block subtitle %}{{ t('dunning.subtitle') }}{% endblock %}
+{% block content %}
+{% if flash %}<p class="{{ flash.kind == 'warn' ? 'warn-box' : 'notice' }}" role="status">{{ flash.text }}</p>{% endif %}
+<div class="stack">
+<section class="panel" data-block="overdue">
+    <div class="panel-head">
+        <h2>{{ t('dunning.list') }}</h2>
+        <form class="inline-form filters" method="get" action="/dunning" role="search">
+            <input type="search" name="q" value="{{ q }}" placeholder="{{ t('dunning.search') }}" aria-label="{{ t('dunning.search') }}" maxlength="100">
+            <button class="btn btn-ghost btn-sm" type="submit">{{ t('invoice.search_button') }}</button>
+            {% if filtered %}<a class="link-button" href="/dunning">{{ t('invoice.filter_reset') }}</a>{% endif %}
+        </form>
+    </div>
+    {% if total == 0 and not filtered %}
+        <div class="empty-state panel-body" data-empty="overdue">
+            <h3>{{ t('dunning.empty_overdue') }}</h3>
+            <p class="hint">{{ t('dunning.empty_overdue_text') }}</p>
+        </div>
+    {% else %}
+    <div class="tbl-wrap">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>{{ t('dunning.col_invoice') }}</th>
+                    <th>{{ t('table.customer') }}</th>
+                    <th class="r">{{ t('dunning.col_balance') }}</th>
+                    <th class="r">{{ t('dunning.col_days') }}</th>
+                    <th>{{ t('dunning.col_last') }}</th>
+                    <th>{{ t('table.suggestion') }}</th>
+                    <th><span class="sr-only">{{ t('dunning.actions') }}</span></th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for r in overdue %}
+                <tr data-overdue-row="{{ r.id }}">
+                    <td><a class="strong-link" href="/invoices/{{ r.id }}">{{ r.number }}</a></td>
+                    <td class="wrap">{{ r.buyer }}</td>
+                    <td class="r num">{{ r.balance }}</td>
+                    <td class="r"><span class="num" data-days>{{ r.days }}</span><small class="cell-sub">{{ t('dunning.due_on', {date: r.due_date}) }}</small></td>
+                    <td class="wrap">{% if r.last %}{{ r.last.label }}<small class="cell-sub">{{ r.last.date }}</small>{% else %}<span class="hint-inline">{{ t('dunning.none_sent') }}</span>{% endif %}</td>
+                    <td class="wrap">{% if r.suggestion %}<span class="sugg {{ r.suggestion.dot }}" data-suggestion="{{ r.suggestion.level }}"><span class="dot" aria-hidden="true"></span>{{ r.suggestion.label }}</span>{% else %}<span class="hint-inline" data-suggestion="">{{ t('dunning.no_suggestion') }}</span>{% endif %}</td>
+                    <td class="r">{% if r.can_create %}<a class="btn btn-sm{{ r.suggestion ? ' btn-primary' : ' btn-ghost' }}" href="/dunning/new?invoice={{ r.id }}" aria-label="{{ t('dunning.create_label', {number: r.number}) }}">{{ t('dunning.create') }}</a>{% endif %}</td>
+                </tr>
+            {% else %}
+                <tr><td colspan="7" class="empty-row">{{ t('invoice.list_no_results') }}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% if pages > 1 %}
+        <nav class="pager" aria-label="{{ t('invoice.pagination') }}">
+            {% if prev %}<a class="btn btn-ghost btn-sm" href="{{ prev }}" rel="prev">{{ t('invoice.prev') }}</a>{% endif %}
+            <span>{{ t('invoice.page_info', {page: page, pages: pages}) }}</span>
+            {% if next %}<a class="btn btn-ghost btn-sm" href="{{ next }}" rel="next">{{ t('invoice.next') }}</a>{% endif %}
+        </nav>
+    {% endif %}
+    {% endif %}
+</section>
+
+<section class="panel" data-block="issued">
+    <div class="panel-head"><h2>{{ t('dunning.issued_list') }}</h2></div>
+    <div class="tbl-wrap">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>{{ t('table.number') }}</th>
+                    <th>{{ t('dunning.col_invoice') }}</th>
+                    <th>{{ t('table.customer') }}</th>
+                    <th>{{ t('dunning.level') }}</th>
+                    <th>{{ t('table.date') }}</th>
+                    <th class="r">{{ t('dunning.total_claim') }}</th>
+                    <th><span class="sr-only">{{ t('dunning.actions') }}</span></th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for d in issued %}
+                <tr data-dunning-row="{{ d.id }}">
+                    <td><a class="strong-link" href="/dunning/{{ d.id }}">{{ d.number }}</a></td>
+                    <td>{% if d.invoice %}<a href="/invoices/{{ d.invoice.id }}">{{ d.invoice.number }}</a>{% else %}—{% endif %}</td>
+                    <td class="wrap">{{ d.buyer }}</td>
+                    <td><span class="sugg {{ d.dot }}"><span class="dot" aria-hidden="true"></span>{{ d.level }}</span></td>
+                    <td>{{ d.date }}</td>
+                    <td class="r num">{{ d.claim }}</td>
+                    <td class="r"><div class="row-actions">
+                        <a class="btn btn-sm btn-ghost" href="/documents/{{ d.id }}/pdf" target="_blank" rel="noopener" aria-label="{{ t('pdf.open_label', {number: d.number}) }}">{{ t('invoice.pdf') }}</a>
+                        <a class="btn btn-sm btn-ghost" href="/documents/{{ d.id }}/send" aria-label="{{ t('dunning.send_label', {number: d.number}) }}">{{ t('dunning.send_short') }}</a>
+                    </div></td>
+                </tr>
+            {% else %}
+                <tr><td colspan="7" class="empty-row" data-empty="issued">{{ issued_total == 0 and not filtered ? t('dunning.empty_issued') : t('invoice.list_no_results') }}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% if issued_pager.pages > 1 %}
+        <nav class="pager" aria-label="{{ t('invoice.pagination') }}">
+            {% if issued_pager.prev %}<a class="btn btn-ghost btn-sm" href="{{ issued_pager.prev }}" rel="prev">{{ t('invoice.prev') }}</a>{% endif %}
+            <span>{{ t('invoice.page_info', {page: issued_pager.page, pages: issued_pager.pages}) }}</span>
+            {% if issued_pager.next %}<a class="btn btn-ghost btn-sm" href="{{ issued_pager.next }}" rel="next">{{ t('invoice.next') }}</a>{% endif %}
+        </nav>
+    {% endif %}
+</section>
+</div>
+{% endblock %}

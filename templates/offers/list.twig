@@ -1,0 +1,91 @@
+{#
+  Offer list (Task 19): number (or draft), customer, valid until, amount, status chip (+ "invoiced" chip
+  when invoices were created from the offer) and the quick actions of the mockup: "Angenommen" for open
+  offers, "-> Rechnung erstellen" for accepted ones (small POST forms; CSRF as usual). `expired` is
+  computed from the valid-until date, never stored.
+#}
+{% extends 'layout.twig' %}
+{% import '_icons.twig' as icons %}
+{% block title %}{{ t('offer.title') }}{% endblock %}
+{% block subtitle %}{{ t('offer.subtitle') }}{% endblock %}
+{% block actions %}<a class="btn btn-primary" href="/offers/new">{{ icons.icon('plus') }}{{ t('offer.new') }}</a>{% endblock %}
+{% block content %}
+{% if flash %}<p class="{{ flash.kind == 'warn' ? 'warn-box' : 'notice' }}" role="status">{{ flash.text }}</p>{% endif %}
+{% if total == 0 and not filtered %}
+    <section class="card empty-state">
+        <h2>{{ t('offer.list_empty') }}</h2>
+        <p>{{ t('offer.list_empty_text') }}</p>
+        <p><a class="btn btn-primary" href="/offers/new">{{ icons.icon('plus') }}{{ t('offer.new') }}</a></p>
+    </section>
+{% else %}
+    <section class="panel">
+        <div class="panel-head">
+            <form class="inline-form filters" method="get" action="/offers" role="search">
+                <input type="search" name="q" value="{{ q }}" placeholder="{{ t('invoice.search') }}" aria-label="{{ t('invoice.search') }}" maxlength="100">
+                <label class="sr-only" for="flt-status">{{ t('invoice.filter_status') }}</label>
+                <select id="flt-status" name="status">
+                    <option value="">{{ t('invoice.filter_all_statuses') }}</option>
+                    {% for s in statuses %}<option value="{{ s }}"{{ status == s ? ' selected' : '' }}>{{ t('offer.status_' ~ s) }}</option>{% endfor %}
+                </select>
+                <button class="btn btn-ghost btn-sm" type="submit">{{ t('invoice.search_button') }}</button>
+                {% if filtered %}<a class="link-button" href="/offers">{{ t('invoice.filter_reset') }}</a>{% endif %}
+            </form>
+        </div>
+        <div class="tbl-wrap">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>{{ t('table.number') }}</th>
+                        <th>{{ t('table.customer') }}</th>
+                        <th>{{ t('table.valid_until') }}</th>
+                        <th class="r">{{ t('table.amount') }}</th>
+                        <th>{{ t('table.status') }}</th>
+                        <th><span class="sr-only">{{ t('offer.actions') }}</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for r in rows %}
+                    <tr data-doc-row>
+                        <td><a class="strong-link" href="/offers/{{ r.id }}">{{ r.number ?: t('invoice.draft_number') }}</a></td>
+                        <td class="wrap">{{ r.buyer }}{% if r.reverse_charge %}<small class="cell-sub">{{ t('invoice.reverse_charge') }} · {{ r.currency }}</small>{% endif %}</td>
+                        <td>{{ r.valid_until ?? '—' }}</td>
+                        <td class="r num">{{ r.amount }}</td>
+                        <td>
+                            <span class="chip {{ r.chip }}" data-status="{{ r.status }}">{{ t('offer.status_' ~ r.status) }}</span>
+                            {% if r.invoiced %}<span class="chip chip-outline" data-invoiced>{{ t('offer.invoiced') }}</span>{% endif %}
+                        </td>
+                        <td class="r"><div class="row-actions">
+                            {% if r.status != 'draft' %}<a class="btn btn-sm btn-ghost" href="/documents/{{ r.id }}/pdf" target="_blank" rel="noopener" aria-label="{{ t('pdf.open_label', {number: r.number}) }}">{{ t('invoice.pdf') }}</a>{% endif %}
+                            {% if r.can_accept %}
+                                <form class="inline-form" method="post" action="/offers/{{ r.id }}/status">
+                                    {{ csrf_field() }}
+                                    <input type="hidden" name="status" value="accepted">
+                                    <input type="hidden" name="return" value="list">
+                                    <button class="btn btn-sm btn-ghost" type="submit">{{ t('offer.mark_accepted') }}</button>
+                                </form>
+                            {% endif %}
+                            {% if r.can_convert %}
+                                <form class="inline-form" method="post" action="/offers/{{ r.id }}/convert">
+                                    {{ csrf_field() }}
+                                    <input type="hidden" name="return" value="list">
+                                    <button class="btn btn-sm btn-primary" type="submit">{{ t('offer.convert_to_invoice') }}</button>
+                                </form>
+                            {% endif %}
+                        </div></td>
+                    </tr>
+                {% else %}
+                    <tr><td colspan="6" class="empty-row">{{ t('invoice.list_no_results') }}</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% if pages > 1 %}
+            <nav class="pager" aria-label="{{ t('invoice.pagination') }}">
+                {% if prev %}<a class="btn btn-ghost btn-sm" href="{{ prev }}" rel="prev">{{ t('invoice.prev') }}</a>{% endif %}
+                <span>{{ t('invoice.page_info', {page: page, pages: pages}) }}</span>
+                {% if next %}<a class="btn btn-ghost btn-sm" href="{{ next }}" rel="next">{{ t('invoice.next') }}</a>{% endif %}
+            </nav>
+        {% endif %}
+    </section>
+{% endif %}
+{% endblock %}

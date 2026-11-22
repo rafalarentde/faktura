@@ -1,0 +1,57 @@
+{#
+  Read-only view of an ISSUED offer, from the stored snapshots (extends the invoice view: head,
+  document_actions with PDF and mail, mail log and paper are shared). Offers are immutable; only the
+  status changes, with small POST forms. "Create invoice" appears for accepted offers; the linked
+  invoices (drafts and issued) are listed, with a short warning once one was issued.
+#}
+{% extends 'invoices/show.twig' %}
+{% block doc_meta %}
+    <div><dt>{{ t('table.number') }}</dt><dd class="mono">{{ doc.number }}</dd></div>
+    <div><dt>{{ t('offer.date') }}</dt><dd>{{ doc.issue_date ?? '—' }}</dd></div>
+    <div><dt>{{ t('offer.valid_until') }}</dt><dd>{{ doc.valid_until ?? '—' }}</dd></div>
+    <div><dt>{{ t('invoice.currency') }}</dt><dd>{{ doc.currency }}</dd></div>
+{% endblock %}
+{% block extra_chips %}{% if invoices %} <span class="chip chip-outline" data-invoiced>{{ t('offer.invoiced') }}</span>{% endif %}{% endblock %}
+{% block side_panels %}
+    <section class="panel" data-block="offer_status">
+        <div class="panel-head"><h2>{{ t('offer.status_panel') }}</h2></div>
+        <div class="panel-body">
+            <p>{{ t('offer.status_is') }} <span class="chip {{ chip }}">{{ status_label }}</span></p>
+            {% if status == 'expired' %}<p class="hint">{{ t('offer.expired_hint') }}</p>{% endif %}
+            {% if locked_accepted %}<p class="hint">{{ t('offer.locked_accepted') }}</p>{% endif %}
+            {% if actions %}
+                <div class="row-actions">
+                {% for a in actions %}
+                    <form class="inline-form" method="post" action="/offers/{{ doc.id }}/status">
+                        {{ csrf_field() }}
+                        <input type="hidden" name="status" value="{{ a.status }}">
+                        <button class="btn btn-sm{{ a.primary ? ' btn-primary' : '' }}" type="submit">{{ a.label }}</button>
+                    </form>
+                {% endfor %}
+                </div>
+            {% endif %}
+        </div>
+    </section>
+    <section class="panel" data-block="offer_invoices">
+        <div class="panel-head"><h2>{{ t('offer.linked_invoices') }}</h2></div>
+        <div class="panel-body">
+            {% if already_invoiced %}<p class="warn-soft" role="note" data-already-invoiced>{{ t('offer.already_invoiced') }}</p>{% endif %}
+            {% if invoices %}
+                <ul class="plain-list">
+                {% for inv in invoices %}
+                    <li><a class="strong-link" href="/invoices/{{ inv.id }}">{{ inv.number ?: t('invoice.draft_number') }}</a>{% if inv.date %} · {{ inv.date }}{% endif %} · <span class="num">{{ inv.amount }}</span> <span class="chip {{ inv.status == 'draft' ? 'chip-draft' : 'chip-sent' }}">{{ t('invoice.status_' ~ (inv.status == 'draft' ? 'draft' : 'issued')) }}</span></li>
+                {% endfor %}
+                </ul>
+            {% else %}
+                <p class="hint">{{ t('offer.no_linked_invoices') }}</p>
+            {% endif %}
+            {% if can_convert %}
+                <form class="inline-form" method="post" action="/offers/{{ doc.id }}/convert">
+                    {{ csrf_field() }}
+                    <button class="btn btn-primary" type="submit">{{ t('offer.convert_to_invoice') }}</button>
+                </form>
+                <p class="hint">{{ t('offer.convert_hint') }}</p>
+            {% endif %}
+        </div>
+    </section>
+{% endblock %}

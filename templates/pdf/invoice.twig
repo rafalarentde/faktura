@@ -1,0 +1,28 @@
+{#
+  PDF of an issued invoice or credit note (doc.kind = invoice | credit_note). See pdf/_base.twig
+  for the inputs. Credit notes: no due date / payment request, a reference to the original invoice,
+  sums with a leading minus (lines stay positive). Optional values never print an empty label.
+#}
+{% extends 'pdf/_base.twig' %}
+
+{% block head_meta %}
+    {%- if doc.issue_date %}<tr><th>{{ doc.labels.issue_date }}</th><td>{{ doc.issue_date }}</td></tr>{% endif %}
+    {%- if doc.service_same %}<tr><td colspan="2">{{ doc.labels.service_same }}</td></tr>{% elseif doc.service_date %}<tr><th>{{ doc.labels.service_date }}</th><td>{{ doc.service_date }}</td></tr>{% endif %}
+    {%- if doc.due_date %}<tr><th>{{ doc.labels.due_date }}</th><td>{{ doc.due_date }}</td></tr>{% endif %}
+{% endblock %}
+
+{% block content %}
+{% if doc.related %}<p class="related">{{ doc.related }}</p>{% endif %}
+{% include 'pdf/_body.twig' %}
+
+{# Credit notes carry no payment request, so no payment/bank block. #}
+{% if doc.kind != 'credit_note' and (doc.payment or doc.seller.iban) %}
+    <div class="payment">
+        {%- if doc.payment %}<div class="strong">{{ doc.payment }}</div>{% endif %}
+        {%- if doc.seller.iban %}
+            <div>{{ doc.labels.bank_details }}:
+                {% if doc.seller.bank %}{{ doc.seller.bank }} · {% endif %}IBAN {{ doc.seller.iban }}{% if doc.seller.bic %} · BIC {{ doc.seller.bic }}{% endif %}</div>
+        {%- endif %}
+    </div>
+{% endif %}
+{% endblock %}

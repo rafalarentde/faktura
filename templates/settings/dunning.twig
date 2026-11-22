@@ -1,0 +1,61 @@
+{% extends 'layout.twig' %}
+{% block title %}{{ t('settings.title') }}{% endblock %}
+{% block subtitle %}{{ company_name }}{% endblock %}
+{% block content %}
+    {% include 'settings/_tabs.twig' %}
+    <section class="panel">
+        {% if saved %}<p class="notice" role="status">{{ t('settings.saved') }}</p>{% endif %}
+        {% if errors %}<p class="warn" role="alert">{{ t('settings.err_summary') }}</p>{% endif %}
+        <form class="form-grid" method="post" action="/settings/dunning">
+            {{ csrf_field() }}
+            <p class="hint">{{ t('dunning.settings_hint') }}</p>
+            <div class="grid-2">
+                {% for n in 0..3 %}
+                    {% set f = 'dunning_d' ~ n %}
+                    <div class="field">
+                        <label for="d-{{ f }}">{{ t(['dunning.days_reminder', 'dunning.days_first', 'dunning.days_second', 'dunning.days_final'][n]) }}</label>
+                        <input id="d-{{ f }}" name="{{ f }}" value="{{ attribute(form, f) }}" inputmode="numeric" maxlength="3" required>
+                        {% if attribute(errors, f) is defined %}<p class="warn" role="alert">{{ attribute(errors, f) }}</p>{% endif %}
+                    </div>
+                {% endfor %}
+            </div>
+            <p class="hint">{{ t('settings.dunning_days_hint') }}</p>
+            <div class="grid-3">
+                <div class="field">
+                    <label for="d-base">{{ t('dunning.base_rate') }}</label>
+                    <input id="d-base" name="dunning_base_rate" value="{{ form.dunning_base_rate }}" inputmode="decimal" maxlength="6" autocomplete="off">
+                    <p class="hint">{{ t('settings.dunning_base_rate_hint') }}</p>
+                    {% if errors.dunning_base_rate is defined %}<p class="warn" role="alert">{{ errors.dunning_base_rate }}</p>{% endif %}
+                </div>
+                <div class="field">
+                    <label for="d-b2b">{{ t('dunning.surcharge_b2b') }}</label>
+                    <input id="d-b2b" name="dunning_b2b" value="{{ form.dunning_b2b }}" inputmode="decimal" maxlength="6" required>
+                    <p class="hint">{{ t('settings.dunning_surcharge_hint') }}</p>
+                    {% if errors.dunning_b2b is defined %}<p class="warn" role="alert">{{ errors.dunning_b2b }}</p>{% endif %}
+                </div>
+                <div class="field">
+                    <label for="d-b2c">{{ t('dunning.surcharge_b2c') }}</label>
+                    <input id="d-b2c" name="dunning_b2c" value="{{ form.dunning_b2c }}" inputmode="decimal" maxlength="6" required>
+                    <p class="hint">{{ t('settings.dunning_surcharge_hint') }}</p>
+                    {% if errors.dunning_b2c is defined %}<p class="warn" role="alert">{{ errors.dunning_b2c }}</p>{% endif %}
+                </div>
+            </div>
+            <div class="grid-2">
+                <div class="field">
+                    <label for="d-flat">{{ t('dunning.flat_fee_amount') }}</label>
+                    <input id="d-flat" name="dunning_flat" value="{{ form.dunning_flat }}" inputmode="decimal" maxlength="12" required>
+                    <p class="hint">{{ t('settings.dunning_amount_hint') }}</p>
+                    {% if errors.dunning_flat is defined %}<p class="warn" role="alert">{{ errors.dunning_flat }}</p>{% endif %}
+                </div>
+                <div class="field">
+                    <label for="d-fee">{{ t('dunning.fee_per_reminder') }}</label>
+                    <input id="d-fee" name="dunning_fee" value="{{ form.dunning_fee }}" inputmode="decimal" maxlength="12">
+                    <p class="hint">{{ t('settings.dunning_amount_hint') }}</p>
+                    {% if errors.dunning_fee is defined %}<p class="warn" role="alert">{{ errors.dunning_fee }}</p>{% endif %}
+                </div>
+            </div>
+            <p class="hint">{{ t('dunning.defaults_off') }}</p>
+            <div class="form-actions"><button class="btn btn-primary" type="submit">{{ t('common.save') }}</button></div>
+        </form>
+    </section>
+{% endblock %}

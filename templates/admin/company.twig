@@ -1,0 +1,87 @@
+{% extends 'layout.twig' %}
+{% block title %}{{ company.name }}{% endblock %}
+{% block subtitle %}
+    {{ t('admin.col_plan') }}: {{ company.plan }} ·
+    {{ t('admin.col_access') }}:
+    {% if company.access_status == 'active' %}{{ t('admin.status_active') }}
+    {% elseif company.access_status == 'trial' %}{{ t('admin.status_trial') }}
+    {% else %}{{ t('admin.status_suspended') }}{% endif %}
+    {%- if company.access_until %} · {{ t('admin.col_until') }}: {{ company.access_until|slice(0, 10) }}{% endif %}
+{% endblock %}
+{% block actions %}<a class="btn btn-ghost" href="/admin/companies">← {{ t('admin.back') }}</a>{% endblock %}
+{% block content %}
+    {% if error %}<p class="warn" role="alert">{{ error }}</p>{% endif %}
+    {% if temp %}
+        <section class="panel" role="status">
+            <div class="panel-head"><h2>{{ t('admin.temp_password_title') }}</h2></div>
+            <div class="panel-body">
+                <p class="hint">{{ t('admin.temp_password_intro', {email: temp.email}) }}</p>
+                <p><code>{{ temp.password }}</code></p>
+            </div>
+        </section>
+    {% endif %}
+    <div class="stack">
+        <section class="panel">
+            <div class="panel-head"><h2>{{ t('admin.users_title') }}</h2></div>
+            {% if members is empty %}
+                <p class="panel-body hint">{{ t('admin.no_users') }}</p>
+            {% else %}
+            <div class="tbl-wrap">
+                <table class="table">
+                    <thead><tr><th>{{ t('admin.email') }}</th><th>{{ t('admin.role') }}</th><th><span class="sr-only">{{ t('admin.actions') }}</span></th></tr></thead>
+                    <tbody>
+                    {% for m in members %}
+                        <tr>
+                            <td>{{ m.email }}</td>
+                            <td>{{ m.role == 'owner' ? t('admin.role_owner') : t('admin.role_user') }}</td>
+                            <td class="r">
+                                <div class="row-actions">
+                                    <form class="inline-form" method="post" action="/admin/companies/{{ company.id }}/users/{{ m.user_id }}/reset-2fa">
+                                        {{ csrf_field() }}
+                                        <button class="btn btn-ghost btn-sm" type="submit" title="{{ t('admin.reset_2fa_hint') }}">{{ t('admin.reset_2fa') }}</button>
+                                    </form>
+                                    <form class="inline-form" method="post" action="/admin/companies/{{ company.id }}/users/{{ m.user_id }}/temp-password">
+                                        {{ csrf_field() }}
+                                        <button class="btn btn-ghost btn-sm" type="submit" title="{{ t('admin.temp_password_hint') }}">{{ t('admin.temp_password') }}</button>
+                                    </form>
+                                    <form class="inline-form" method="post" action="/admin/companies/{{ company.id }}/users/{{ m.user_id }}/remove">
+                                        {{ csrf_field() }}
+                                        <button class="btn btn-ghost btn-sm" type="submit">{{ t('admin.remove') }}</button>
+                                    </form>
+                                </div>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endif %}
+        </section>
+
+        <section class="panel">
+            <div class="panel-head"><h2>{{ t('admin.add_user') }}</h2></div>
+            <form class="form-grid" method="post" action="/admin/companies/{{ company.id }}/users" autocomplete="off">
+                {{ csrf_field() }}
+                <div class="grid-2">
+                    <div class="field">
+                        <label for="member-email">{{ t('admin.email') }}</label>
+                        <input id="member-email" type="email" name="email" required>
+                    </div>
+                    <div class="field">
+                        <label for="member-role">{{ t('admin.role') }}</label>
+                        <select id="member-role" name="role">
+                            <option value="user">{{ t('admin.role_user') }}</option>
+                            <option value="owner">{{ t('admin.role_owner') }}</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="field">
+                    <label for="member-password">{{ t('admin.initial_password') }}</label>
+                    <input id="member-password" type="password" name="password" autocomplete="new-password">
+                    <p class="hint">{{ t('admin.initial_password_hint') }}</p>
+                </div>
+                <div class="form-actions"><button class="btn btn-primary" type="submit">{{ t('admin.add_user') }}</button></div>
+            </form>
+        </section>
+    </div>
+{% endblock %}

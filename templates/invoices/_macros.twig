@@ -1,0 +1,5 @@
+{# Field error helpers of the invoice pages: the message has id "<field id>-error" and the
+   control points to it with aria-describedby (only when there is an error). #}
+{% macro invalid(id, msg) %}{% if msg %} aria-invalid="true" aria-describedby="{{ id }}-error"{% endif %}{% endmacro %}
+
+{% macro err(id, msg) %}{% if msg %}<p class="field-error" id="{{ id }}-error">{{ msg }}</p>{% endif %}{% endmacro %}

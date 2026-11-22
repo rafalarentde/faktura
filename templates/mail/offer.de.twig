@@ -1,0 +1,12 @@
+Guten Tag {{ buyer }},
+
+anbei erhalten Sie unser Angebot {{ number }} über {{ gross }} als PDF.
+
+{% if valid_until %}
+Das Angebot ist gültig bis zum {{ valid_until }}.
+
+{% endif %}
+Wenn Sie Fragen oder Änderungswünsche haben, melden Sie sich gern. Wir freuen uns auf Ihre Rückmeldung.
+
+Mit freundlichen Grüßen
+{{ company }}

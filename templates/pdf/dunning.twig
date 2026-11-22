@@ -1,0 +1,41 @@
+{#
+  PDF of an issued dunning letter (doc.kind = dunning, DocumentPresenter::dunning). See pdf/_base.twig
+  for the inputs. Everything comes from the stored dunning_* columns and the snapshots: title per
+  level, reference line to the invoice, the formal text per level, the breakdown (only the extras
+  that were charged), the total claim in bold, the pay-by date, the bank details and the sign-off.
+#}
+{% extends 'pdf/_base.twig' %}
+
+{% block head_meta %}
+    {%- if doc.issue_date %}<tr><th>{{ doc.labels.issue_date }}</th><td>{{ doc.issue_date }}</td></tr>{% endif %}
+    {%- if doc.pay_by %}<tr><th>{{ doc.labels.pay_by }}</th><td class="strong">{{ doc.pay_by }}</td></tr>{% endif %}
+{% endblock %}
+
+{% block content %}
+{% if doc.reference %}<p class="related">{{ doc.reference }}</p>{% endif %}
+<div class="letter text">
+    <p>{{ doc.greeting }}</p>
+    {% for paragraph in doc.text %}<p>{{ paragraph }}</p>{% endfor %}
+</div>
+
+<table class="claim">
+    {% for row in doc.rows %}
+        <tr><td>{{ row.label }}</td><td class="r">{{ row.amount }}</td></tr>
+    {% endfor %}
+    <tr class="total"><td>{{ doc.total_label }}</td><td class="r">{{ doc.gross }}</td></tr>
+</table>
+
+<div class="payment">
+    <div class="strong">{{ doc.payment }}</div>
+    {%- if doc.seller.iban %}
+        <div>{{ doc.labels.bank_details }}:
+            {% if doc.seller.bank %}{{ doc.seller.bank }} · {% endif %}IBAN {{ doc.seller.iban }}{% if doc.seller.bic %} · BIC {{ doc.seller.bic }}{% endif %}</div>
+    {%- endif %}
+    {%- if doc.purpose %}<div>{{ doc.purpose }}</div>{% endif %}
+</div>
+
+<div class="sign-off">
+    <p>{{ doc.closing }}</p>
+    <p class="strong">{{ doc.seller.name }}</p>
+</div>
+{% endblock %}

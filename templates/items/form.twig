@@ -1,0 +1,66 @@
+{% set action = item ? '/items/' ~ item.id : '/items' %}
+<section class="panel" id="item-form">
+    <div class="panel-head"><h2>{{ item ? t('item.edit') : t('item.new') }}</h2></div>
+    {% if saved %}<p class="notice" role="status">{{ t('item.saved') }}</p>{% endif %}
+    {% if errors %}<p class="warn" role="alert">{{ t('item.err_summary') }}</p>{% endif %}
+    <form class="form-grid" method="post" action="{{ action }}">
+        {{ csrf_field() }}
+        <p class="field-label" id="names-label">{{ t('item.names_per_language') }}</p>
+        {% if errors.names is defined %}<p class="warn" role="alert">{{ errors.names }}</p>{% endif %}
+        <div class="grid-3" role="group" aria-labelledby="names-label">
+            {% for l in name_langs %}
+                <div class="field">
+                    <label for="i-name-{{ l }}">{{ l|upper }}</label>
+                    <input id="i-name-{{ l }}" name="name_{{ l }}" value="{{ attribute(form, 'name_' ~ l) }}" maxlength="190" lang="{{ l }}">
+                    {% set err = attribute(errors, 'name_' ~ l) is defined ? attribute(errors, 'name_' ~ l) : null %}
+                    {% if err %}<p class="warn" role="alert">{{ err }}</p>{% endif %}
+                </div>
+            {% endfor %}
+        </div>
+        <div class="grid-3">
+            <div class="field">
+                <label for="i-type">{{ t('item.type') }}</label>
+                <select id="i-type" name="type">
+                    {% for ty in types %}<option value="{{ ty }}"{{ form.type == ty ? ' selected' : '' }}>{{ t('item.type_' ~ ty) }}</option>{% endfor %}
+                </select>
+                {% if errors.type is defined %}<p class="warn" role="alert">{{ errors.type }}</p>{% endif %}
+            </div>
+            <div class="field">
+                <label for="i-unit">{{ t('item.unit') }}</label>
+                <select id="i-unit" name="unit">
+                    {% for u in units %}<option value="{{ u }}"{{ form.unit == u ? ' selected' : '' }}>{{ t('unit.' ~ u) }}</option>{% endfor %}
+                </select>
+                {% if errors.unit is defined %}<p class="warn" role="alert">{{ errors.unit }}</p>{% endif %}
+            </div>
+            <div class="field">
+                <label for="i-vat">{{ t('item.vat_rate') }}</label>
+                <select id="i-vat" name="vat_bp">
+                    {% for v in vat_choices %}<option value="{{ v.value }}"{{ form.vat_bp == v.value ? ' selected' : '' }}>{{ v.label }}</option>{% endfor %}
+                </select>
+                {% if errors.vat_bp is defined %}<p class="warn" role="alert">{{ errors.vat_bp }}</p>{% endif %}
+            </div>
+        </div>
+        <div class="grid-2">
+            <div class="field">
+                <label for="i-price">{{ t('item.price') }}</label>
+                <input id="i-price" name="price" value="{{ form.price }}" inputmode="decimal" autocomplete="off" maxlength="30">
+                {% if errors.price is defined %}<p class="warn" role="alert">{{ errors.price }}</p>{% endif %}
+            </div>
+            <div class="field">
+                <label for="i-currency">{{ t('item.currency') }}</label>
+                <select id="i-currency" name="currency">
+                    {% for cur in currencies %}<option value="{{ cur }}"{{ form.currency == cur ? ' selected' : '' }}>{{ cur }}</option>{% endfor %}
+                </select>
+                {% if errors.currency is defined %}<p class="warn" role="alert">{{ errors.currency }}</p>{% endif %}
+            </div>
+        </div>
+        <div class="form-actions"><button class="btn btn-primary" type="submit">{{ t('common.save') }}</button></div>
+    </form>
+    {% if item %}
+        <form class="inline-form" method="post" action="/items/{{ item.id }}/active">
+            {{ csrf_field() }}
+            <input type="hidden" name="active" value="{{ item_active ? '0' : '1' }}">
+            <button class="btn btn-ghost" type="submit">{{ item_active ? t('item.deactivate') : t('item.activate') }}</button>
+        </form>
+    {% endif %}
+</section>

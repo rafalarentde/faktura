@@ -1,0 +1,21 @@
+{% extends '_auth_base.twig' %}
+{% block title %}{{ t('login.title') }}{% endblock %}
+{% block content %}
+    <h1>{{ t('login.title') }}</h1>
+    <p class="auth-sub">{{ t('login.subtitle') }}</p>
+    {% if error %}
+        <p class="warn" role="alert">{{ t(error) }}</p>
+    {% endif %}
+    <form class="form-grid form-tight" method="post" action="/login">
+        {{ csrf_field() }}
+        <div class="field">
+            <label for="email">{{ t('login.email') }}</label>
+            <input id="email" name="email" type="email" value="{{ email }}" autocomplete="username" required autofocus>
+        </div>
+        <div class="field">
+            <label for="password">{{ t('login.password') }}</label>
+            <input id="password" name="password" type="password" autocomplete="current-password" required>
+        </div>
+        <button class="btn btn-primary btn-wide" type="submit">{{ t('login.next') }}</button>
+    </form>
+{% endblock %}

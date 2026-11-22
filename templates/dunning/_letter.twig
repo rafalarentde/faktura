@@ -1,0 +1,34 @@
+{#
+  The dunning letter as on paper (document language), from DocumentPresenter::dunning(): the same
+  view model as the PDF. Input: letter (view model), letter_lang (UI name of its language).
+#}
+<div class="paper letter-paper" lang="{{ letter.lang }}" data-letter>
+    <div class="paper-head">
+        <div class="paper-logo">{{ letter.seller.name }}</div>
+        <div class="paper-title">
+            <h2>{{ letter.title }}</h2>
+            <div>{{ letter.number }}{% if letter.issue_date %} · {{ letter.issue_date }}{% endif %}</div>
+        </div>
+    </div>
+    <div class="paper-parties">
+        <div>
+            <b>{{ letter.buyer.name }}</b>
+            {% for l in letter.buyer.address %}<br>{{ l }}{% endfor %}
+            {% if letter.buyer.country %}<br>{{ letter.buyer.country }}{% endif %}
+        </div>
+        <div class="paper-seller">{{ letter.seller.name }}{% for l in letter.seller.address %}<br>{{ l }}{% endfor %}</div>
+    </div>
+    {% if letter.reference %}<p class="paper-related"><b>{{ letter.reference }}</b></p>{% endif %}
+    <div class="letter-text">
+        <p>{{ letter.greeting }}</p>
+        {% for paragraph in letter.text %}<p>{{ paragraph }}</p>{% endfor %}
+    </div>
+    <div class="paper-totals letter-claim">
+        {% for row in letter.rows %}<div data-letter-row="{{ row.key }}"><span>{{ row.label }}</span><span class="num">{{ row.amount }}</span></div>{% endfor %}
+        <div class="paper-gross"><span>{{ letter.total_label }}</span><span class="num" data-letter-total>{{ letter.gross }}</span></div>
+    </div>
+    <p class="paper-text letter-pay"><b>{{ letter.payment }}</b></p>
+    {% if letter.seller.iban %}<p class="paper-text">{{ letter.labels.bank_details }}: {% if letter.seller.bank %}{{ letter.seller.bank }} · {% endif %}IBAN {{ letter.seller.iban }}{% if letter.seller.bic %} · BIC {{ letter.seller.bic }}{% endif %}</p>{% endif %}
+    {% if letter.purpose %}<p class="paper-text">{{ letter.purpose }}</p>{% endif %}
+    <p class="paper-text letter-sign">{{ letter.closing }}<br><b>{{ letter.seller.name }}</b></p>
+</div>

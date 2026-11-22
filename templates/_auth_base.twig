@@ -1,0 +1,31 @@
+{#
+  Standalone shell for pre-login, 2FA, error and no-company pages: dark card on a dark
+  gradient like the approved mockup's login screen (same tokens as layout.twig, scoped to
+  .auth-page). Blocks: title, content. No inline style/script (CSP).
+#}
+<!doctype html>
+<html lang="{{ current_lang() }}">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex">
+    <meta name="color-scheme" content="dark">
+    <title>{% block title %}{% endblock %} · Faktura</title>
+    <link rel="stylesheet" href="{{ asset('/assets/app.css') }}">
+    <script src="{{ asset('/assets/app.js') }}"></script>
+</head>
+<body class="auth-page">
+<main class="auth">
+    <div class="auth-card">
+        <div class="brand auth-brand">
+            <span class="brand-mark" aria-hidden="true">F</span>
+            <span class="brand-text"><b>Faktura</b><small>{{ t('nav.byline', {name: brand_name()}) }}</small></span>
+        </div>
+        {% block content %}{% endblock %}
+    </div>
+    <div class="auth-tools">
+        {% include '_lang_switch.twig' with {back: current_path()} only %}
+    </div>
+</main>
+</body>
+</html>
