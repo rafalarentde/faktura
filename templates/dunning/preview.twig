@@ -14,6 +14,10 @@
 {% if flash %}<p class="{{ flash.kind == 'warn' ? 'warn-box' : 'notice' }}" role="status">{{ flash.text }}</p>{% endif %}
 {% if errors.document is defined %}<p class="warn-box" role="alert">{{ errors.document }}</p>{% endif %}
 {% if errors.invoice is defined %}<p class="warn-box" role="alert">{{ errors.invoice }}</p>{% endif %}
+{# Refusals that belong to no form field (incomplete seller or buyer data, text encoding): shown generically, never silently dropped. #}
+{% for key in ['seller', 'seller_vat', 'buyer', 'company'] %}{% if errors[key] is defined %}
+<p class="warn-box" role="alert" data-error="{{ key }}">{{ errors[key] }}{% if key == 'seller' or key == 'seller_vat' or key == 'company' %} <a href="/settings/company">{{ t('invoice.fix_company') }}</a>{% endif %}</p>
+{% endif %}{% endfor %}
 <p class="hint dunning-intro">{{ t('dunning.new_subtitle') }}</p>
 
 <section class="panel doc-head">

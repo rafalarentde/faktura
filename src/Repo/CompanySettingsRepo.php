@@ -6,6 +6,7 @@ namespace App\Repo;
 use App\Core\Crypto;
 use App\Core\Audit;
 use App\Core\Db;
+use App\Domain\DunningSettings;
 use App\Domain\Iban;
 use App\Domain\Percent;
 use App\Domain\ValidationException;
@@ -34,7 +35,7 @@ final class CompanySettingsRepo
     public const LANGS = ['de', 'pl', 'en'];
     public const CURRENCIES = ['EUR', 'PLN', 'USD'];
     private const COMPANY_TEXT_FIELDS = ['intro_text', 'outro_text', 'footer_text'];
-    private const MAX_FEE_MINOR = 100000; // 1000 EUR
+    private const MAX_FEE_MINOR = DunningSettings::MAX_AMOUNT_MINOR; // 1000 EUR
 
     private \Closure $clock;
     private ?Audit $audit = null;
@@ -201,16 +202,16 @@ final class CompanySettingsRepo
         $base = null;
         $rawBase = trim($this->str($in, 'dunning_base_rate'));
         if ($rawBase !== '') {
-            $base = $this->percent($rawBase, 3000);
+            $base = $this->percent($rawBase, DunningSettings::BASE_RATE_MAX_BP);
             if ($base === null) {
                 $e['dunning_base_rate'] = 'settings.err_base_rate';
             }
         }
-        $b2b = $this->percent($this->str($in, 'dunning_b2b'), 2000);
+        $b2b = $this->percent($this->str($in, 'dunning_b2b'), DunningSettings::SURCHARGE_MAX_BP);
         if ($b2b === null) {
             $e['dunning_b2b'] = 'settings.err_surcharge';
         }
-        $b2c = $this->percent($this->str($in, 'dunning_b2c'), 2000);
+        $b2c = $this->percent($this->str($in, 'dunning_b2c'), DunningSettings::SURCHARGE_MAX_BP);
         if ($b2c === null) {
             $e['dunning_b2c'] = 'settings.err_surcharge';
         }

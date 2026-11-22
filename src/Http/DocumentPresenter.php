@@ -267,7 +267,8 @@ final class DocumentPresenter
         $currency = (string) $doc['currency'];
         $money = fn (int $minor): string => $fmt->money(Money::of($minor, $currency), $lang);
         $rows = [['key' => 'outstanding', 'label' => $tr('pdf.dunning_outstanding'), 'amount' => $money((int) $doc['dunning_outstanding_minor'])]];
-        if (($doc['dunning_interest_minor'] ?? null) !== null) {
+        // Interest stored as 0 (the annual rate was not positive) is "nothing charged": no "0,00" row.
+        if ((int) ($doc['dunning_interest_minor'] ?? 0) > 0) {
             $rows[] = ['key' => 'interest', 'label' => $tr('pdf.dunning_interest', [
                 'rate' => Percent::format((int) $doc['dunning_interest_rate_bp'], $lang), 'days' => (string) (int) $doc['dunning_interest_days'],
             ]), 'amount' => $money((int) $doc['dunning_interest_minor'])];

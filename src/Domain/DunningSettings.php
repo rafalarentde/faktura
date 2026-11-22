@@ -6,6 +6,13 @@ namespace App\Domain;
 /** Per-company dunning configuration (company settings columns dunning_*). */
 final class DunningSettings
 {
+    /** Bounds (also used by the settings form): days overdue, annual rates in basis points, amounts in minor units. */
+    public const MAX_DAYS = 365;
+    public const BASE_RATE_MIN_BP = -1000;
+    public const BASE_RATE_MAX_BP = 3000;
+    public const SURCHARGE_MAX_BP = 2000;
+    public const MAX_AMOUNT_MINOR = 100_000; // 1000 EUR for the flat fee and the per-dunning fee
+
     /** @var list<int> d0..d3, strictly ascending, days overdue */
     public readonly array $thresholds;
 
@@ -26,13 +33,22 @@ final class DunningSettings
         }
         $prev = 0;
         foreach (array_values($thresholds) as $t) {
-            if (!is_int($t) || $t < 1 || $t > 365 || $t <= $prev) {
+            if (!is_int($t) || $t < 1 || $t > self::MAX_DAYS || $t <= $prev) {
                 throw new \InvalidArgumentException('Thresholds must be integers 1..365, strictly ascending.');
             }
             $prev = $t;
         }
         if ($b2bSurchargeBp < 0 || $b2cSurchargeBp < 0 || $flatMinor < 0 || $feeMinor < 0) {
             throw new \InvalidArgumentException('Surcharges and fees must not be negative.');
+        }
+        if ($b2bSurchargeBp > self::SURCHARGE_MAX_BP || $b2cSurchargeBp > self::SURCHARGE_MAX_BP) {
+            throw new \InvalidArgumentException('A surcharge must not exceed 20 percentage points.');
+        }
+        if ($baseRateBp !== null && ($baseRateBp < self::BASE_RATE_MIN_BP || $baseRateBp > self::BASE_RATE_MAX_BP)) {
+            throw new \InvalidArgumentException('The base rate must lie between -10 % and 30 %.');
+        }
+        if ($flatMinor > self::MAX_AMOUNT_MINOR || $feeMinor > self::MAX_AMOUNT_MINOR) {
+            throw new \InvalidArgumentException('Fees must not exceed 1000.00.');
         }
         $this->thresholds = array_values($thresholds);
     }

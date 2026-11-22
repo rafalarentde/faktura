@@ -66,6 +66,14 @@ final class DunningSettingsTest extends TestCase
         yield 'negative flat' => [['dunning_flat_minor' => -1] + $ok];
         yield 'negative fee' => [['dunning_fee_minor' => -1] + $ok];
         yield 'bad base rate' => [['dunning_base_rate_bp' => 'x'] + $ok];
+        yield 'base rate far too high' => [['dunning_base_rate_bp' => 3001] + $ok];
+        yield 'base rate far too low' => [['dunning_base_rate_bp' => -1001] + $ok];
+        yield 'b2b surcharge over 20 points' => [['dunning_b2b_surcharge_bp' => 2001] + $ok];
+        yield 'b2c surcharge over 20 points' => [['dunning_b2c_surcharge_bp' => 2001] + $ok];
+        yield 'absurd surcharge' => [['dunning_b2b_surcharge_bp' => PHP_INT_MAX] + $ok];
+        yield 'flat fee over 1000' => [['dunning_flat_minor' => 100_001] + $ok];
+        yield 'fee over 1000' => [['dunning_fee_minor' => 100_001] + $ok];
+        yield 'absurd fee' => [['dunning_fee_minor' => PHP_INT_MAX] + $ok];
     }
 
     /** @param array<string, mixed> $row */
@@ -86,5 +94,49 @@ final class DunningSettingsTest extends TestCase
     {
         $this->expectException(\InvalidArgumentException::class);
         new DunningSettings([1, 2, 3], null, 900, 500, 4000, 0);
+    }
+
+    public function testBoundsThemselvesAreAccepted(): void
+    {
+        $s = new DunningSettings([1, 2, 3, 365], DunningSettings::BASE_RATE_MAX_BP, DunningSettings::SURCHARGE_MAX_BP, DunningSettings::SURCHARGE_MAX_BP,
+            DunningSettings::MAX_AMOUNT_MINOR, DunningSettings::MAX_AMOUNT_MINOR);
+        self::assertSame(3000, $s->baseRateBp);
+        $low = new DunningSettings([1, 2, 3, 4], DunningSettings::BASE_RATE_MIN_BP, 0, 0, 0, 0);
+        self::assertSame(-1000, $low->baseRateBp);
+    }
+
+    public function testConstructorChecksTheSameBounds(): void
+    {
+        foreach ([[3001, 0, 0, 0, 0], [null, 2001, 0, 0, 0], [null, 0, 2001, 0, 0], [null, 0, 0, 100_001, 0], [null, 0, 0, 0, 100_001], [-1001, 0, 0, 0, 0]] as [$base, $b2b, $b2c, $flat, $fee]) {
+            try {
+                new DunningSettings([1, 2, 3, 4], $base, $b2b, $b2c, $flat, $fee);
+                self::fail('expected InvalidArgumentException');
+            } catch (\InvalidArgumentException) {
+                self::assertTrue(true);
+            }
+        }
+    }
+
+    public function testSettingsFormBoundsAreTheDomainBounds(): void
+    {
+        // the form accepts exactly what the domain object accepts: 30 % base rate yes, 31 % no; 20 points yes, 21 no; 1000 yes, 1000,01 no
+        $db = \TestDb::fresh();
+        $db->exec("INSERT INTO companies (name) VALUES ('X')");
+        $db->exec("INSERT INTO users (email, password_hash) VALUES ('u@example.com', 'x')");
+        $uid = $db->lastId();
+        $cid = (int) $db->one('SELECT id FROM companies')['id'];
+        $db->exec('INSERT INTO company_users (company_id, user_id, role) VALUES (?, ?, ?)', [$cid, $uid, 'owner']);
+        $repo = new \App\Repo\CompanySettingsRepo($db, \App\Tenant\CompanyContext::forUser($db, $uid, $cid), new \App\Core\Crypto(base64_encode(str_repeat('k', 32))), fn (): int => 1_700_000_000);
+        $ok = ['dunning_d0' => '7', 'dunning_d1' => '21', 'dunning_d2' => '35', 'dunning_d3' => '49', 'dunning_base_rate' => '30', 'dunning_b2b' => '20', 'dunning_b2c' => '20', 'dunning_flat' => '1000', 'dunning_fee' => '1000'];
+        $repo->saveDunning($ok);
+        self::assertEquals(new DunningSettings([7, 21, 35, 49], 3000, 2000, 2000, 100_000, 100_000), DunningSettings::fromCompanyRow($db->one('SELECT * FROM companies WHERE id = ?', [$cid])));
+        foreach (['dunning_base_rate' => '30,01', 'dunning_b2b' => '20,01', 'dunning_b2c' => '20,01', 'dunning_flat' => '1000,01', 'dunning_fee' => '1000,01', 'dunning_d3' => '366'] as $field => $bad) {
+            try {
+                $repo->saveDunning([$field => $bad] + $ok);
+                self::fail("$field = $bad must be refused");
+            } catch (\App\Domain\ValidationException $e) {
+                self::assertArrayHasKey($field, $e->errors);
+            }
+        }
     }
 }

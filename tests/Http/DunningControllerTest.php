@@ -245,6 +245,55 @@ final class DunningControllerTest extends HttpTestCase
         $this->assertSame([null, null, null, 142800], [$d['dunning_interest_minor'], $d['dunning_flat_fee_minor'], $d['dunning_fee_minor'], (int) $d['dunning_claim_minor']]);
     }
 
+    public function test_missing_seller_data_gives_a_visible_error_not_a_silent_422(): void
+    {
+        $id = $this->invoice();
+        $this->db->exec("UPDATE companies SET name = '' WHERE id = ?", [$this->companyA]); // the relaxed gate of a dunning letter wants both names
+        $this->login();
+        $r = $this->create($id, ['level' => '1']);
+        $this->assertSame(422, $r->status);
+        $this->assertStringContainsString('data-error="seller"', $r->body);
+        $this->assertStringContainsString(htmlspecialchars($this->app->t('document.err_seller_incomplete'), ENT_QUOTES), $r->body);
+        $this->assertStringContainsString('href="/settings/company"', $r->body);
+        $this->assertSame(0, $this->dunnings());
+    }
+
+    public function test_missing_buyer_data_gives_a_visible_error(): void
+    {
+        $id = $this->invoice();
+        $this->db->exec("UPDATE documents SET buyer_json = ? WHERE id = ?", [json_encode(['name' => '', 'address' => '', 'is_company' => 1]), $id]);
+        $this->login();
+        $r = $this->create($id, ['level' => '1']);
+        $this->assertSame(422, $r->status);
+        $this->assertStringContainsString('data-error="buyer"', $r->body);
+        $this->assertSame(0, $this->dunnings());
+    }
+
+    public function test_interest_stored_as_zero_prints_no_interest_row(): void
+    {
+        // base rate -10 % + 9 points B2B surcharge = a negative annual rate: the interest is 0, not "0,00 EUR"
+        $this->db->exec('UPDATE companies SET dunning_base_rate_bp = -1000 WHERE id = ?', [$this->companyA]);
+        $id = $this->invoice();
+        $this->login();
+        $preview = $this->getQ('/dunning/new', ['invoice' => (string) $id, 'level' => '1', 'interest' => '1']);
+        $this->assertStringNotContainsString('data-row="interest"', $preview->body);
+        $this->assertStringNotContainsString('data-letter-row="interest"', $preview->body);
+        $d = $this->doc($this->createdId($this->create($id, ['level' => '1', 'interest' => '1'])));
+        $this->assertSame(0, (int) $d['dunning_interest_minor'], 'stored as 0');
+        $this->assertSame(142800, (int) $d['dunning_claim_minor']);
+        $show = $this->plain($this->get('/dunning/' . $d['id'])->body);
+        $this->assertStringNotContainsString('data-row="interest"', $show);
+        $this->assertStringNotContainsString('data-letter-row="interest"', $show);
+        $this->assertStringNotContainsString('Verzugszinsen', $show);
+        $this->assertStringNotContainsString('0,00 €', $show);
+        $vm = $this->app->pdf(); // the PDF text comes from the same presenter rows
+        if (\Tests\Pdf\PdfFixture::hasPoppler()) {
+            $text = \Tests\Pdf\PdfFixture::flat($vm->render((int) $d['id']));
+            $this->assertStringNotContainsString('Verzugszinsen', $text);
+            $this->assertStringNotContainsString('0,00 €', $text);
+        }
+    }
+
     public function test_flat_fee_unavailable_for_private_customer(): void
     {
         $id = $this->invoice($this->becker);
