@@ -56,7 +56,7 @@ nie jest w Gicie. `storage/` nie może być pod `public/`.
 ## 5. Baza danych i pierwszy użytkownik
 
 ```bash
-php bin/migrate.php                       # nakłada brakujące migracje 001..010 (idempotentne)
+php bin/migrate.php                       # nakłada brakujące migracje 001..011 (idempotentne)
 php bin/create-user.php admin@example.com --admin     # hasło z STDIN; 2FA ustawiane przy pierwszym logowaniu
 ```
 
@@ -98,11 +98,13 @@ zdarzenia biznesowe zostają):
 
 - [ ] **Prawdziwy mail testowy:** w ustawieniach firmy skonfiguruj prawdziwy SMTP i wyślij fakturę/wiadomość
   na własny adres; sprawdź PDF w załączniku, polskie i niemieckie znaki, nagłówki (SPF/DKIM domeny nadawcy).
-- [ ] **SMTP, SNI i IPv6 (R32):** nazwa serwera TLS (SNI) ma pochodzić z hosta skonfigurowanego w firmie, nie
-  z rozwiązanego adresu IP; współdzielone hosty SMTP bez poprawnego certyfikatu domyślnego mogą się nie
-  połączyć. Reguły SSRF (`SmtpTargetPolicy`) nie obejmują jeszcze kilku egzotycznych zakresów IPv6
-  (`::ffff:0:127.0.0.1` SIIT, `64:ff9b:1::/48`, `fec0::/10`, `100::/64`, `3fff::/20`); to wzmocnienie jest
-  nadal otwarte. Test z prawdziwym serwerem SMTP jest więc obowiązkowy.
+- [ ] **SMTP, SNI i IPv6:** połączenie idzie na sprawdzony adres IP, a nazwa serwera dla certyfikatu i SNI
+  pochodzi z hosta skonfigurowanego w firmie (`peer_name` w opcjach SSL; PHP używa go także jako SNI, więc
+  uznajemy to za poprawne). Współdzielone hosty SMTP bez poprawnego certyfikatu domyślnego mogą mimo to nie
+  połączyć. Reguły SSRF (`SmtpTargetPolicy`) przyjmują dla IPv6 wyłącznie `2000::/3` z wyłączeniem
+  `2001::/23`, `2001:db8::/32`, `2002::/16` i `3fff::/20` (formy IPv4-mapped/compatible, NAT64, SIIT i
+  zakresy lokalne odpadają razem z całym zakresem poza `2000::/3`). Test z prawdziwym serwerem SMTP
+  (wysłanie wiadomości na własny adres) pozostaje obowiązkowy.
 - [ ] **Smoke test na prawdziwym MySQL:** cały zestaw testów działał wyłącznie na SQLite. Przed
   produkcją uruchom raz na MySQL ścieżki współbieżne: równoległe wystawianie faktur w jednej firmie
   (numeracja bez duplikatów, kolejność blokad: format, potem kubełki rosnąco), równoległe płatności
@@ -123,8 +125,28 @@ zdarzenia biznesowe zostają):
 
 ## 9. Znane ograniczenia
 
-- **Sesje po zmianie hasła:** inne zalogowane sesje użytkownika nie są unieważniane po zmianie hasła
-  lub resecie 2FA (poza sprawdzeniem TOTP w sesji); planowany `session_epoch` per użytkownik.
+- **Brak samoobsługowego resetu hasła:** użytkownik, który zapomniał hasła, prosi administratora. W panelu
+  `/admin/companies/{id}` przy członku firmy jest akcja „Temporäres Passwort": losowe hasło (16 znaków)
+  pokazywane jednorazowo, zapisywane tylko jako hash, wpis w logu audytu bez hasła; użytkownik musi je zmienić
+  przy najbliższym wejściu, a wszystkie jego sesje i blokada logowania są kasowane. Dla kont administratorów
+  akcja nie istnieje (administrator zmienia hasło w Einstellungen > Sicherheit; przy utraconym haśle
+  administratora trzeba podmienić `password_hash` w bazie albo założyć drugie konto przez `bin/create-user.php`). Strona `/settings/security` (hasło, kody zapasowe, 2FA) działa
+  bez przypisanej firmy.
+- **Unieważnianie sesji:** `users.session_epoch` (migracja 011) jest kopiowany do sesji przy logowaniu i
+  porównywany przy każdym żądaniu. Zmiana hasła, wygenerowanie kodów zapasowych, włączenie 2FA, reset 2FA
+  przez administratora i hasło tymczasowe zwiększają licznik: wszystkie inne sesje użytkownika kończą się, a
+  sesja wykonująca zmianę zostaje. Po wdrożeniu migracji 011 jednorazowo wylogowani zostaną wszyscy (stare
+  sesje nie mają licznika).
+- **Limit logowania per adres IP:** 5 prób na 15 minut dla adresu IP (i osobno dla adresu e-mail). Użytkownicy
+  za wspólnym NAT (biuro, operator komórkowy) dzielą ten limit; seria nieudanych prób jednej osoby może
+  chwilowo zablokować pozostałych z tej sieci. Każda próba jest liczona przed sprawdzeniem hasła (także
+  zablokowana), więc ciągłe próby przedłużają blokadę.
+- **MySQL:** połączenie ustawia `sql_mode='STRICT_ALL_TABLES,NO_ENGINE_SUBSTITUTION'` i `time_zone='+00:00'`
+  (UTC dla `CURRENT_TIMESTAMP`). Wystawienie dokumentu i utworzenie wezwania do zapłaty są ponawiane raz po
+  deadlocku lub przekroczeniu czasu blokady (błędy 1213/1205); drugi błąd jest zgłaszany użytkownikowi.
+- **Composer:** `composer.json` ma `config.platform.php = 8.3.0`, żeby `composer.lock` nie wymagał nowszego PHP
+  niż na hostingu; po zmianie wersji PHP na serwerze zaktualizuj tę wartość i uruchom
+  `composer update --lock`.
 - **Numeracja (R23):** przy wyłączonym zerowaniu rocznym i wystawieniu z datą wsteczną w roku, który ma
   wyższy licznik roczny, numery bywają **pomijane, nigdy powtarzane**. Dotyczy tylko firmy, która wcześniej
   miała zerowanie roczne i je wyłączyła. Unikalność jest wymogiem prawnym, ciągłość pilnuje program
@@ -136,8 +158,7 @@ zdarzenia biznesowe zostają):
   będą wolniejsze (do zoptymalizowania zapytaniem agregującym).
 - **Limit planu darmowego nie jest egzekwowany:** model danych ma plan i limity, ale aplikacja ich nie
   sprawdza do czasu ustalenia oferty. Dostęp włącza i wstrzymuje administrator ręcznie.
-- Kolejne drobiazgi z przeglądów (m.in. brak przycisku usunięcia zapisanego hasła SMTP, czasy w logu
-  maili ustawione na Europe/Berlin) są zapisane w `.superpowers/sdd/*/progress.md`.
+- Kolejne drobiazgi z przeglądów (m.in. czasy w logu maili ustawione na Europe/Berlin) są zapisane w `.superpowers/sdd/*/progress.md`.
 
 ## 10. Do weryfikacji ze Steuerberaterem
 
