@@ -228,6 +228,32 @@ final class CustomerControllerTest extends HttpTestCase
         $this->assertStringContainsString('Gültig · geprüft am', $body);
     }
 
+    /** @return array<string, array{array<string, mixed>, bool}> */
+    public static function reverseChargeMatrix(): array
+    {
+        return [
+            'EU company' => [['country' => 'PL', 'vat_id' => 'PL1234567890', 'is_company' => 1], true],
+            'EU company, EL mapped' => [['country' => 'GR', 'vat_id' => 'EL123456789', 'is_company' => 1], true],
+            'EU private customer' => [['country' => 'FR', 'vat_id' => 'FR40303265045', 'is_company' => 0], false],
+            'domestic company' => [['country' => 'DE', 'vat_id' => 'DE123456789', 'is_company' => 1], false],
+            'non-EU company' => [['country' => 'US', 'vat_id' => 'US12345', 'is_company' => 1], false],
+            'Switzerland' => [['country' => 'CH', 'vat_id' => 'CHE123456789', 'is_company' => 1], false],
+        ];
+    }
+
+    /** @param array<string, mixed> $data */
+    #[\PHPUnit\Framework\Attributes\DataProvider('reverseChargeMatrix')]
+    public function test_valid_status_line_follows_vat_rule(array $data, bool $reverse): void
+    {
+        $this->login();
+        $id = $this->customer($this->companyA, 'Matrix', $data + ['vies_status' => 'valid', 'vies_checked_at' => gmdate('Y-m-d H:i:s', $this->now)]);
+        $body = $this->get('/customers/' . $id)->body;
+        $this->assertSame($reverse, str_contains($body, 'Reverse Charge'), 'the line announces reverse charge exactly when VatRule applies it');
+        // and VatRule itself agrees for a confirmed status
+        $decision = \App\Domain\VatRule::decide(\App\Domain\VatRule::buyerFromCustomerRow($this->row($id)));
+        $this->assertSame($reverse, $decision->reverseCharge);
+    }
+
     public function test_vies_valid_line_uses_date_when_not_today(): void
     {
         $this->login();

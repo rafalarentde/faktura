@@ -37,6 +37,14 @@ final class NumberFormatTest extends TestCase
         $this->assertSame('AN-20260105-07', NumberFormat::parse('AN-{YYYY}{MM}{DD}-{NN}')->render($this->d('2026-01-05'), 7));
     }
 
+    public function test_has_literal_year_reads_two_and_four_digit_years(): void
+    {
+        foreach (['RE-2026-{NNN}' => true, 'RE-27-{NNN}' => true, 'RE-{NNN}-1999' => true, 'RE-{YY}-{NNN}' => false, 'RE-{NNN}' => false,
+            'RE-12345-{NNN}' => false, 'R50-{NNN}' => false, 'RE-20-{NNN}' => true, 'RE-49-{NNN}' => true, 'RE-50-{NNN}' => false] as $pattern => $expected) {
+            $this->assertSame($expected, NumberFormat::parse($pattern)->hasLiteralYear(), $pattern);
+        }
+    }
+
     public function test_literal_text_with_digits_dots_and_spaces_survives(): void
     {
         $f = NumberFormat::parse('No. 2026.A #{NNN} / x_y');

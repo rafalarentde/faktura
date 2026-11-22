@@ -439,7 +439,7 @@ return [
     'settings.numbers_next_hint' => 'Du kannst die nächste Nummer nur erhöhen, nie senken.',
     'settings.numbers_legend' => 'Platzhalter: {YYYY} = Jahr (2026), {YY} = Jahr kurz (26), {MM} = Monat, {DD} = Tag, {N} / {NNN} = Zähler (so viele N, so viele Stellen, mindestens). Genau ein Zähler ist Pflicht. Alles andere ist frei wählbarer Text, höchstens 60 Zeichen.',
     'settings.err_num_outer_space' => 'Das Format darf nicht mit einem Leerzeichen beginnen oder enden.',
-    'settings.warn_literal_year' => 'Das Format enthält eine feste Jahreszahl. Sie ändert sich nicht, wenn das Jahr wechselt. Nimm {YYYY}, damit das Jahr automatisch stimmt.',
+    'settings.warn_literal_year' => 'Das Format enthält eine feste Jahreszahl (zwei- oder vierstellig). Sie ändert sich nicht, wenn das Jahr wechselt. Nimm {YYYY} oder {YY}, damit das Jahr automatisch stimmt.',
     // Task 15: documents
     'document.err_customer' => 'Bitte wähle einen Kunden aus der Liste.',
     'document.err_lang' => 'Bitte wähle eine Sprache aus der Liste.',

@@ -866,6 +866,11 @@ final class NumberSequencesTest extends TestCase
             'AB12345-{NNN}' => [],
             'RE-{YYYY}-{NNN}-2026' => [ConfigureResult::WARNING_LITERAL_YEAR],
             'RE-{YY}-{NNN}-12026' => [],
+            'RE-27-{NNN}' => [ConfigureResult::WARNING_LITERAL_YEAR], // M2: a 2-digit literal year
+            'RE-{YY}-{NNN}-27' => [ConfigureResult::WARNING_LITERAL_YEAR],
+            'RE-19-{NNN}' => [],   // 2-digit values outside 20-49 are not read as years
+            'RE-{NNN}/5' => [],
+            'AB270-{NNN}' => [],   // digits glued to other digits are no year
         ];
         foreach ($cases as $pattern => $expected) {
             $this->assertSame($expected, $s->configure('invoice', $pattern, false, null, $this->d('2026-05-01'))->warnings, $pattern);

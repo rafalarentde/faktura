@@ -9,6 +9,7 @@ use App\Core\Response;
 use App\Domain\Countries;
 use App\Domain\ValidationException;
 use App\Domain\VatId;
+use App\Domain\VatRule;
 use App\Repo\CustomerRepo;
 use App\Vies\ViesStatus;
 
@@ -177,7 +178,7 @@ final class CustomerController
     }
 
     /**
-     * Display-only status line (Task 14 owns the real VAT rule).
+     * Display-only status line; whether it announces reverse charge is decided by VatRule (no copy of the rule here).
      *
      * @param array<string, mixed> $c
      * @return array{kind: string, text: string}|null kind: ok|warn|soft|hint
@@ -189,7 +190,12 @@ final class CustomerController
         }
         $status = $c['vies_status'] ?? null;
         $date = $this->checkedDate($c['vies_checked_at'] ?? null);
-        $reverse = (string) $c['country'] !== 'DE' && Countries::isEu((string) $c['country']) && (int) $c['is_company'] === 1;
+        // The line says "→ Reverse Charge" exactly when VatRule would apply it for a CONFIRMED VIES result.
+        try {
+            $reverse = VatRule::decide(VatRule::buyerFromCustomerRow(['vies_status' => ViesStatus::Valid->value] + $c))->reverseCharge;
+        } catch (\InvalidArgumentException) {
+            $reverse = false;
+        }
         if ($status === ViesStatus::Valid->value) {
             if (!$reverse) {
                 return ['kind' => 'hint', 'text' => $this->app->t('customer.vies_valid_plain', ['date' => $date['text']])];
