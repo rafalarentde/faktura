@@ -667,7 +667,7 @@ abstract class AbstractDocumentController
             'customer_id' => (string) (int) $customer['id'], 'lang' => $lang, 'currency' => $currency, 'eur_rate' => '',
             'issue_date' => '', 'service_date' => '', 'due_date' => '', 'valid_until' => '',
             'intro_text' => (string) ($company['intro_text'] ?? ''), 'outro_text' => (string) ($company['outro_text'] ?? ''), 'notes' => '',
-        ], $this->defaultDates($customer, $this->now())), [InvoiceForm::blankLine()]);
+        ], $this->defaultDates($customer, $this->now()), $this->isOffer() ? [] : ['valid_until' => '']), [InvoiceForm::blankLine()]);
     }
 
     /** @return list<array{id: int, name: string, country: string}> */
